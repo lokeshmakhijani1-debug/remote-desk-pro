@@ -92,3 +92,12 @@
 - Agent build script: `agent/build_windows.ps1`; intended output is `agent/dist/RemoteDeskPro-Agent.exe` after a successful Windows build. No executable has been produced or verified yet.
 - Required next action: add `DATABASE_URL` directly in the Render service Environment page (do not send it in chat or commit it). Use the Supabase **Session pooler** URI and keep its password URL-encoded. After Render redeploys, verify `/api/health` reports `database=postgresql` before running E2E tests.
 - Render service: `srv-dc0917utlv9c739h7o30`; environment changes should be made only on this service. Do not replace its existing environment variables.
+
+## Phase 6.1 Supabase credential validation checkpoint — 2026-11-21
+- User confirmed updating Render `DATABASE_URL` with a Supabase Session Pooler URI.
+- The environment-triggered deployment `dep-dc09nnbncjis73874230` failed application startup. Render app logs show PostgreSQL authentication rejected the supplied connection identity: `FATAL: password authentication failed for user "postgres"`. The health and manifest endpoints returned HTTP 503 at verification time.
+- This is an authentication/configuration failure, not evidence of SQLAlchemy/Psycopg driver incompatibility. Do not run migrations or E2E tests until a successful DB connection is verified.
+- The logs show the configured pooler host is in Supabase's `ap-northeast-1` region and port 5432. Supabase Session Pooler connection strings commonly require the pooler username form `postgres.<project-ref>` rather than plain `postgres`; confirm the exact username shown in Supabase's Connection string UI. Also verify the database password is current and URL-encode reserved characters (`@`, `:`, `/`, `#`, `?`, `%`) before saving it in Render. Do not send the URI or password in chat.
+- Current Render service is unhealthy due to PostgreSQL authentication failure; the previous SQLite deployment was deactivated. Restore service by correcting the existing `DATABASE_URL` in Render, then verify `/api/health` returns `database=postgresql`.
+- Desktop Commander device `DESKTOP-OLL6O6U` (ID `c895725a-c3f5-496f-9d75-9b751772e22c`) is currently offline (last seen 30 minutes ago). Step 6.3/6.4 cannot be executed until the laptop agent reconnects.
+- Live WebSocket, clipboard, file-transfer, audit, PyInstaller, and local-to-cloud smoke tests remain **not run**. Do not treat feature flags or deployment status as E2E verification.
