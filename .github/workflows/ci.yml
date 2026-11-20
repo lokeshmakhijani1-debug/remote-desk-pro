@@ -1,7 +1,7 @@
 name: Remote Desk Pro CI
 on:
   push:
-    branches: [main]
+    branches: [main, "feature/**"]
   pull_request:
     branches: [main]
 jobs:
@@ -13,6 +13,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
+      - run: python -m compileall -q backend agent tests
       - run: pytest -q
   frontend:
     runs-on: ubuntu-latest
