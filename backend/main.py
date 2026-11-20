@@ -12,7 +12,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 from .config import settings
-from .database import SessionLocal, init_db, User, Device, AuditEvent
+from .database import SessionLocal, init_db, User, Device, AuditEvent, verify_database_connection, DATABASE_KIND
 from .security import hash_secret, verify_secret, issue_token, read_token, new_device_id, new_dynamic_password
 
 @asynccontextmanager
@@ -76,7 +76,11 @@ def audit(db: Session, action: str, user_id: int | None = None, device_id: str |
 
 @app.get("/api/health")
 def health():
-    return {"status":"ok","service":"remote-desk-pro","version":"0.1.0","transport":["websocket","webrtc-signaling"],"database":"configured","capacity_target":settings.max_concurrent_sessions}
+    try:
+        database = verify_database_connection()
+    except Exception:
+        raise HTTPException(503, "Database connection unavailable")
+    return {"status":"ok","service":"remote-desk-pro","version":"0.1.0","transport":["websocket","webrtc-signaling"],"database":database,"capacity_target":settings.max_concurrent_sessions}
 
 @app.get("/api/manifest")
 def manifest():
@@ -85,7 +89,7 @@ def manifest():
         "api_version":"0.1.0",
         "features":{"websocket_binary_relay":True,"webrtc_ice_config":True,"device_pairing":True,"rbac":["admin","technician","read_only"],"file_transfer":False,"clipboard_sync":False,"recording":False},
         "limits":{"max_concurrent_viewers":settings.max_concurrent_sessions,"one_viewer_per_device":True},
-        "deployment":{"environment":settings.app_env,"persistent_disk_required_for_sqlite":True}
+        "deployment":{"environment":settings.app_env,"database_dialect":DATABASE_KIND,"database_table_prefix":"rdp_","persistent_disk_required_for_sqlite":True}
     }
 
 @app.post("/api/auth/register")
