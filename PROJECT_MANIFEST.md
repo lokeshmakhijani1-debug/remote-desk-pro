@@ -71,3 +71,11 @@
 - Startup verifies a real `SELECT 1` connection before creating only the application's prefixed tables. No schema-wide migrations, table drops, or writes to unprefixed/public application tables are performed.
 - `/api/health` now reports the verified dialect (`sqlite` or `postgresql`) and returns HTTP 503 when the database cannot be reached.
 - PostgreSQL connection compatibility is implemented in source; live Supabase connectivity is pending the user's secure addition of `DATABASE_URL` in the Render service environment. Do not put credentials in GitHub, logs, chat, or this manifest.
+
+## Phase 6.2 — relay feature implementation
+- Added authenticated clipboard relay events (`clipboard_update`) in both directions, gated on explicit host approval and limited to 64 KiB per text update. Audit entries record character counts only; clipboard contents are not written to audit logs.
+- Added chunked viewer-to-host file transfer: host must approve the session and choose a local save destination; transfers are limited to 50 MiB total and 192 KiB per decoded chunk. Filenames are reduced to a safe basename. The host agent confirms completion only after the expected byte count is received.
+- Added viewer UI for clipboard send/receive and file upload; added Windows host-agent clipboard monitoring and host-side file-save dialog.
+- File transfer is currently one-way (viewer to host). Host-to-viewer transfer, resumable transfers, checksum verification, and antivirus scanning are not implemented.
+- Unattended access remains disabled; the host agent asks for visible approval for every session.
+- Render commit `1fbd1adf01dcdddf3ea6be6f9f795d54ea0955c7` built successfully and deployed live. Live HTTP health returned `database: sqlite`; the new clipboard/file handlers have not yet been exercised end-to-end.
