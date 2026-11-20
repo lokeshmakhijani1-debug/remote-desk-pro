@@ -117,7 +117,7 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 - Audit API confirmed `rdp_audit_events` contained `device.paired`, `session.requested`, `session.host_approved`, `clipboard.relayed`, `file.offered`, and `file.received` for the synthetic device.
 - Second live E2E run: synthetic technician account `rdp-e2e-b9e442dbeacb@example.com`, device `104028049`. Passed PostgreSQL health, registration, online presence, 35-byte binary frame relay, bidirectional clipboard, safe filename handling, and multi-chunk file transfer of 185,000 bytes across 4 chunks. Audit retrieval was not repeated in this second run because the synthetic user was a technician; audit persistence had already passed in the first admin run.
 - These are synthetic protocol tests, not a full visual desktop-interaction or 50-user load test.
-- Synthetic test accounts/devices remain in the application database as test artifacts. The first account received the initial admin role because it was the first account in the dedicated app tables; its generated password was not retained. No account/device deletion was attempted because the app currently has no safe self-service cleanup endpoint and destructive DB cleanup was not authorized.
+- Synthetic test accounts/devices remain in the application database as test artifacts: admin E2E account `rdp-e2e-3948c60c942d@example.com` / device `636616212`; multi-chunk E2E technician `rdp-e2e-b9e442dbeacb@example.com` / device `104028049`; pre-final-deploy host pairing `rdp-host-smoke-779dc761d2fd@example.com` / device `521743345`; final live host pairing `rdp-host-final-1ca979e7ae60@example.com` / device `827335259`. The first account received the initial admin role because it was the first account in the dedicated app tables; its generated password was not retained. No account/device deletion was attempted because the app currently has no safe self-service cleanup endpoint and destructive DB cleanup was not authorized.
 
 ### 6.3 — Standalone Windows agent build
 - Build completed on `DESKTOP-OLL6O6U` using Python 3.14.0 and PyInstaller 6.22.3.
@@ -127,8 +127,8 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 
 ### 6.4 — Local-to-cloud pairing smoke test
 - Launched the built EXE on `DESKTOP-OLL6O6U`; Render authenticated `GET /api/devices` confirmed the host online.
-- Smoke-test device: `521743345`; account: `rdp-host-smoke-779dc761d2fd@example.com`; host process PID at launch: `14388`.
-- Host process remains running and connected. Visible per-session consent remains enabled; unattended access is disabled; no viewer session was started during this pairing check.
+- Final post-deploy smoke-test device: `827335259`; account: `rdp-host-final-1ca979e7ae60@example.com`; host process PID at launch: `10692`.
+- After the final Render auto-deploy completed, the EXE was relaunched and authenticated `GET /api/devices` again confirmed the host online. Host process remains running and connected. Visible per-session consent remains enabled; unattended access is disabled; no viewer session was started during this pairing check.
 - The EXE remains local at the path above and is not uploaded to GitHub.
 
 ### Verification boundaries
