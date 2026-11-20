@@ -16,9 +16,11 @@ def verify_secret(encoded: str, value: str) -> bool:
     except Exception:
         return False
 
-def issue_token(subject: str, role: str, ttl: int | None = None) -> str:
+def issue_token(subject: str, role: str, ttl: int | None = None, claims: dict | None = None) -> str:
     now = datetime.now(timezone.utc)
     payload = {"sub": subject, "role": role, "iat": now, "exp": now + timedelta(seconds=ttl or settings.session_ttl_seconds)}
+    if claims:
+        payload.update({key: value for key, value in claims.items() if key not in {"sub", "role", "iat", "exp"}})
     return jwt.encode(payload, settings.app_secret_key, algorithm="HS256")
 
 def read_token(token: str) -> dict:
