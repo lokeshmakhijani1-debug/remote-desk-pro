@@ -188,16 +188,23 @@ class Hub:
     def __init__(self):
         self.hosts: dict[str, WebSocket] = {}
         self.viewers: dict[str, set[WebSocket]] = {}
+        self.approved: set[str] = set()
+        self.transfers: dict[str, dict[str, Any]] = {}
         self.lock = asyncio.Lock()
 
     async def register_host(self, device_id: str, ws: WebSocket):
         async with self.lock:
             self.hosts[device_id] = ws
+            self.approved.discard(device_id)
 
     async def remove_host(self, device_id: str, ws: WebSocket):
         async with self.lock:
             if self.hosts.get(device_id) is ws:
                 self.hosts.pop(device_id, None)
+                self.approved.discard(device_id)
+                for transfer_id, transfer in list(self.transfers.items()):
+                    if transfer.get("device_id") == device_id:
+                        self.transfers.pop(transfer_id, None)
 
     async def relay(self, device_id: str, sender: WebSocket, message: Any):
         async with self.lock:
@@ -212,7 +219,23 @@ class Hub:
             except Exception:
                 pass
 
+    def is_approved(self, device_id: str) -> bool:
+        return device_id in self.approved
+
 hub = Hub()
+MAX_CLIPBOARD_CHARS = 64 * 1024
+MAX_FILE_BYTES = 50 * 1024 * 1024
+MAX_FILE_CHUNK_BYTES = 192 * 1024
+
+def validate_clipboard(event: dict) -> bool:
+    value = event.get("text")
+    return isinstance(value, str) and len(value) <= MAX_CLIPBOARD_CHARS
+
+def safe_file_name(value: Any) -> str:
+    name = Path(str(value or "")).name.replace("\\x00", "")
+    if not name or name in (".", "..") or len(name) > 180:
+        raise ValueError("Invalid file name")
+    return name
 
 @app.websocket("/ws/host/{device_id}")
 async def host_socket(ws: WebSocket, device_id: str):
@@ -230,9 +253,45 @@ async def host_socket(ws: WebSocket, device_id: str):
         await ws.send_json({"type":"connected","device_id":device_id})
         while True:
             packet = await ws.receive()
-            data = packet.get("bytes") if packet.get("bytes") is not None else packet.get("text")
-            if data is not None:
-                await hub.relay(device_id, ws, data)
+            raw = packet.get("bytes") if packet.get("bytes") is not None else packet.get("text")
+            if raw is None:
+                continue
+            if isinstance(raw, bytes):
+                await hub.relay(device_id, ws, raw)
+                continue
+            try:
+                event = json.loads(raw)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            kind = event.get("type")
+            if kind == "host_approved":
+                hub.approved.add(device_id)
+                audit(db, "session.host_approved", device.owner_id, device_id)
+                await hub.relay(device_id, ws, raw)
+            elif kind == "clipboard_update" and hub.is_approved(device_id):
+                if validate_clipboard(event):
+                    audit(db, "clipboard.relayed", device.owner_id, device_id, f"characters={len(event['text'])}")
+                    await hub.relay(device_id, ws, raw)
+            elif kind in ("file_accept", "file_reject", "file_chunk", "file_complete"):
+                transfer = hub.transfers.get(str(event.get("transfer_id", "")))
+                if not transfer or transfer.get("device_id") != device_id or not hub.is_approved(device_id):
+                    continue
+                if kind == "file_chunk":
+                    try:
+                        import base64
+                        chunk = base64.b64decode(event.get("data", ""), validate=True)
+                    except Exception:
+                        continue
+                    if len(chunk) > MAX_FILE_CHUNK_BYTES:
+                        continue
+                if kind in ("file_accept", "file_reject"):
+                    transfer["accepted"] = kind == "file_accept"
+                    if kind == "file_reject":
+                        hub.transfers.pop(str(event["transfer_id"]), None)
+                if kind == "file_complete":
+                    hub.transfers.pop(str(event["transfer_id"]), None)
+                    audit(db, "file.received", device.owner_id, device_id, f"name={transfer['name']}; bytes={transfer['size']}")
+                await hub.relay(device_id, ws, raw)
     except (WebSocketDisconnect, asyncio.TimeoutError):
         pass
     finally:
@@ -249,6 +308,7 @@ async def viewer_socket(ws: WebSocket, device_id: str):
     await ws.accept()
     db = SessionLocal()
     registered = False
+    user_id = None
     try:
         auth = await asyncio.wait_for(ws.receive_json(), timeout=10)
         payload = read_token(auth.get("session_token",""))
@@ -256,11 +316,12 @@ async def viewer_socket(ws: WebSocket, device_id: str):
         if len(subject) != 3 or subject[0] != "viewer" or subject[2] != device_id:
             await ws.close(code=4401)
             return
-        user_role = payload.get("role","read_only")
+        user_id = int(subject[1])
         device = db.scalar(select(Device).where(Device.device_id == device_id))
-        if not device:
+        if not device or not db.get(User, user_id) or not db.get(User, user_id).active:
             await ws.close(code=4404)
             return
+        user_role = payload.get("role","read_only")
         async with hub.lock:
             active = hub.viewers.setdefault(device_id,set())
             if active or sum(len(group) for group in hub.viewers.values()) >= settings.max_concurrent_sessions:
@@ -272,16 +333,58 @@ async def viewer_socket(ws: WebSocket, device_id: str):
         await hub.relay(device_id, ws, json.dumps({"type":"viewer_joined"}))
         while True:
             packet = await ws.receive()
-            data = packet.get("bytes") if packet.get("bytes") is not None else packet.get("text")
-            if data is not None:
-                if isinstance(data, str):
-                    try:
-                        event = json.loads(data)
-                    except json.JSONDecodeError:
+            raw = packet.get("bytes") if packet.get("bytes") is not None else packet.get("text")
+            if raw is None:
+                continue
+            if isinstance(raw, bytes):
+                # Viewer binary uploads are not accepted; screen frames flow host -> viewer.
+                continue
+            try:
+                event = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            kind = event.get("type")
+            if kind == "control":
+                if user_role != "read_only":
+                    await hub.relay(device_id, ws, raw)
+            elif kind == "clipboard_update" and hub.is_approved(device_id):
+                if validate_clipboard(event):
+                    audit(db, "clipboard.relayed", user_id, device_id, f"characters={len(event['text'])}")
+                    await hub.relay(device_id, ws, raw)
+            elif kind == "file_offer" and hub.is_approved(device_id):
+                try:
+                    transfer_id = str(event.get("transfer_id", ""))
+                    name = safe_file_name(event.get("name"))
+                    size = int(event.get("size", 0))
+                    if not transfer_id or len(transfer_id) > 64 or size < 1 or size > MAX_FILE_BYTES:
                         continue
-                    if event.get("type") == "control" and user_role == "read_only":
-                        continue
-                await hub.relay(device_id, ws, data)
+                except (ValueError, TypeError):
+                    continue
+                hub.transfers[transfer_id] = {"device_id":device_id,"name":name,"size":size,"received":0,"accepted":False}
+                event["name"] = name
+                audit(db, "file.offered", user_id, device_id, f"name={name}; bytes={size}")
+                await hub.relay(device_id, ws, json.dumps(event))
+            elif kind == "file_chunk" and hub.is_approved(device_id):
+                transfer = hub.transfers.get(str(event.get("transfer_id", "")))
+                if not transfer or transfer.get("device_id") != device_id or not transfer.get("accepted"):
+                    continue
+                try:
+                    import base64
+                    chunk = base64.b64decode(event.get("data", ""), validate=True)
+                except Exception:
+                    continue
+                if not chunk or len(chunk) > MAX_FILE_CHUNK_BYTES or transfer["received"] + len(chunk) > transfer["size"]:
+                    continue
+                transfer["received"] += len(chunk)
+                await hub.relay(device_id, ws, raw)
+            elif kind == "file_complete" and hub.is_approved(device_id):
+                transfer = hub.transfers.get(str(event.get("transfer_id", "")))
+                if transfer and transfer.get("device_id") == device_id and transfer.get("accepted") and transfer["received"] == transfer["size"]:
+                    await hub.relay(device_id, ws, raw)
+            elif kind == "file_cancel":
+                transfer_id = str(event.get("transfer_id", ""))
+                if hub.transfers.pop(transfer_id, None):
+                    await hub.relay(device_id, ws, raw)
     except WebSocketDisconnect:
         pass
     except asyncio.TimeoutError:
@@ -290,6 +393,10 @@ async def viewer_socket(ws: WebSocket, device_id: str):
         await ws.close(code=4401)
     finally:
         if registered:
+            hub.approved.discard(device_id)
+            for transfer_id, transfer in list(hub.transfers.items()):
+                if transfer.get("device_id") == device_id:
+                    hub.transfers.pop(transfer_id, None)
             await hub.relay(device_id, ws, json.dumps({"type":"viewer_left"}))
             async with hub.lock:
                 hub.viewers.get(device_id,set()).discard(ws)
