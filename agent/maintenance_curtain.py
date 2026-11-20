@@ -37,9 +37,19 @@ def capability_for(build: int | None, dwm_enabled: bool, is_windows: bool = True
     return CurtainCapability(True, "Capture exclusion is available.", build)
 
 
-def sentinel_rgb(baseline_rgb: tuple[int, int, int]) -> tuple[int, int, int]:
-    """Choose a deterministic probe colour different from the captured desktop pixel."""
-    return tuple(255 - max(0, min(255, int(channel))) for channel in baseline_rgb)
+def sentinel_rgb(baseline_rgb: tuple[int, int, int],
+                 avoid: set[tuple[int, int, int]] | None = None) -> tuple[int, int, int]:
+    """Choose a probe colour absent from the pre-overlay sample patch."""
+    red, green, blue = (max(0, min(255, int(value))) for value in baseline_rgb)
+    candidates = (
+        (255 - red, 255 - green, 255 - blue),
+        (red ^ 0xFF, green ^ 0x7F, blue ^ 0x3F),
+        (red ^ 0x7F, green ^ 0xFF, blue ^ 0x5A),
+        (red ^ 0x5A, green ^ 0x3F, blue ^ 0xFF),
+        (0, 255, 255), (255, 0, 255), (255, 255, 0),
+    )
+    blocked = avoid or set()
+    return next((candidate for candidate in candidates if candidate not in blocked), (255, 0, 0))
 
 
 def sentinel_is_visible(frame_rgb: bytes, width: int, height: int, sentinel: tuple[int, int, int]) -> bool:
@@ -147,7 +157,11 @@ class MaintenanceCurtain:
                 for index, monitor in monitors:
                     before = capture.grab(monitor)
                     baseline = tuple(before.rgb[:3])
-                    probes[index] = sentinel_rgb(baseline)
+                    baseline_patch = {
+                        tuple(before.rgb[(y * before.width + x) * 3:(y * before.width + x) * 3 + 3])
+                        for y in range(min(4, before.height)) for x in range(min(4, before.width))
+                    }
+                    probes[index] = sentinel_rgb(baseline, baseline_patch)
 
                 root = tk.Tk()
                 root.withdraw()
