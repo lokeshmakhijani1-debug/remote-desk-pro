@@ -166,10 +166,10 @@ class MaintenanceCurtain:
                     window.overrideredirect(True)
                     window.attributes("-topmost", True)
                     window.configure(background="#111b2b")
-                    window.geometry(
-                        f'{int(monitor["width"])}x{int(monitor["height"])}'
-                        f'+{int(monitor["left"])}+{int(monitor["top"])}'
-                    )
+                    left, top = int(monitor["left"]), int(monitor["top"])
+                    x_offset = f"+{left}" if left >= 0 else str(left)
+                    y_offset = f"+{top}" if top >= 0 else str(top)
+                    window.geometry(f'{int(monitor["width"])}x{int(monitor["height"])}{x_offset}{y_offset}')
                     canvas = tk.Canvas(window, background="#111b2b", highlightthickness=0)
                     canvas.pack(fill="both", expand=True)
                     sentinel = "#%02x%02x%02x" % probes[index]
@@ -193,10 +193,14 @@ class MaintenanceCurtain:
                     window.protocol("WM_DELETE_WINDOW", stop_local)
                     root.update_idletasks()
                     hwnd = int(window.winfo_id())
-                    if not user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE):
+                    user32.SetWindowDisplayAffinity.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+                    user32.SetWindowDisplayAffinity.restype = ctypes.c_int
+                    user32.GetWindowDisplayAffinity.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint)]
+                    user32.GetWindowDisplayAffinity.restype = ctypes.c_int
+                    if not user32.SetWindowDisplayAffinity(ctypes.c_void_p(hwnd), WDA_EXCLUDEFROMCAPTURE):
                         raise RuntimeError(f"Display affinity could not be enabled for Screen {index}.")
                     affinity = ctypes.c_uint(0)
-                    if not user32.GetWindowDisplayAffinity(hwnd, ctypes.byref(affinity)):
+                    if not user32.GetWindowDisplayAffinity(ctypes.c_void_p(hwnd), ctypes.byref(affinity)):
                         raise RuntimeError(f"Display affinity could not be verified for Screen {index}.")
                     if affinity.value != WDA_EXCLUDEFROMCAPTURE:
                         raise RuntimeError(f"Screen {index} does not support capture exclusion.")
@@ -223,7 +227,7 @@ class MaintenanceCurtain:
                     _fields_ = [("vkCode", ctypes.c_uint), ("scanCode", ctypes.c_uint),
                                 ("flags", ctypes.c_uint), ("time", ctypes.c_uint),
                                 ("dwExtraInfo", ctypes.c_void_p)]
-                callback_type = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_int, ctypes.c_uint, ctypes.c_void_p)
+                callback_type = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, ctypes.c_int, ctypes.c_size_t, ctypes.c_ssize_t)
                 def hook_proc(code, message, data):
                     if code >= 0 and message in (WM_KEYDOWN, WM_SYSKEYDOWN):
                         key = ctypes.cast(data, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
@@ -232,6 +236,14 @@ class MaintenanceCurtain:
                             return 1
                     return user32.CallNextHookEx(hook, code, message, data)
                 callback = callback_type(hook_proc)
+                user32.SetWindowsHookExW.argtypes = [ctypes.c_int, callback_type, ctypes.c_void_p, ctypes.c_uint]
+                user32.SetWindowsHookExW.restype = ctypes.c_void_p
+                user32.CallNextHookEx.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_ssize_t]
+                user32.CallNextHookEx.restype = ctypes.c_ssize_t
+                user32.UnhookWindowsHookEx.argtypes = [ctypes.c_void_p]
+                user32.UnhookWindowsHookEx.restype = ctypes.c_int
+                kernel32.GetModuleHandleW.argtypes = [ctypes.c_wchar_p]
+                kernel32.GetModuleHandleW.restype = ctypes.c_void_p
                 hook = user32.SetWindowsHookExW(WH_KEYBOARD_LL, callback, kernel32.GetModuleHandleW(None), 0)
                 if not hook:
                     raise RuntimeError("The local Escape safety hook could not be installed.")
