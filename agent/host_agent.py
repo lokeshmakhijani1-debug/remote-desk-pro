@@ -127,6 +127,7 @@ async def run(args):
         response = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
         if response.get("type") != "connected":
             raise RuntimeError("Server rejected the device credential.")
+        await ws.send(json.dumps({"type":"agent_capabilities","monitors":await asyncio.to_thread(monitor_inventory)}))
         log.info("Device %s connected. Waiting for a viewer.", args.device_id)
         stream_task = None
         clipboard_task = None
