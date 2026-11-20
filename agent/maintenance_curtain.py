@@ -128,6 +128,8 @@ class MaintenanceCurtain:
         windows: list[tuple[object, int]] = []
         hook = None
         root = None
+        activated = False
+        failed = False
         try:
             capability = windows_capability()
             if not capability.supported:
@@ -231,6 +233,7 @@ class MaintenanceCurtain:
                         raise RuntimeError(f"MSS capture still contains the Screen {index} curtain.")
                     self.emit("curtain.capture_verified", {"monitor": index, "capture_backend": "mss-gdi"})
 
+                activated = True
                 self.emit("curtain.shown", {"monitors": indexes, "capture_backend": "mss-gdi"})
                 self.emit("curtain.status", {"status": "active_verified", "monitors": indexes,
                                              "capture_backend": "mss-gdi"})
@@ -302,6 +305,7 @@ class MaintenanceCurtain:
                 root.after(100, poll)
                 root.mainloop()
         except Exception as exc:
+            failed = True
             reason = str(exc)[:160]
             self.emit("curtain.affinity_failed", {"reason": reason})
             self.emit("curtain.status", {"status": "failed", "reason": reason})
@@ -325,9 +329,10 @@ class MaintenanceCurtain:
                     root.destroy()
                 except Exception:
                     pass
-            if windows:
+            if activated:
                 if self._reason in ("local_exit", "timeout", "lock_screen_or_secure_desktop"):
                     self.emit("curtain.exit_requested", {"reason": self._reason})
                 self.emit("curtain.revoked", {"reason": self._reason})
                 self.emit("curtain.closed", {"reason": self._reason})
-            self.emit("curtain.status", {"status": "inactive", "reason": self._reason})
+            if activated and not failed:
+                self.emit("curtain.status", {"status": "inactive", "reason": self._reason})
