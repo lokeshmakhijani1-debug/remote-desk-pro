@@ -236,17 +236,41 @@ class MaintenanceCurtain:
                 if not hook:
                     raise RuntimeError("The local Escape safety hook could not be installed.")
 
+                def input_desktop_is_default() -> bool:
+                    try:
+                        handle = user32.OpenInputDesktop(0, False, 0x0100)
+                        if not handle:
+                            return False
+                        try:
+                            name = ctypes.create_unicode_buffer(128)
+                            needed = ctypes.c_ulong(0)
+                            if not user32.GetUserObjectInformationW(handle, 2, name,
+                                                                    ctypes.sizeof(name), ctypes.byref(needed)):
+                                return False
+                            return name.value.lower() == "default"
+                        finally:
+                            user32.CloseDesktop(handle)
+                    except (AttributeError, OSError):
+                        return False
+
                 def poll():
                     if self.stop_event.is_set() or time.monotonic() >= deadline:
                         if not self.stop_event.is_set():
                             self._reason = "timeout"
                         root.quit()
                         return
-                    root.after(100, poll)
+                    if not input_desktop_is_default():
+                        self._reason = "lock_screen_or_secure_desktop"
+                        self.stop_event.set()
+                        root.quit()
+                        return
+                    root.after(250, poll)
                 root.after(100, poll)
                 root.mainloop()
         except Exception as exc:
-            self.emit("curtain.status", {"status": "failed", "reason": str(exc)[:160]})
+            reason = str(exc)[:160]
+            self.emit("curtain.affinity_failed", {"reason": reason})
+            self.emit("curtain.status", {"status": "failed", "reason": reason})
         finally:
             if hook:
                 try:
@@ -263,6 +287,8 @@ class MaintenanceCurtain:
                 except Exception:
                     pass
             if windows:
+                if self._reason in ("local_exit", "timeout", "lock_screen_or_secure_desktop"):
+                    self.emit("curtain.exit_requested", {"reason": self._reason})
                 self.emit("curtain.revoked", {"reason": self._reason})
                 self.emit("curtain.closed", {"reason": self._reason})
             self.emit("curtain.status", {"status": "inactive", "reason": self._reason})
