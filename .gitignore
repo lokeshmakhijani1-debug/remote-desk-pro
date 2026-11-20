@@ -13,3 +13,12 @@ dist/
 .coverage
 playwright-report/
 test-results/
+
+# Local build and live-smoke artifacts
+.venv-*/
+agent/.venv-build/
+agent/build/
+agent/RemoteDeskPro-Agent.spec
+agent/host-smoke.*.log
+agent/host-smoke-result.json
+tests/pair_smoke_launch.local.py
