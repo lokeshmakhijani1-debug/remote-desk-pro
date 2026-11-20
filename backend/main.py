@@ -244,6 +244,21 @@ def validate_clipboard(event: dict) -> bool:
     value = event.get("text")
     return isinstance(value, str) and len(value) <= MAX_CLIPBOARD_CHARS
 
+def valid_curtain_request(event: dict, user_role: str, approved: bool,
+                          state: dict | None, session_id: str) -> bool:
+    if user_role == "read_only" or not approved or not state:
+        return False
+    if state.get("session_id") != session_id or event.get("session_id") != session_id:
+        return False
+    requested = event.get("monitor_indexes")
+    return requested is None or (
+        isinstance(requested, list) and len(requested) <= 16 and
+        all(type(value) is int and 1 <= value <= 16 for value in requested)
+    )
+
+def valid_curtain_disable(event: dict, state: dict | None, session_id: str) -> bool:
+    return bool(state and state.get("session_id") == session_id and event.get("session_id") == session_id)
+
 def safe_file_name(value: Any) -> str:
     name = str(value or "").replace("\\x00", "").replace("\\\\", "/").split("/")[-1]
     if not name or name in (".", "..") or len(name) > 180:
@@ -434,12 +449,9 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                     await hub.relay(device_id, ws, raw)
             elif kind == "curtain.request":
                 state = hub.sessions.get(device_id)
-                if user_role == "read_only" or not hub.is_approved(device_id) or not state or event.get("session_id") != session_id:
+                if not valid_curtain_request(event, user_role, hub.is_approved(device_id), state, session_id):
                     continue
                 requested = event.get("monitor_indexes")
-                if requested is not None and (not isinstance(requested, list) or len(requested) > 16 or
-                                               any(not isinstance(value, int) or value < 1 or value > 16 for value in requested)):
-                    continue
                 audit_session(db, "curtain.consent_requested", user_id, device_id, session_id,
                               {"monitor_indexes": requested or []})
                 state["curtain_status"] = "pending_customer_consent"
@@ -447,7 +459,7 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                                                            "monitor_indexes":requested}))
             elif kind == "curtain.disable":
                 state = hub.sessions.get(device_id)
-                if state and event.get("session_id") == session_id:
+                if valid_curtain_disable(event, state, session_id):
                     audit_session(db, "curtain.exit_requested", user_id, device_id, session_id,
                                   {"actor": "viewer"})
                     await hub.relay(device_id, ws, json.dumps({"type":"curtain.disable","session_id":session_id}))
