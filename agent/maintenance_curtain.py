@@ -117,6 +117,7 @@ class MaintenanceCurtain:
     def _run(self) -> None:
         windows: list[tuple[object, int]] = []
         hook = None
+        root = None
         try:
             capability = windows_capability()
             if not capability.supported:
@@ -197,6 +198,7 @@ class MaintenanceCurtain:
                     user32.SetWindowDisplayAffinity.restype = ctypes.c_int
                     user32.GetWindowDisplayAffinity.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint)]
                     user32.GetWindowDisplayAffinity.restype = ctypes.c_int
+                    windows.append((window, hwnd))
                     if not user32.SetWindowDisplayAffinity(ctypes.c_void_p(hwnd), WDA_EXCLUDEFROMCAPTURE):
                         raise RuntimeError(f"Display affinity could not be enabled for Screen {index}.")
                     affinity = ctypes.c_uint(0)
@@ -204,7 +206,6 @@ class MaintenanceCurtain:
                         raise RuntimeError(f"Display affinity could not be verified for Screen {index}.")
                     if affinity.value != WDA_EXCLUDEFROMCAPTURE:
                         raise RuntimeError(f"Screen {index} does not support capture exclusion.")
-                    windows.append((window, hwnd))
                     self.emit("curtain.affinity_enabled", {"monitor": index, "affinity": affinity.value})
 
                 root.update()
@@ -250,7 +251,14 @@ class MaintenanceCurtain:
 
                 def input_desktop_is_default() -> bool:
                     try:
-                        handle = user32.OpenInputDesktop(0, False, 0x0100)
+                        user32.OpenInputDesktop.argtypes = [ctypes.c_uint, ctypes.c_int, ctypes.c_uint]
+                        user32.OpenInputDesktop.restype = ctypes.c_void_p
+                        user32.GetUserObjectInformationW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p,
+                                                                    ctypes.c_uint, ctypes.POINTER(ctypes.c_uint)]
+                        user32.GetUserObjectInformationW.restype = ctypes.c_int
+                        user32.CloseDesktop.argtypes = [ctypes.c_void_p]
+                        user32.CloseDesktop.restype = ctypes.c_int
+                        handle = user32.OpenInputDesktop(0, False, 0x0001)
                         if not handle:
                             return False
                         try:
@@ -296,6 +304,11 @@ class MaintenanceCurtain:
                     pass
                 try:
                     window.destroy()
+                except Exception:
+                    pass
+            if root is not None:
+                try:
+                    root.destroy()
                 except Exception:
                     pass
             if windows:
