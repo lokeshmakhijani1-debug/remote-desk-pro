@@ -4,7 +4,9 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from .config import settings
 
 def normalize_database_url(url: str) -> str:
-    """Use the installed Psycopg 3 driver for PostgreSQL URLs."""
+    """Trim environment whitespace before SQLAlchemy parses the connection URL."""
+    # Render dashboard pastes can retain CR/LF; strip all surrounding whitespace first.
+    url = url.strip()
     if url.startswith("postgres://"):
         return "postgresql+psycopg://" + url.removeprefix("postgres://")
     if url.startswith("postgresql://"):
