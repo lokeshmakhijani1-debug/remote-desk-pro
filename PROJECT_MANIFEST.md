@@ -79,3 +79,16 @@
 - File transfer is currently one-way (viewer to host). Host-to-viewer transfer, resumable transfers, checksum verification, and antivirus scanning are not implemented.
 - Unattended access remains disabled; the host agent asks for visible approval for every session.
 - Render commit `1fbd1adf01dcdddf3ea6be6f9f795d54ea0955c7` built successfully and deployed live. Live HTTP health returned `database: sqlite`; the new clipboard/file handlers have not yet been exercised end-to-end.
+
+## Phase 6 current checkpoint — 2026-11-20
+- Latest deployed source commit: `d10bdb32ce9d8ca778e97ffd6bd2358e95e365e7`; Render deployment `dep-dc098hrbc2fs73aplpq0` is **live**.
+- Live HTTP health verified: `status=ok`, `database=sqlite`. The application is still using its existing SQLite fallback; Supabase PostgreSQL has not yet been connected.
+- Live manifest now advertises `clipboard_sync=true` and `file_transfer=true`; these flags mean handlers are present, not that the end-to-end data paths have passed a live test.
+- PostgreSQL driver compatibility is implemented using Psycopg 3 URL normalization. All ORM tables are prefixed `rdp_`; existing unprefixed tables are not migrated, dropped, or queried.
+- Relay protocol: host/viewer WebSocket authentication; host approval gate; bidirectional clipboard updates with a 64 KiB text limit; viewer-to-host chunked file transfer up to 50 MiB, with a host-side save dialog and per-chunk validation. File transfer is one-way only at this checkpoint.
+- Security limits: clipboard content is not stored in audit logs (only character counts); file transfer names are reduced to a basename; unattended access remains unavailable; each viewer session requires visible host approval.
+- Verification completed: Docker/frontend build succeeded for commit `1fbd1adf01dcdddf3ea6be6f9f795d54ea0955c7`; latest deployment is live and both public HTTP endpoints returned successfully. Earlier intermediate builds failed because the first frontend patch wrote literal escaped newline characters; corrected in `1fbd1ad`.
+- Not yet verified: Supabase connection; live WebSocket binary frame relay; clipboard sync; file transfer; audit event assertions; PyInstaller packaging; running the standalone agent on the connected Windows device. Desktop Commander calls to the connected device have remained pending and one timed out without a result.
+- Agent build script: `agent/build_windows.ps1`; intended output is `agent/dist/RemoteDeskPro-Agent.exe` after a successful Windows build. No executable has been produced or verified yet.
+- Required next action: add `DATABASE_URL` directly in the Render service Environment page (do not send it in chat or commit it). Use the Supabase **Session pooler** URI and keep its password URL-encoded. After Render redeploys, verify `/api/health` reports `database=postgresql` before running E2E tests.
+- Render service: `srv-dc0917utlv9c739h7o30`; environment changes should be made only on this service. Do not replace its existing environment variables.
