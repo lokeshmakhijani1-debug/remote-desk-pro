@@ -275,7 +275,11 @@ async def host_socket(ws: WebSocket, device_id: str):
             except (TypeError, json.JSONDecodeError):
                 continue
             kind = event.get("type")
-            if kind == "host_approved":
+            if kind == "agent_capabilities":
+                monitors = event.get("monitors", [])
+                if isinstance(monitors, list) and len(monitors) <= 16:
+                    await hub.relay(device_id, ws, json.dumps({"type":"agent_capabilities","monitors":monitors}))
+            elif kind == "host_approved":
                 state = hub.sessions.get(device_id)
                 if not state or event.get("session_id") != state.get("session_id"):
                     continue
@@ -350,6 +354,15 @@ async def host_socket(ws: WebSocket, device_id: str):
     except (WebSocketDisconnect, asyncio.TimeoutError):
         pass
     finally:
+        state = hub.sessions.get(device_id)
+        if state:
+            sid = state.get("session_id", "")
+            if sid:
+                if state.get("curtain_status") not in ("inactive", "failed", "unsupported"):
+                    audit_session(db, "curtain.closed", device.owner_id, device_id, sid,
+                                  {"reason": "host_disconnected"})
+                audit_session(db, "session.ended", device.owner_id, device_id, sid,
+                              {"reason": "host_disconnected"})
         await hub.remove_host(device_id, ws)
         if device:
             device.online = False
