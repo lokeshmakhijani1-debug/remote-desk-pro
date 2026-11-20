@@ -232,7 +232,7 @@ def validate_clipboard(event: dict) -> bool:
     return isinstance(value, str) and len(value) <= MAX_CLIPBOARD_CHARS
 
 def safe_file_name(value: Any) -> str:
-    name = Path(str(value or "")).name.replace("\\x00", "")
+    name = str(value or "").replace("\\x00", "").replace("\\\\", "/").split("/")[-1]
     if not name or name in (".", "..") or len(name) > 180:
         raise ValueError("Invalid file name")
     return name
