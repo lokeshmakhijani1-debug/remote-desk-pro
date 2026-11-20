@@ -12,6 +12,7 @@ import pyautogui
 import pyperclip
 import websockets
 from PIL import Image
+from maintenance_curtain import MaintenanceCurtain, monitor_inventory
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("remote-desk-agent")
@@ -41,6 +42,33 @@ def _consent_dialog(device_id: str, dynamic_password: str) -> bool:
 
 async def ask_host_consent(device_id: str, dynamic_password: str) -> bool:
     return await asyncio.to_thread(_consent_dialog, device_id, dynamic_password)
+
+def _curtain_consent_dialog(monitor_indexes: list[int] | None) -> bool:
+    import tkinter as tk
+    root = tk.Tk()
+    root.title("Remote Desk Pro — Maintenance Curtain approval")
+    root.geometry("520x300")
+    root.resizable(False, False)
+    tk.Label(root, text="MAINTENANCE CURTAIN REQUEST", font=("Segoe UI", 14, "bold")).pack(pady=(22, 12))
+    tk.Label(root, text="The physical displays will show a maintenance notice.",
+             wraplength=440, font=("Segoe UI", 11)).pack(pady=5)
+    tk.Label(root, text="IMPORTANT: The technician can still view the underlying desktop.",
+             wraplength=440, foreground="#a3212d", font=("Segoe UI", 10, "bold")).pack(pady=10)
+    target = "All active displays" if not monitor_indexes else ", ".join(f"Screen {i}" for i in monitor_indexes)
+    tk.Label(root, text="Requested: " + target, font=("Segoe UI", 10)).pack(pady=4)
+    decision = {"approved": False}
+    buttons = tk.Frame(root)
+    buttons.pack(pady=22)
+    def finish(value: bool):
+        decision["approved"] = value
+        root.destroy()
+    tk.Button(buttons, text="Approve Maintenance Curtain",
+              command=lambda: finish(True), width=27).pack(side="left", padx=7)
+    tk.Button(buttons, text="Deny", command=lambda: finish(False), width=12).pack(side="left", padx=7)
+    root.protocol("WM_DELETE_WINDOW", lambda: finish(False))
+    root.after(120000, lambda: finish(False))
+    root.mainloop()
+    return decision["approved"]
 
 async def clipboard_watch(ws, running: asyncio.Event):
     previous = None
@@ -104,6 +132,25 @@ async def run(args):
         clipboard_task = None
         incoming_file = None
         streaming = asyncio.Event()
+        curtain_controller = None
+        session_id = None
+        loop = asyncio.get_running_loop()
+
+        async def send_agent_event(kind: str, data: dict | None = None):
+            payload = {"type": kind, "session_id": session_id, **(data or {})}
+            await ws.send(json.dumps(payload))
+
+        def emit_curtain_event(kind: str, data: dict):
+            if session_id:
+                asyncio.run_coroutine_threadsafe(send_agent_event(kind, data), loop)
+
+        async def close_curtain(reason: str):
+            nonlocal curtain_controller
+            if curtain_controller:
+                curtain_controller.stop(reason)
+                await asyncio.to_thread(curtain_controller.join, 3.0)
+                curtain_controller = None
+
         try:
             async for packet in ws:
                 if isinstance(packet, bytes):
@@ -112,15 +159,39 @@ async def run(args):
                 if message.get("type") == "viewer_joined":
                     if stream_task and not stream_task.done():
                         continue
+                    session_id = str(message.get("session_id", ""))
+                    if not session_id:
+                        continue
                     if await ask_host_consent(args.device_id, args.dynamic_password):
                         streaming.set()
-                        await ws.send(json.dumps({"type":"host_approved"}))
+                        await send_agent_event("host_approved")
                         stream_task = asyncio.create_task(stream_screen(ws, streaming))
                         clipboard_task = asyncio.create_task(clipboard_watch(ws, streaming))
                         log.info("Session approved; screen sharing is active.")
                     else:
-                        await ws.send(json.dumps({"type":"host_denied"}))
+                        await send_agent_event("host_denied")
+                elif message.get("type") == "curtain.request" and streaming.is_set():
+                    if message.get("session_id") != session_id:
+                        continue
+                    if curtain_controller and curtain_controller.thread and curtain_controller.thread.is_alive():
+                        await send_agent_event("curtain.status", {"status": "active_verified"})
+                        continue
+                    requested = message.get("monitor_indexes")
+                    if requested is not None and (not isinstance(requested, list) or
+                                                   any(not isinstance(i, int) for i in requested)):
+                        await send_agent_event("curtain.status", {"status": "failed", "reason": "Invalid monitor selection"})
+                        continue
+                    if await asyncio.to_thread(_curtain_consent_dialog, requested):
+                        await send_agent_event("curtain.approved", {"monitor_indexes": requested or []})
+                        curtain_controller = MaintenanceCurtain(requested, emit_curtain_event)
+                        curtain_controller.start()
+                    else:
+                        await send_agent_event("curtain.denied")
+                elif message.get("type") == "curtain.disable":
+                    if message.get("session_id") == session_id:
+                        await close_curtain("viewer_disabled")
                 elif message.get("type") == "viewer_left":
+                    await close_curtain("viewer_disconnected")
                     streaming.clear()
                     if stream_task:
                         stream_task.cancel()
@@ -176,6 +247,7 @@ async def run(args):
                     except Exception as exc:
                         log.warning("Input event rejected: %s", exc)
         finally:
+            await close_curtain("session_ended")
             streaming.clear()
             if stream_task:
                 stream_task.cancel()
