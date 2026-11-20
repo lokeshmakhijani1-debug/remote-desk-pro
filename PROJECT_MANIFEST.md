@@ -50,3 +50,16 @@
 - Approve the reviewed Render Blueprint sync before the service can be created.
 - SQLite on Render Free is ephemeral; durable production use requires a managed PostgreSQL DATABASE_URL.
 - WebSocket JPEG relay is not a replacement for WebRTC media; 50 concurrent sessions require load testing and likely a dedicated relay service.
+
+
+## Deployment update — 2026-11-20
+- Render Blueprint sync approved by user and applied: `exe-dc08pck9v7es73avpi0g`.
+- Render service: `remote-desk-pro-pj29`; service ID: `srv-dc0917utlv9c739h7o30`.
+- Deployment: `dep-dc0918etlv9c739h7p80`; status: **live**; Docker build and deploy events both succeeded.
+- Plan/region: **Free / Singapore**; auto-deploy from `main`; configured health check path: `/api/health`.
+- Public application: https://remote-desk-pro-pj29.onrender.com — fetched successfully; title `Remote Desk Pro`; sign-in/create-account landing screen rendered.
+- Health endpoint: https://remote-desk-pro-pj29.onrender.com/api/health — fetched successfully; body reports `status: ok`, service `remote-desk-pro`, version `0.1.0`, database `configured`, capacity target `50`.
+- Manifest endpoint: https://remote-desk-pro-pj29.onrender.com/api/manifest — fetched successfully; reports WebSocket binary relay and device pairing enabled; file transfer, clipboard sync and recording disabled.
+- Verification scope: public page + health + manifest HTTP fetch only. No account creation/login, host-agent pairing, remote-control session, WebSocket frame relay, load test or security penetration test performed.
+- Important operational risk remains: Render Free filesystem is ephemeral and the current SQLite database is not backed by persistent disk. Do not rely on account/device data surviving service replacement/redeploy; configure managed PostgreSQL before real users or production data.
+- Browser Use interactive automation was unavailable due insufficient credits; direct public endpoint fetches were used instead.
