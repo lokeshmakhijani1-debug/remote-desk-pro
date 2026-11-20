@@ -199,6 +199,7 @@ class Hub:
         self.viewers: dict[str, set[WebSocket]] = {}
         self.approved: set[str] = set()
         self.sessions: dict[str, dict[str, Any]] = {}
+        self.capabilities: dict[str, list[dict[str, Any]]] = {}
         self.transfers: dict[str, dict[str, Any]] = {}
         self.lock = asyncio.Lock()
 
@@ -213,6 +214,7 @@ class Hub:
                 self.hosts.pop(device_id, None)
                 self.approved.discard(device_id)
                 self.sessions.pop(device_id, None)
+                self.capabilities.pop(device_id, None)
                 for transfer_id, transfer in list(self.transfers.items()):
                     if transfer.get("device_id") == device_id:
                         self.transfers.pop(transfer_id, None)
@@ -278,7 +280,14 @@ async def host_socket(ws: WebSocket, device_id: str):
             if kind == "agent_capabilities":
                 monitors = event.get("monitors", [])
                 if isinstance(monitors, list) and len(monitors) <= 16:
-                    await hub.relay(device_id, ws, json.dumps({"type":"agent_capabilities","monitors":monitors}))
+                    safe_monitors = [{"index": int(m.get("index", 0)), "width": int(m.get("width", 0)),
+                                      "height": int(m.get("height", 0))}
+                                     for m in monitors if isinstance(m, dict) and
+                                     1 <= int(m.get("index", 0)) <= 16 and
+                                     0 < int(m.get("width", 0)) <= 20000 and
+                                     0 < int(m.get("height", 0)) <= 20000]
+                    hub.capabilities[device_id] = safe_monitors
+                    await hub.relay(device_id, ws, json.dumps({"type":"agent_capabilities","monitors":safe_monitors}))
             elif kind == "host_approved":
                 state = hub.sessions.get(device_id)
                 if not state or event.get("session_id") != state.get("session_id"):
@@ -405,6 +414,7 @@ async def viewer_socket(ws: WebSocket, device_id: str):
         hub.sessions[device_id] = {"session_id": session_id, "curtain_status": "inactive"}
         await ws.send_json({"type":"viewer_connected","device_online":device_id in hub.hosts,
                             "session_id": session_id})
+        await ws.send_json({"type":"agent_capabilities","monitors":hub.capabilities.get(device_id, [])})
         await hub.relay(device_id, ws, json.dumps({"type":"viewer_joined","session_id":session_id}))
         while True:
             packet = await ws.receive()
