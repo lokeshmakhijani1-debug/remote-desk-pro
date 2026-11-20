@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: remote-desk-pro
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        value: sqlite:///./remote_desk.db
+      - key: CORS_ORIGINS
+        value: https://remote-desk-pro.onrender.com
+      - key: STUN_URL
+        value: stun:stun.l.google.com:19302
+      - key: FEATURES_UNLOCKED
+        value: "true"
+      - key: MAX_CONCURRENT_SESSIONS
+        value: "50"
