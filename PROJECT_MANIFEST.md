@@ -63,3 +63,11 @@
 - Verification scope: public page + health + manifest HTTP fetch only. No account creation/login, host-agent pairing, remote-control session, WebSocket frame relay, load test or security penetration test performed.
 - Important operational risk remains: Render Free filesystem is ephemeral and the current SQLite database is not backed by persistent disk. Do not rely on account/device data surviving service replacement/redeploy; configure managed PostgreSQL before real users or production data.
 - Browser Use interactive automation was unavailable due insufficient credits; direct public endpoint fetches were used instead.
+
+
+## Phase 6 — database isolation implementation
+- Database URLs beginning with `postgres://` or `postgresql://` are normalized to SQLAlchemy's installed Psycopg 3 driver (`postgresql+psycopg://`). SQLite remains supported.
+- All application models use dedicated `rdp_*` table names: `rdp_users`, `rdp_devices`, and `rdp_audit_events`; the device foreign key points only to `rdp_users.id`.
+- Startup verifies a real `SELECT 1` connection before creating only the application's prefixed tables. No schema-wide migrations, table drops, or writes to unprefixed/public application tables are performed.
+- `/api/health` now reports the verified dialect (`sqlite` or `postgresql`) and returns HTTP 503 when the database cannot be reached.
+- PostgreSQL connection compatibility is implemented in source; live Supabase connectivity is pending the user's secure addition of `DATABASE_URL` in the Render service environment. Do not put credentials in GitHub, logs, chat, or this manifest.
