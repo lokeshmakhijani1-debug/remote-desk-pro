@@ -74,6 +74,14 @@ def audit(db: Session, action: str, user_id: int | None = None, device_id: str |
     db.add(AuditEvent(user_id=user_id, device_id=device_id, action=action, detail=detail[:500]))
     db.commit()
 
+def audit_session(db: Session, action: str, user_id: int | None, device_id: str,
+                  session_id: str, metadata: dict | None = None):
+    # The existing detail column stores bounded JSON; no live schema migration is needed.
+    detail = json.dumps({"session_id": session_id, "metadata": metadata or {}},
+                        separators=(",", ":"), ensure_ascii=True)[:500]
+    db.add(AuditEvent(user_id=user_id, device_id=device_id, action=action, detail=detail))
+    db.commit()
+
 @app.get("/api/health")
 def health():
     try:
@@ -169,12 +177,13 @@ def connect(data: ConnectIn, request: Request, authorization: str | None = Heade
         raise HTTPException(401, "Dynamic password expired; ask the device owner to rotate it")
     if not verify_secret(device.password_hash, data.password):
         raise HTTPException(401, "Invalid dynamic password")
-    token = issue_token(f"viewer:{user.id}:{device.device_id}", user.role, 900)
-    audit(db, "session.requested", user.id, device.device_id)
+    session_id = secrets.token_urlsafe(18)
+    token = issue_token(f"viewer:{user.id}:{device.device_id}", user.role, 900, {"sid": session_id})
+    audit_session(db, "session.consent_requested", user.id, device.device_id, session_id)
     ice_servers = [{"urls":settings.stun_url}]
     if settings.turn_url:
         ice_servers.append({"urls":settings.turn_url,"username":settings.turn_username,"credential":settings.turn_credential})
-    return {"session_token":token,"device_id":device.device_id,"ice_servers":ice_servers}
+    return {"session_token":token,"session_id":session_id,"device_id":device.device_id,"ice_servers":ice_servers}
 
 @app.get("/api/admin/audit")
 def audit_logs(authorization: str | None = Header(default=None), db: Session = Depends(db_session)):
@@ -189,6 +198,7 @@ class Hub:
         self.hosts: dict[str, WebSocket] = {}
         self.viewers: dict[str, set[WebSocket]] = {}
         self.approved: set[str] = set()
+        self.sessions: dict[str, dict[str, Any]] = {}
         self.transfers: dict[str, dict[str, Any]] = {}
         self.lock = asyncio.Lock()
 
@@ -202,6 +212,7 @@ class Hub:
             if self.hosts.get(device_id) is ws:
                 self.hosts.pop(device_id, None)
                 self.approved.discard(device_id)
+                self.sessions.pop(device_id, None)
                 for transfer_id, transfer in list(self.transfers.items()):
                     if transfer.get("device_id") == device_id:
                         self.transfers.pop(transfer_id, None)
@@ -265,8 +276,52 @@ async def host_socket(ws: WebSocket, device_id: str):
                 continue
             kind = event.get("type")
             if kind == "host_approved":
+                state = hub.sessions.get(device_id)
+                if not state or event.get("session_id") != state.get("session_id"):
+                    continue
                 hub.approved.add(device_id)
-                audit(db, "session.host_approved", device.owner_id, device_id)
+                audit_session(db, "session.consent_granted", device.owner_id, device_id, state["session_id"])
+                await hub.relay(device_id, ws, raw)
+            elif kind == "host_denied":
+                state = hub.sessions.get(device_id)
+                if state and event.get("session_id") == state.get("session_id"):
+                    audit_session(db, "session.consent_denied", device.owner_id, device_id, state["session_id"])
+                    await hub.relay(device_id, ws, raw)
+            elif kind in ("curtain.approved", "curtain.denied", "curtain.status",
+                          "curtain.affinity_enabled", "curtain.affinity_failed",
+                          "curtain.capture_verified", "curtain.shown",
+                          "curtain.exit_requested", "curtain.revoked", "curtain.closed"):
+                state = hub.sessions.get(device_id)
+                if not state or event.get("session_id") != state.get("session_id"):
+                    continue
+                sid = state["session_id"]
+                if kind == "curtain.approved":
+                    state["curtain_status"] = "pending_verification"
+                    audit_session(db, "curtain.consent_granted", device.owner_id, device_id, sid,
+                                  {"monitor_indexes": event.get("monitor_indexes", [])})
+                elif kind == "curtain.denied":
+                    state["curtain_status"] = "inactive"
+                    audit_session(db, "curtain.consent_denied", device.owner_id, device_id, sid)
+                elif kind == "curtain.status":
+                    status = str(event.get("status", "failed"))[:40]
+                    state["curtain_status"] = status
+                    if status in ("failed", "unsupported"):
+                        audit_session(db, "curtain.affinity_failed", device.owner_id, device_id, sid,
+                                      {"reason": str(event.get("reason", "unsupported"))[:120]})
+                elif kind == "curtain.affinity_enabled":
+                    audit_session(db, kind, device.owner_id, device_id, sid,
+                                  {"monitor": event.get("monitor"), "affinity": event.get("affinity")})
+                elif kind == "curtain.capture_verified":
+                    audit_session(db, kind, device.owner_id, device_id, sid,
+                                  {"monitor": event.get("monitor"), "capture_backend": event.get("capture_backend")})
+                elif kind == "curtain.shown":
+                    audit_session(db, kind, device.owner_id, device_id, sid,
+                                  {"monitors": event.get("monitors", []), "capture_backend": event.get("capture_backend")})
+                elif kind in ("curtain.exit_requested", "curtain.revoked", "curtain.closed"):
+                    audit_session(db, kind, device.owner_id, device_id, sid,
+                                  {"reason": str(event.get("reason", ""))[:100]})
+                    if kind == "curtain.closed":
+                        state["curtain_status"] = "inactive"
                 await hub.relay(device_id, ws, raw)
             elif kind == "clipboard_update" and hub.is_approved(device_id):
                 if validate_clipboard(event):
@@ -309,6 +364,7 @@ async def viewer_socket(ws: WebSocket, device_id: str):
     db = SessionLocal()
     registered = False
     user_id = None
+    session_id = None
     try:
         auth = await asyncio.wait_for(ws.receive_json(), timeout=10)
         payload = read_token(auth.get("session_token",""))
@@ -317,6 +373,10 @@ async def viewer_socket(ws: WebSocket, device_id: str):
             await ws.close(code=4401)
             return
         user_id = int(subject[1])
+        session_id = str(payload.get("sid", ""))
+        if not session_id or len(session_id) > 64:
+            await ws.close(code=4401)
+            return
         device = db.scalar(select(Device).where(Device.device_id == device_id))
         if not device or not db.get(User, user_id) or not db.get(User, user_id).active:
             await ws.close(code=4404)
@@ -329,8 +389,10 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                 return
             active.add(ws)
             registered = True
-        await ws.send_json({"type":"viewer_connected","device_online":device_id in hub.hosts})
-        await hub.relay(device_id, ws, json.dumps({"type":"viewer_joined"}))
+        hub.sessions[device_id] = {"session_id": session_id, "curtain_status": "inactive"}
+        await ws.send_json({"type":"viewer_connected","device_online":device_id in hub.hosts,
+                            "session_id": session_id})
+        await hub.relay(device_id, ws, json.dumps({"type":"viewer_joined","session_id":session_id}))
         while True:
             packet = await ws.receive()
             raw = packet.get("bytes") if packet.get("bytes") is not None else packet.get("text")
@@ -345,8 +407,27 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                 continue
             kind = event.get("type")
             if kind == "control":
-                if user_role != "read_only":
+                if user_role != "read_only" and hub.is_approved(device_id):
                     await hub.relay(device_id, ws, raw)
+            elif kind == "curtain.request":
+                state = hub.sessions.get(device_id)
+                if user_role == "read_only" or not hub.is_approved(device_id) or not state or event.get("session_id") != session_id:
+                    continue
+                requested = event.get("monitor_indexes")
+                if requested is not None and (not isinstance(requested, list) or len(requested) > 16 or
+                                               any(not isinstance(value, int) or value < 1 or value > 16 for value in requested)):
+                    continue
+                audit_session(db, "curtain.consent_requested", user_id, device_id, session_id,
+                              {"monitor_indexes": requested or []})
+                state["curtain_status"] = "pending_customer_consent"
+                await hub.relay(device_id, ws, json.dumps({"type":"curtain.request","session_id":session_id,
+                                                           "monitor_indexes":requested}))
+            elif kind == "curtain.disable":
+                state = hub.sessions.get(device_id)
+                if state and event.get("session_id") == session_id:
+                    audit_session(db, "curtain.exit_requested", user_id, device_id, session_id,
+                                  {"actor": "viewer"})
+                    await hub.relay(device_id, ws, json.dumps({"type":"curtain.disable","session_id":session_id}))
             elif kind == "clipboard_update" and hub.is_approved(device_id):
                 if validate_clipboard(event):
                     audit(db, "clipboard.relayed", user_id, device_id, f"characters={len(event['text'])}")
@@ -394,6 +475,14 @@ async def viewer_socket(ws: WebSocket, device_id: str):
     finally:
         if registered:
             hub.approved.discard(device_id)
+            state = hub.sessions.get(device_id)
+            if state and state.get("session_id") == session_id:
+                if state.get("curtain_status") not in ("inactive", "failed", "unsupported"):
+                    audit_session(db, "curtain.closed", user_id, device_id, session_id,
+                                  {"reason": "viewer_disconnected"})
+                audit_session(db, "session.ended", user_id, device_id, session_id,
+                              {"reason": "viewer_disconnected"})
+                hub.sessions.pop(device_id, None)
             for transfer_id, transfer in list(hub.transfers.items()):
                 if transfer.get("device_id") == device_id:
                     hub.transfers.pop(transfer_id, None)
