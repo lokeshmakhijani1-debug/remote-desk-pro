@@ -17,7 +17,7 @@ services:
       - key: DATABASE_URL
         value: sqlite:///./remote_desk.db
       - key: CORS_ORIGINS
-        value: https://remote-desk-pro.onrender.com
+        value: https://remote-desk-pro-pj29.onrender.com
       - key: STUN_URL
         value: stun:stun.l.google.com:19302
       - key: FEATURES_UNLOCKED
