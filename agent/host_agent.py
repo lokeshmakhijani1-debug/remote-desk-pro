@@ -94,7 +94,7 @@ async def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description="Remote Desk Pro visible-consent host agent")
-    parser.add_argument("--server", default=os.getenv("RDP_SERVER", "https://remote-desk-pro.onrender.com"))
+    parser.add_argument("--server", default=os.getenv("RDP_SERVER", "https://remote-desk-pro-pj29.onrender.com"))
     parser.add_argument("--device-id", default=os.getenv("RDP_DEVICE_ID"))
     parser.add_argument("--secret", default=os.getenv("RDP_AGENT_SECRET"))
     args = parser.parse_args()
