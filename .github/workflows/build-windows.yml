@@ -1,0 +1,97 @@
+name: Windows Agent Build
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "backend/downloads/**"
+      - "PROJECT_MANIFEST.md"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-agent-main
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: agent/requirements.txt
+      - name: Install agent dependencies and PyInstaller
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r agent/requirements.txt pyinstaller
+      - name: Build standalone Windows agent
+        shell: pwsh
+        working-directory: agent
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name RemoteDeskPro-Agent --collect-all mss --collect-all pyautogui --collect-all pyperclip --collect-data certifi --hidden-import tkinter --hidden-import desktop_app --hidden-import certifi --hidden-import websockets.asyncio.client --hidden-import websockets.asyncio.connection host_agent.py
+          if (!(Test-Path "dist/RemoteDeskPro-Agent.exe")) { throw "PyInstaller did not produce the expected executable." }
+          $file = Get-Item "dist/RemoteDeskPro-Agent.exe"
+          $hash = (Get-FileHash "dist/RemoteDeskPro-Agent.exe" -Algorithm SHA256).Hash
+          "AGENT_SIZE_BYTES=$($file.Length)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "AGENT_SHA256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "RemoteDeskPro-Agent.exe size=$($file.Length) bytes SHA256=$hash"
+      - name: Stage public Render download
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force backend/downloads | Out-Null
+          Copy-Item agent/dist/RemoteDeskPro-Agent.exe backend/downloads/RemoteDeskPro-Agent.exe -Force
+          $copyHash = (Get-FileHash backend/downloads/RemoteDeskPro-Agent.exe -Algorithm SHA256).Hash
+          if ($copyHash -ne $env:AGENT_SHA256) { throw "Staged EXE checksum mismatch." }
+      - name: Publish latest-agent release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release view latest-agent --json tagName *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create latest-agent agent/dist/RemoteDeskPro-Agent.exe --title "Latest Remote Desk Pro Agent" --notes "Automatically built from main. SHA-256: $env:AGENT_SHA256"
+          } else {
+            gh release upload latest-agent agent/dist/RemoteDeskPro-Agent.exe --clobber
+            gh release edit latest-agent --notes "Automatically built from main. SHA-256: $env:AGENT_SHA256"
+          }
+          if ($LASTEXITCODE -ne 0) { throw "GitHub Release asset publication failed." }
+      - name: Commit Render download binary and manifest
+        shell: pwsh
+        run: |
+          $entry = @"
+
+          ## GitHub Actions Windows build (latest)
+          - Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+          - Build source: ${{ github.sha }}.
+          - EXE size: $env:AGENT_SIZE_BYTES bytes.
+          - EXE SHA-256: $env:AGENT_SHA256.
+          - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+          - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+          - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+          "@
+          Add-Content -Path PROJECT_MANIFEST.md -Value $entry
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/downloads/RemoteDeskPro-Agent.exe PROJECT_MANIFEST.md
+          if (git diff --cached --quiet) { Write-Host "No binary or manifest changes to commit."; exit 0 }
+          git commit -m "ci: publish latest Windows agent build"
+          git push origin HEAD:main
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RemoteDeskPro-Agent
+          path: agent/dist/RemoteDeskPro-Agent.exe
+          if-no-files-found: error
+          retention-days: 30
