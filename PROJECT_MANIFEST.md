@@ -443,3 +443,15 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 ```
 - Live Windows input and transfer E2E has not been executed by the cloud workflow. The laptop command is the required final runtime verification; do not mark the application fully certified until its report is PASS.
 - No Desktop Commander, local Windows tools or GitHub Codespaces were used. No Codespace was created or started in this work.
+
+
+## Render-only single-domain architecture — 2026-11-21
+- Deployment policy: Render is the sole application origin. FastAPI serves the compiled React application from `frontend/dist` in the same container; REST requests use relative `/api/*` paths and WebSockets derive `ws:` / `wss:` from `window.location.host`.
+- Frontend split-origin override removed: `frontend/src/api.ts` no longer reads `VITE_API_BASE`; HTTP and WebSocket traffic are same-origin by construction.
+- Build/deploy chain: root `Dockerfile` runs the frontend production build, copies `frontend/dist` into the Python runtime image, and starts `backend.main:app`; `render.yaml` deploys that Dockerfile on Render. FastAPI registers API and WebSocket routes before mounting the static frontend at `/`.
+- Vercel cleanup: `vercel.json` and `.vercelignore` are absent from the repository; no Vercel deployment configuration is retained.
+- Windows release asset SHA-256 verified from the GitHub `latest-agent` release asset digest: `A6961C8F9CDD64B07FFA8F88FFBA8B20036C2317DF8EFF3E7E6C37246297E43B` (22,263,828 bytes). Release: https://github.com/lokeshmakhijani1-debug/remote-desk-pro/releases/tag/latest-agent .
+- Local laptop E2E remains a required runtime gate; cloud CI does not execute native Windows input, visible consent, or GUI save-dialog flows. Run the command below from the existing local repository root after confirming there are no tracked local edits:
+```cmd
+git diff --quiet && git diff --cached --quiet && git fetch origin && git reset --hard origin/main && powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $repo='lokeshmakhijani1-debug/remote-desk-pro'; $dir=Join-Path $env:LOCALAPPDATA 'RemoteDeskPro'; New-Item -ItemType Directory -Force $dir | Out-Null; gh release download latest-agent --repo $repo --pattern RemoteDeskPro-Agent.exe --dir $dir --clobber; $exe=Join-Path $dir 'RemoteDeskPro-Agent.exe'; $expected='A6961C8F9CDD64B07FFA8F88FFBA8B20036C2317DF8EFF3E7E6C37246297E43B'; $actual=(Get-FileHash $exe -Algorithm SHA256).Hash; if($actual -ne $expected){throw 'RemoteDeskPro-Agent.exe SHA-256 mismatch'}; Get-Process -Name 'RemoteDeskPro-Agent' -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Process -FilePath $exe -WorkingDirectory $dir; Start-Sleep -Seconds 15; py tests\e2e_remote_control_live.py"
+```
