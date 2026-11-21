@@ -514,3 +514,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Native Windows input-dispatch code was not modified. The headless runner does not emulate or certify Windows GUI consent dialogs, native cursor/keyboard/wheel delivery, or the standalone Windows EXE.
 - Cloud test run result: **PENDING**. Do not claim production E2E PASS until the workflow run completes and the uploaded JSON report is inspected. Synthetic account/device records are created on the live application database and are not automatically deleted by the application.
 - Workflow dispatch action: the connected GitHub MCP exposes workflow-run inspection but no dedicated workflow-dispatch action. The workflow is therefore started by its qualifying main push trigger; no undocumented dispatch endpoint is assumed.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: 152dec7a5f872a15972dd65891972941164f2668.
+- EXE size: 22265424 bytes.
+- EXE SHA-256: 6CE6144A4D216CAE12704EA729158F271C541C4A88F5C87E77FC4BB151A3B472.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
