@@ -4,12 +4,19 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths:
+      - '.github/workflows/live-cloud-e2e.yml'
+      - 'tests/e2e_cloud_headless.py'
+      - 'agent/host_agent.py'
+      - 'agent/resumable_transfer.py'
+      - 'backend/main.py'
+      - 'backend/file_transfer.py'
 
 permissions:
   contents: read
 
 concurrency:
-  group: live-cloud-e2e-\${{ github.ref }}
+  group: live-cloud-e2e-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
