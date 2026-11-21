@@ -494,3 +494,13 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - The transfer test sends a 2 MiB Zstandard payload, deliberately interrupts the viewer socket after the first ACK, reconnects, resumes from the endpoint's persisted offset, and verifies final SHA-256 against the source payload.
 - Runtime boundary: this cloud-only change was not executed on the enrolled Windows desktop. CI syntax/unit checks do not establish that visible consent, native dialogs, socket interruption, or the 2 MiB resume path pass on the laptop. Final certification remains pending the Windows run.
 - Native input-dispatch implementation was not modified.
+
+## Corrected latest release asset verification — 2026-11-21
+- Supersedes the earlier 22,262,570-byte / 638729... release asset entry above: Windows Agent Build workflow run 44915950523 completed SUCCESS for source commit aa727d607461095ae5394d863f4243b11ff625d8 (after commit 224c889).
+- Latest-agent release asset was replaced successfully by GitHub Actions at 2026-11-21T14:50:56Z.
+- Exact asset URL: https://github.com/lokeshmakhijani1-debug/remote-desk-pro/releases/download/latest-agent/RemoteDeskPro-Agent.exe
+- Exact asset size: 22,264,608 bytes.
+- Exact GitHub release API SHA-256 digest: 1DD9CA1DCA913FE3F781D28D1C53529FB486B0B9F3628DFAD3EDD1CD255FE4F1.
+- Source commit for the binary: aa727d607461095ae5394d863f4243b11ff625d8. Windows build workflow run 44915950523: SUCCESS; build, release upload, Render binary staging/manifest commit step, and workflow artifact upload all completed successfully.
+- CI workflow run 44915950537 for E2E source commit aa727d607461095ae5394d863f4243b11ff625d8: SUCCESS. CI workflow run 44915982580 for manifest commit 84a29972490261fe45159b439b61122cb7252c8d: SUCCESS (frontend and backend).
+- Live Windows GUI E2E remains unexecuted in cloud; laptop run is still required for final consent/input/Zstandard resume certification.
