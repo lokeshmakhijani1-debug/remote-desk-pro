@@ -352,3 +352,15 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+
+## Cloud-only continuation audit — 2026-11-21
+- GitHub Actions Windows build: the `latest-agent` release was created/updated by `github-actions[bot]`; its `RemoteDeskPro-Agent.exe` asset is uploaded (21,708,591 bytes; SHA-256 `DAFEF00F206834E1F3D956275B57F9E12016C1A393CEEF31BCDD45C40ED0BAE5`). The workflow's binary+manifest commit is `6da5369ea36357bdfb3d564391198cb1c8702407`. The Actions run conclusion itself was not exposed by the available GitHub MCP run-list operation, so do not record a run ID or final run status from inference.
+- Render auto-deployment for `6da5369ea36357bdfb3d564391198cb1c8702407` is **live** (`dep-dc0p3auc6qcc73bprrv0`).
+- Live `GET /health` and `GET /api/health` both returned the expected health JSON with `status=ok` and `database=postgresql`.
+- `GET /download/agent` returned a binary response larger than the web extractor's supported response size; the exact HTTP status and response headers were not surfaced by that extractor. The executable is present in the GitHub release and in the Render build input, but this check did not independently verify the live response's Content-Length or SHA-256.
+- The new `backend/file_transfer.py` remains a storage primitive only. The active WebSocket relay still uses the older in-memory `hub.transfers` protocol; the Windows agent still writes directly to its selected save path; the React viewer still sends 128 KiB base64 chunks without acknowledgements, resume, compression controls, or SHA-256 confirmation. Do not advertise resumable/compressed transfers as implemented.
+- Transfer persistence caveat: the current Render service is Free and no persistent disk is configured. Filesystem-backed partial transfer state would not survive instance replacement/redeploy without a persistent disk or external object storage. The present primitive is therefore process/instance durable only when its root remains available, not a production cross-deploy persistence guarantee.
+- The existing native Windows input dispatch logic was not modified during this continuation.
+- No GitHub Codespace was created or started during this continuation. The available GitHub MCP tool catalog did not expose an account-level Codespaces listing operation, so account-wide zero-active status was not independently queried.
+- Next required implementation work: connect a consent-gated transfer protocol to both WebSocket endpoints and the Windows host agent, add acknowledgement/retransmission and reconnect state, expose progress/pause/resume/Zstandard controls in the React viewer, add relay/disconnect/compression/integrity tests, then run CI and live desktop E2E before certification.
