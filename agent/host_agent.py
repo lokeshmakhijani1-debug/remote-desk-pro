@@ -196,6 +196,44 @@ def _wheel_delta_units(delta: float) -> int:
     return int(notches * 120)
 
 
+def _focus_target_at_cursor() -> bool:
+    """Bring the window under the physical cursor forward before input dispatch."""
+    if os.name != "nt":
+        return True
+    attached = False
+    current_thread = 0
+    target_thread = 0
+    try:
+        from ctypes import wintypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        class POINT(ctypes.Structure):
+            _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
+        position = __import__("pyautogui").position()
+        point = POINT(int(position.x), int(position.y))
+        child = user32.WindowFromPoint(point)
+        if not child:
+            return False
+        root = user32.GetAncestor(child, 2) or child
+        process_id = wintypes.DWORD()
+        target_thread = user32.GetWindowThreadProcessId(root, ctypes.byref(process_id))
+        current_thread = kernel32.GetCurrentThreadId()
+        if target_thread and target_thread != current_thread:
+            attached = bool(user32.AttachThreadInput(current_thread, target_thread, True))
+        user32.ShowWindow(root, 9)
+        focused = bool(user32.SetForegroundWindow(root))
+        return focused
+    except Exception:
+        log.debug("Could not foreground target window before input", exc_info=True)
+        return False
+    finally:
+        if attached:
+            try:
+                user32.AttachThreadInput(current_thread, target_thread, False)
+            except Exception:
+                log.debug("Could not detach foreground input threads", exc_info=True)
+
+
 def apply_control(message: dict):
     """Dispatch viewer events in the primary monitor's physical pixel coordinate space."""
     import pyautogui
@@ -227,6 +265,7 @@ def apply_control(message: dict):
         py = min(size.height - 1, max(0, round(capture_y * size.height / max(1, capture_height))))
         pyautogui.moveTo(px, py, _pause=False)
     elif event in ("mouse_down", "mouse_up"):
+        _focus_target_at_cursor()
         button = {0: "left", 1: "middle", 2: "right"}.get(message.get("button"), "left")
         action = pyautogui.mouseDown if event == "mouse_down" else pyautogui.mouseUp
         action(button=button)
@@ -235,6 +274,7 @@ def apply_control(message: dict):
         else:
             _PRESSED_MOUSE_BUTTONS.discard(button)
     elif event in ("key_down", "key_up"):
+        _focus_target_at_cursor()
         key = _normalize_key(message.get("key"))
         allowed = set(getattr(pyautogui, "KEYBOARD_KEYS", ()))
         if not key or (len(key) != 1 and key not in allowed):
@@ -246,6 +286,7 @@ def apply_control(message: dict):
         else:
             _PRESSED_KEYS.discard(key)
     elif event == "mouse_scroll":
+        _focus_target_at_cursor()
         dx = float(message.get("deltaX", 0))
         dy = float(message.get("deltaY", 0))
         if not math.isfinite(dx) or not math.isfinite(dy) or abs(dx) > 2400 or abs(dy) > 2400:
