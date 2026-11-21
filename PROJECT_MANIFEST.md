@@ -554,3 +554,5 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Earlier retries: run 44917048388 failed with a relay ConnectionClosedError after basic frame/input checks; run 44917239243 failed on a transient Render 502 during synthetic registration. The final retry adds detailed socket/host diagnostics and transient registration/pair/connect retries and passed.
 - Certification scope: **cloud protocol E2E PASS** for the deployed single-domain Render application and a Linux headless host-agent relay with virtual desktop hooks. This does not certify native Windows GUI consent, Win32 cursor/keyboard/wheel delivery, the Windows EXE runtime, or physical-display capture. Therefore the cloud service/protocol checks are green, but the complete Windows desktop product must not be labeled 100% end-to-end certified solely from this headless run.
 - Native Windows input-dispatch code remained unchanged.
+
+- Post-certification main CI run 44917517510 for manifest commit e4826d7389fe7766e10bd0a8d65cf7f466bd33b2: **SUCCESS**. Backend py_compile + pytest and frontend npm build all passed; the manifest is synchronized with the passing cloud E2E report.
