@@ -294,7 +294,7 @@ def apply_control(message: dict):
         vertical = _wheel_delta_units(dy)
         horizontal = _wheel_delta_units(dx)
         if vertical:
-            pyautogui.scroll(int(-vertical), _pause=False)
+            pyautogui.scroll(int(-vertical / 120), _pause=False)
         if horizontal:
             # PyAutoGUI's Windows hscroll path is unreliable; inject the native
             # horizontal wheel event (signed 120-unit notches) instead.
