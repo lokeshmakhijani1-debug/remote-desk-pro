@@ -1,0 +1,29 @@
+{
+  "result": "FAIL",
+  "error": "TimeoutError: Host approval was not acknowledged by the agent",
+  "target_state": {
+    "clicks": 0,
+    "scrolls": 0,
+    "hscrolls": 0,
+    "typed": "",
+    "ready": true,
+    "entry": "",
+    "window": "760x520+80+80",
+    "window_xy": [
+      88,
+      111
+    ],
+    "click_xy": [
+      468,
+      251
+    ],
+    "entry_xy": [
+      468,
+      326
+    ],
+    "scroll_xy": [
+      468,
+      496
+    ]
+  }
+}

@@ -247,3 +247,82 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 - Render deployment: `dep-dc0ndvfb9u1s73bnfe9g` - **SUCCEEDED**.
 - Live public GET download verified from the internet: HTTP 200, content length 21,586,937 bytes, content type `application/vnd.microsoft.portable-executable`; downloaded SHA-256 exactly matched `C1BC99DCBC631DA6DC532F505B4620D908A0ECA71BAA2A968BA55DA90C529223`.
 - Public download URL: https://remote-desk-pro-pj29.onrender.com/download/agent
+
+
+### Live production remote-input E2E (2026-11-21)
+- Added repeatable, modular Windows-hosted Playwright harness: `tests/e2e_remote_control_live.py`.
+- Harness uses the existing DPAPI-protected `%APPDATA%\RemoteDeskPro\config.json` at runtime; credentials are never printed or committed to `.env` or the manifest.
+- Browser: headless Chrome through Playwright, mobile emulation at 390×844 with touch enabled.
+- Test target: temporary Tk window; verifies OS-level cursor coordinates, actual click callback, mouse-wheel callback, and keystrokes received by a native Windows entry control.
+- Host approval: the real Remote Desk Pro consent dialog must be explicitly approved; the harness does not bypass consent.
+- Temporary state file: `%TEMP%\rdp-live-input-e2e-state.json`; removed by harness cleanup. Test target process/window is terminated in `finally`.
+- Browser session is closed after test; test script is retained for repeatable release verification.
+- Playwright Python package installed in the user Python 3.14 environment; uses existing Chrome at `C:\Program Files\Google\Chrome\Application\chrome.exe` (no bundled browser download).
+- Initial checks: Render `/api/health` reports `status=ok`, `database=postgresql`; one PyInstaller one-file process tree (one root instance with its expected bootloader child); agent has an established HTTPS connection to Render; DPAPI config fields are present; no credentials emitted.
+- Execution outcome and measured latency are recorded in the following certification entry after the run.
+
+
+### Live production remote-input E2E — interim result (2026-11-21)
+- Headless Chromium successfully authenticated with the locally DPAPI-unsealed agent credentials, paired to the current device, and established approved Render relay sessions. Agent log recorded `Connected (Live)` after the real local consent action on successful runs.
+- Real touch tap over the mobile-emulated viewer reached the Windows Tk target; its native click callback incremented to `1`.
+- Mouse movement was observed through `pyautogui.position()` at the intended test-window region (scroll-target cursor sample: `(468, 495)`; target window client bounds are approximately x=88..848, y=111..631).
+- Scroll did **not** pass: the target's Windows `MouseWheel` callback remained at zero. Inspection shows `host_agent.apply_control` computes `vertical=round(deltaY/100)` and calls `pyautogui.scroll(-vertical)`. On Windows, PyAutoGUI 0.9.54 passes that raw value directly as `mouse_event` `dwData`; Windows wheel messages require multiples of `WHEEL_DELTA=120`. A local Tk probe produced no wheel callback with raw `-7`; a scaled `-840` probe produced a wheel callback. This strongly isolates the production scroll defect to the host-agent wheel-unit conversion.
+- Keyboard assertion was not completed because the current harness stops after the scroll failure; a later retry did not display the host-consent dialog within its wait window. No keyboard pass is claimed.
+- Temporary Tk target process/window and `%TEMP%\rdp-live-input-e2e-state.json` are cleaned in the harness `finally` path. Headless browser contexts are closed; no test target window remains. Agent process tree still has exactly one root PyInstaller instance (with its expected one-file bootloader child).
+- Required follow-up to complete certification: change Windows vertical/horizontal wheel dispatch to use `WHEEL_DELTA`-scaled values, rebuild and relaunch the standalone agent, then rerun the complete live touch/click/scroll/keyboard suite and capture final cursor coordinates and latency.
+
+
+### Phase 4/5–5/5 — wheel fix, standalone rebuild, live E2E certification (2026-11-21)
+
+**Production code change**
+- `agent/host_agent.py`: introduced `_wheel_delta_units(delta)`; converts browser wheel deltas to integer Windows `WHEEL_DELTA` units (`120` per notch), preserves a signed minimum notch for every non-zero input, returns zero for zero input, and applies the converted integer to both vertical `pyautogui.scroll` and horizontal `pyautogui.hscroll` dispatch.
+- Conversion boundary checks passed for `0`, `+1`, `-1`, `+49`, `-49`, `+100`, `-100`, `+720`, and `-720`; results preserve sign and minimum notch.
+- `tests/e2e_remote_control_live.py`: expanded assertions for explicit OS cursor movement, vertical/horizontal wheel input, and keystrokes; horizontal Windows `WM_MOUSEHWHEEL` hook and cleanup included. Python compile check passed.
+
+**Rebuilt standalone executable**
+- Built with repository `agent/build_windows.ps1`: PyInstaller 6.22.3, Python 3.14.0, Windows 10, `--onefile --windowed`.
+- Output: `agent/dist/RemoteDeskPro-Agent.exe`; distribution copy refreshed at `backend/downloads/RemoteDeskPro-Agent.exe` and byte/hash equality verified.
+- Build timestamp (UTC): `2026-11-21T11:45:16.5113530Z`.
+- Size: `21,589,028` bytes.
+- SHA-256: `629129DAE894598E57C5B73A0AC4B76FAC718D3ACFEB886E6B55BB92DD161FB3`.
+- Old agent was stopped before build; rebuilt agent relaunched. Final verification: exactly one logical root instance (two expected one-file process-tree entries), one established agent HTTPS connection to Render.
+
+**Post-build live E2E matrix**
+- Render `/api/health` and PostgreSQL: PASS (`status=ok`, `database=postgresql`).
+- One agent instance / connected HTTPS relay: PASS.
+- Headless Chromium mobile emulation, viewer auth and pairing: PASS on test attempts.
+- Explicit host consent: PASS on two attempts; one later retry did not receive an approval acknowledgement and was cleaned up.
+- Remote screen frame delivery: INCONSISTENT. One attempt timed out waiting for canvas frames; later attempt reached input dispatch.
+- Touch tap and real Windows target click: PASS (native target click callback count reached 1).
+- Cursor movement: PASS on the input-dispatch attempt; cursor target mapping used target coordinates `(468, 496)`; a final numeric cursor/latency sample was not retained in the harness report.
+- Vertical scroll: PASS on one post-build attempt (native Windows target wheel callback count reached 2); another attempt did not register a wheel callback.
+- Horizontal scroll: NOT VERIFIED / FAIL. Windows `WM_MOUSEHWHEEL` hook did not record a message in the attempted run; horizontal callback count remained 0. No pass claim.
+- Keyboard: NOT COMPLETED; the test sequence stopped before the keystroke assertion on attempts that failed earlier. No pass claim.
+- End-to-end round-trip latency: NOT CERTIFIED. The harness did not emit a complete metrics report because its failing assertions exited before report serialization. Do not infer latency from wall-clock test duration.
+
+**Final cleanup and current state**
+- Temporary Tk target window: 0.
+- Headless Chromium processes: 0.
+- `%TEMP%\rdp-live-input-e2e-state.json`: absent.
+- Temporary desktop screenshot/diagnostic image: removed.
+- Rebuilt agent: exactly 1 logical root instance; 1 established HTTPS connection to Render.
+- Production certification remains PARTIAL pending stable horizontal wheel delivery, a successful keyboard assertion, and a complete numeric latency report. The rebuilt binary and source change are local; this batch did not push or redeploy the updated executable to Render.
+
+## Phase 5/5 execution record — 2026-11-21 (NOT CERTIFIED)
+
+- Status: **BLOCKED / PARTIAL**. Do not represent this revision as 100% certified.
+- Native horizontal wheel implementation: ctypes Win32 user32 mouse_event with MOUSEEVENTF_HWHEEL = 0x01000 and signed 120-unit delta; the prior pyautogui.hscroll call was removed.
+- Windows build: standalone PyInstaller --onefile --windowed; build timestamp UTC: 2026-11-21T12:12:09.5245155Z; size: 21590328 bytes; SHA-256: FF011ECEA158B1CD5389DDE72C13CF5992D056AEC5FBE03C504D34631A729A7C.
+- Distribution artifact: backend/downloads/RemoteDeskPro-Agent.exe copied from agent/dist/RemoteDeskPro-Agent.exe.
+- Build checks: py_compile and git diff --check passed.
+- Live E2E attempt 1: Render session reached host approval, but touch tap did not register; test stopped before cursor, scrolling, and keyboard.
+- Live E2E attempt 2: host approval acknowledgement timed out; no input assertions or latency samples were captured.
+- Horizontal scroll: implementation rebuilt, NOT live-verified.
+- Vertical scroll: NOT live-verified in this execution.
+- Keyboard: NOT live-verified in this execution.
+- Round-trip latency min/avg/max: N/A — zero valid samples.
+- Test evidence: tests/e2e_remote_control_live_report.json (failure report; no credentials).
+- Render /api/health: previously observed status=ok, database=postgresql; this does not prove the new binary is deployed.
+- Deployment boundary: GitHub push triggers the configured Render auto-deploy; Render deployment of this commit and public download hash must be verified separately.
+- Certification gate remains open until an approved live session passes touch, cursor, vertical wheel, native horizontal wheel, keyboard, and records non-empty latency metrics.
+- Final local agent connectivity check: one logical agent process remains, but **0 established relay connections** were observed during final cleanup; do not describe it as healthy or online until connectivity is restored.

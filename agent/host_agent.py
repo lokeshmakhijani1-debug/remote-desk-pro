@@ -186,6 +186,14 @@ async def stream_screen(ws, running: asyncio.Event):
         await ws.send(encode_screen())
         await asyncio.sleep(0.25)
 
+def _wheel_delta_units(delta: float) -> int:
+    """Convert normalized browser wheel deltas into Windows 120-unit notches."""
+    notches = int(round(delta / 100.0))
+    if delta != 0 and notches == 0:
+        notches = 1 if delta > 0 else -1
+    return int(notches * 120)
+
+
 def apply_control(message: dict):
     """Dispatch viewer events in the primary monitor's physical pixel coordinate space."""
     import pyautogui
@@ -240,16 +248,22 @@ def apply_control(message: dict):
         dy = float(message.get("deltaY", 0))
         if not math.isfinite(dx) or not math.isfinite(dy) or abs(dx) > 2400 or abs(dy) > 2400:
             return False
-        vertical = round(dy / 100)
-        horizontal = round(dx / 100)
-        if dy and vertical == 0:
-            vertical = 1 if dy > 0 else -1
-        if dx and horizontal == 0:
-            horizontal = 1 if dx > 0 else -1
+        vertical = _wheel_delta_units(dy)
+        horizontal = _wheel_delta_units(dx)
         if vertical:
-            pyautogui.scroll(-vertical, _pause=False)
+            pyautogui.scroll(int(-vertical), _pause=False)
         if horizontal:
-            pyautogui.hscroll(horizontal, _pause=False)
+            # PyAutoGUI's Windows hscroll path is unreliable; inject the native
+            # horizontal wheel event (signed 120-unit notches) instead.
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            user32.mouse_event.argtypes = [
+                ctypes.c_uint, ctypes.c_int, ctypes.c_int, ctypes.c_uint,
+                ctypes.c_size_t,
+            ]
+            user32.mouse_event.restype = None
+            user32.mouse_event(
+                0x01000, 0, 0, ctypes.c_ulong(horizontal).value, 0
+            )
     else:
         return False
     return True
