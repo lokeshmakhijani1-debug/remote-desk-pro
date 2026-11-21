@@ -91,10 +91,13 @@ def apply_control(message: dict):
         if len(key) == 1 or key in allowed:
             pyautogui.press(key)
 
-async def run(args):
+async def run_once(args):
     endpoint = args.server.rstrip("/") + f"/ws/host/{args.device_id}"
     endpoint = endpoint.replace("https://", "wss://").replace("http://", "ws://")
-    async with websockets.connect(endpoint, max_size=8 * 1024 * 1024, ping_interval=20) as ws:
+    async with websockets.connect(
+        endpoint, max_size=8 * 1024 * 1024, ping_interval=20,
+        ping_timeout=20, close_timeout=10, open_timeout=25, max_queue=16,
+    ) as ws:
         await ws.send(json.dumps({"type":"auth","secret":args.secret}))
         response = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
         if response.get("type") != "connected":
@@ -183,6 +186,22 @@ async def run(args):
                 clipboard_task.cancel()
             if incoming_file:
                 incoming_file["handle"].close()
+
+async def run(args):
+    """Keep the host agent alive across transient relay/network interruptions."""
+    delay = 2
+    while True:
+        try:
+            await run_once(args)
+            log.warning("Relay closed the connection; reconnecting in %ss.", delay)
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            # websockets/OS adapters vary in the concrete exception raised for
+            # a reset socket; keep transient transport failures from killing the agent.
+            log.warning("Relay/network interruption (%s); reconnecting in %ss.", exc, delay)
+        await asyncio.sleep(delay)
+        delay = min(delay * 2, 30)
 
 def main():
     parser = argparse.ArgumentParser(description="Remote Desk Pro visible-consent host agent")

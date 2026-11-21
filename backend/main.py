@@ -197,14 +197,16 @@ class Hub:
             self.hosts[device_id] = ws
             self.approved.discard(device_id)
 
-    async def remove_host(self, device_id: str, ws: WebSocket):
+    async def remove_host(self, device_id: str, ws: WebSocket) -> bool:
         async with self.lock:
-            if self.hosts.get(device_id) is ws:
-                self.hosts.pop(device_id, None)
-                self.approved.discard(device_id)
-                for transfer_id, transfer in list(self.transfers.items()):
-                    if transfer.get("device_id") == device_id:
-                        self.transfers.pop(transfer_id, None)
+            if self.hosts.get(device_id) is not ws:
+                return False
+            self.hosts.pop(device_id, None)
+            self.approved.discard(device_id)
+            for transfer_id, transfer in list(self.transfers.items()):
+                if transfer.get("device_id") == device_id:
+                    self.transfers.pop(transfer_id, None)
+            return True
 
     async def relay(self, device_id: str, sender: WebSocket, message: Any):
         async with self.lock:
@@ -292,11 +294,15 @@ async def host_socket(ws: WebSocket, device_id: str):
                     hub.transfers.pop(str(event["transfer_id"]), None)
                     audit(db, "file.received", device.owner_id, device_id, f"name={transfer['name']}; bytes={transfer['size']}")
                 await hub.relay(device_id, ws, raw)
-    except (WebSocketDisconnect, asyncio.TimeoutError):
+    except (WebSocketDisconnect, asyncio.TimeoutError, OSError):
+        # Network resets (including Windows WinError 64 on the client) are normal
+        # disconnects; the host agent reconnects with bounded backoff.
         pass
     finally:
-        await hub.remove_host(device_id, ws)
-        if device:
+        # Removal and identity check are atomic under the Hub lock.
+        was_current_host = await hub.remove_host(device_id, ws)
+        # A replaced/stale socket must not mark the newer host connection offline.
+        if device and was_current_host:
             device.online = False
             db.commit()
             db.add(AuditEvent(user_id=device.owner_id,device_id=device_id,action="host.disconnected"))
