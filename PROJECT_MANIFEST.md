@@ -410,3 +410,12 @@ $ErrorActionPreference='Stop'; $base='https://remote-desk-pro-pj29.onrender.com'
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: 156792d35f6de8bd0680e415e785226ec88cf1e5.
+- EXE size: 22264270 bytes.
+- EXE SHA-256: FE6E84A1A2288C00C1ECE8A4F8D31E6028CE28C529348DB0BA16E0151DF89035.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
