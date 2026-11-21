@@ -229,7 +229,7 @@ def run_viewer(config: dict, target: subprocess.Popen) -> dict:
             page.get_by_placeholder("Enter 6-digit password").fill(config["dynamic_password"])
             t0 = time.perf_counter()
             page.get_by_role("button", name="Connect", exact=True).first.click()
-            wait_until(lambda: pyautogui.getWindowsWithTitle("Remote access request"),
+            wait_until(lambda: (items if (items := (pyautogui.getWindowsWithTitle("Remote Desk Pro") or pyautogui.getWindowsWithTitle("Remote access request"))) else None),
                        35, "Host consent dialog did not appear")
             result["latency_ms"]["connect_to_consent"] = round((time.perf_counter()-t0)*1000, 1)
             log_path = Path(os.getenv("APPDATA", str(Path.home()))) / "RemoteDeskPro" / "agent.log"
