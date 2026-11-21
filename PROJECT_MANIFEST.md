@@ -504,3 +504,13 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Source commit for the binary: aa727d607461095ae5394d863f4243b11ff625d8. Windows build workflow run 44915950523: SUCCESS; build, release upload, Render binary staging/manifest commit step, and workflow artifact upload all completed successfully.
 - CI workflow run 44915950537 for E2E source commit aa727d607461095ae5394d863f4243b11ff625d8: SUCCESS. CI workflow run 44915982580 for manifest commit 84a29972490261fe45159b439b61122cb7252c8d: SUCCESS (frontend and backend).
 - Live Windows GUI E2E remains unexecuted in cloud; laptop run is still required for final consent/input/Zstandard resume certification.
+
+
+## Linux headless live cloud E2E — implementation checkpoint (2026-11-21)
+- Latest baseline CI run 44916095689 for commit 34e9e114fd9ba5ce9a43a0eff8d7f3386088e75f: **SUCCESS**. Backend compile + pytest and frontend npm build both completed successfully.
+- Added .github/workflows/live-cloud-e2e.yml, triggered by workflow_dispatch and relevant-path pushes to main, on ubuntu-latest. It wakes the Render /health route, installs Playwright Chromium and Python dependencies, runs the live cloud harness, prints its complete JSON result, and uploads live-cloud-e2e-report for 30 days.
+- Added tests/e2e_cloud_headless.py. It uses Playwright Chromium to authenticate the production viewer UI and imports the actual agent/host_agent.py relay loop with CI-only virtual screen/input/clipboard/save-path hooks and an auto-consent callback scoped to a newly registered synthetic test device.
+- Intended live checks: PostgreSQL health, Chromium viewer load, authenticated host/viewer WebSocket, virtual binary frame relay, input-event relay to the host hook, and 2 MiB Zstandard transfer with deliberate viewer socket disconnect after the first durable ACK, reconnect/resume from the receiver's persisted offset, and final SHA-256 verification.
+- Native Windows input-dispatch code was not modified. The headless runner does not emulate or certify Windows GUI consent dialogs, native cursor/keyboard/wheel delivery, or the standalone Windows EXE.
+- Cloud test run result: **PENDING**. Do not claim production E2E PASS until the workflow run completes and the uploaded JSON report is inspected. Synthetic account/device records are created on the live application database and are not automatically deleted by the application.
+- Workflow dispatch action: the connected GitHub MCP exposes workflow-run inspection but no dedicated workflow-dispatch action. The workflow is therefore started by its qualifying main push trigger; no undocumented dispatch endpoint is assumed.
