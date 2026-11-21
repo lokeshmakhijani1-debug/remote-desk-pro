@@ -455,3 +455,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 ```cmd
 git diff --quiet && git diff --cached --quiet && git fetch origin && git reset --hard origin/main && powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $repo='lokeshmakhijani1-debug/remote-desk-pro'; $dir=Join-Path $env:LOCALAPPDATA 'RemoteDeskPro'; New-Item -ItemType Directory -Force $dir | Out-Null; gh release download latest-agent --repo $repo --pattern RemoteDeskPro-Agent.exe --dir $dir --clobber; $exe=Join-Path $dir 'RemoteDeskPro-Agent.exe'; $expected='A6961C8F9CDD64B07FFA8F88FFBA8B20036C2317DF8EFF3E7E6C37246297E43B'; $actual=(Get-FileHash $exe -Algorithm SHA256).Hash; if($actual -ne $expected){throw 'RemoteDeskPro-Agent.exe SHA-256 mismatch'}; Get-Process -Name 'RemoteDeskPro-Agent' -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Process -FilePath $exe -WorkingDirectory $dir; Start-Sleep -Seconds 15; py tests\e2e_remote_control_live.py"
 ```
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: adc5dc2c5da6007f4769e5555da276125e714ba7.
+- EXE size: 22265157 bytes.
+- EXE SHA-256: BE8BB2D394A681DEA4FC4DDD925DB645433E5A1CCF2363D53EB6AF5CF2D8BBB2.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
