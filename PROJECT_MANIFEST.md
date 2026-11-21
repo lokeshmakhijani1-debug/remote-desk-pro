@@ -390,3 +390,5 @@ $ErrorActionPreference='Stop'; $base='https://remote-desk-pro-pj29.onrender.com'
 - The live input E2E suite was inspected but not run in this cloud-only execution. It requires the enrolled Windows host, visible consent, Chrome, and the native desktop target. Touch/click/scroll/keyboard/RTT are not certified by CI.
 - No GitHub Codespace was created or started in this execution. No Desktop Commander or local Windows tool was used.
 - Current release SHA-256 remains the older published build until a new successful Windows Actions run completes and its release asset/hash is confirmed.
+
+- Follow-up CI diagnosis: the initial Linux test fix exposed an additional expectation mismatch: Windows `pyautogui.scroll` consumes notch counts, while native horizontal `mouse_event` consumes 120-unit `WHEEL_DELTA`. Vertical dispatch now divides the converted delta by 120 before calling PyAutoGUI; horizontal remains native `MOUSEEVENTF_HWHEEL` with signed 120-unit delta (commit `739f887751123d989779cee2b3cfe487706935be`). CI rerun required.
