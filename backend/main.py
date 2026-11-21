@@ -83,6 +83,7 @@ def audit(db: Session, action: str, user_id: int | None = None, device_id: str |
     db.add(AuditEvent(user_id=user_id, device_id=device_id, action=action, detail=detail[:500]))
     db.commit()
 
+@app.get("/health", include_in_schema=False)
 @app.get("/api/health")
 def health():
     try:
@@ -498,6 +499,7 @@ def index():
         return FileResponse(file)
     return {"service":"Remote Desk Pro","docs":"/docs"}
 
+@app.get("/api/download/agent", include_in_schema=False)
 @app.get("/download/agent", include_in_schema=False)
 def download_agent():
     agent_path = Path(__file__).parent / "downloads" / "RemoteDeskPro-Agent.exe"
