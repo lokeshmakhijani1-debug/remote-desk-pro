@@ -41,7 +41,7 @@ export default function App(){
   ws.onmessage=e=>{
    if(typeof e.data==="string"){try{const m=JSON.parse(e.data);
     if(m.type==="relay_ready"){
-     if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify({session_token:s.session_token}));
+     if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify({type:"auth",session_token:s.session_token}));
      if(heartbeatTimer.current)window.clearInterval(heartbeatTimer.current);
      heartbeatTimer.current=window.setInterval(()=>{if(ws.readyState===WebSocket.OPEN){heartbeatSentAt.current=Date.now();ws.send(JSON.stringify({type:"heartbeat"}));}},20000);
     }
