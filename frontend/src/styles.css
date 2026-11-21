@@ -7,3 +7,6 @@
 .transfer-tools textarea{width:100%;min-height:76px;resize:vertical;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--surface);color:inherit;font:inherit;font-size:12px}
 .transfer-tools input[type=file]{max-width:100%;font-size:12px}
 .transfer-tools small{color:var(--muted);font-size:11px}
+
+.connection-status{display:flex;flex-direction:column;gap:5px;padding:12px;margin-top:12px;border:1px solid #dcefe8;border-radius:9px;background:#f1faf6;color:#087d65;font-size:11px}.connection-status span{color:#718096;font-size:10px}.diagnostic-toggle{border:0;background:transparent;color:#53637a;padding:10px 0 0;font-size:10px;text-align:left;cursor:pointer}.diagnostics{display:grid;gap:6px;margin-top:8px;padding:10px;border-radius:8px;background:#f5f7fa;color:#66758a;font:10px/1.5 ui-monospace,monospace;overflow-wrap:anywhere}.viewer-head small{color:#087d65;font-weight:650}
+@media(max-width:680px){.connection-status{font-size:10px}.diagnostics{font-size:9px}}

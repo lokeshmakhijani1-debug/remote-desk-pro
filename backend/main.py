@@ -17,8 +17,15 @@ from .security import hash_secret, verify_secret, issue_token, read_token, new_d
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    if settings.app_env == "production" and settings.app_secret_key in ("development-only-change-me", "replace-with-a-long-random-secret"):
-        raise RuntimeError("APP_SECRET_KEY must be a unique secret in production")
+    if settings.app_env == "production" and (
+        len(settings.app_secret_key) < 32
+        or settings.app_secret_key in (
+            "development-only-change-me",
+            "development-only-change-me-use-32-bytes-minimum",
+            "replace-with-a-long-random-secret",
+        )
+    ):
+        raise RuntimeError("APP_SECRET_KEY must be a unique random secret of at least 32 characters in production")
     init_db()
     yield
 
@@ -169,7 +176,11 @@ def connect(data: ConnectIn, request: Request, authorization: str | None = Heade
         raise HTTPException(401, "Dynamic password expired; ask the device owner to rotate it")
     if not verify_secret(device.password_hash, data.password):
         raise HTTPException(401, "Invalid dynamic password")
-    token = issue_token(f"viewer:{user.id}:{device.device_id}", user.role, 900)
+    # Sliding idle expiry: a valid connection refreshes the password's 24-hour
+    # inactivity window. Rotation or the host agent's next launch still replaces it.
+    device.password_expires_at = datetime.now(timezone.utc) + timedelta(seconds=settings.device_password_ttl_seconds)
+    db.commit()
+    token = issue_token(f"viewer:{user.id}:{device.device_id}", user.role, settings.session_ttl_seconds)
     audit(db, "session.requested", user.id, device.device_id)
     ice_servers = [{"urls":settings.stun_url}]
     if settings.turn_url:
@@ -194,8 +205,10 @@ class Hub:
 
     async def register_host(self, device_id: str, ws: WebSocket):
         async with self.lock:
+            previous = self.hosts.get(device_id)
             self.hosts[device_id] = ws
             self.approved.discard(device_id)
+            return previous
 
     async def remove_host(self, device_id: str, ws: WebSocket) -> bool:
         async with self.lock:
@@ -244,15 +257,25 @@ async def host_socket(ws: WebSocket, device_id: str):
     await ws.accept()
     db = SessionLocal()
     device = db.scalar(select(Device).where(Device.device_id == device_id))
+    explicit_disconnect = False
     try:
         auth = await asyncio.wait_for(ws.receive_json(), timeout=10)
         if not device or auth.get("type") != "auth" or not verify_secret(device.secret_hash, str(auth.get("secret",""))):
             await ws.close(code=4401)
             return
-        await hub.register_host(device_id, ws)
+        previous_host = await hub.register_host(device_id, ws)
+        if previous_host is not None and previous_host is not ws:
+            try:
+                await previous_host.close(code=1012, reason="Host agent reconnected")
+            except Exception:
+                pass
         device.online = True
         db.commit()
         await ws.send_json({"type":"connected","device_id":device_id})
+        await hub.relay(device_id, ws, json.dumps({"type":"host_online"}))
+        # A viewer may already be waiting while this host reconnects.
+        if hub.viewers.get(device_id):
+            await ws.send_json({"type":"viewer_joined"})
         while True:
             packet = await ws.receive()
             raw = packet.get("bytes") if packet.get("bytes") is not None else packet.get("text")
@@ -266,7 +289,11 @@ async def host_socket(ws: WebSocket, device_id: str):
             except (TypeError, json.JSONDecodeError):
                 continue
             kind = event.get("type")
-            if kind == "host_approved":
+            if kind == "host_disconnected":
+                explicit_disconnect = True
+                await hub.relay(device_id, ws, json.dumps({"type":"host_disconnected"}))
+                break
+            elif kind == "host_approved":
                 hub.approved.add(device_id)
                 audit(db, "session.host_approved", device.owner_id, device_id)
                 await hub.relay(device_id, ws, raw)
@@ -303,6 +330,8 @@ async def host_socket(ws: WebSocket, device_id: str):
         was_current_host = await hub.remove_host(device_id, ws)
         # A replaced/stale socket must not mark the newer host connection offline.
         if device and was_current_host:
+            if not explicit_disconnect:
+                await hub.relay(device_id, ws, json.dumps({"type":"host_offline"}))
             device.online = False
             db.commit()
             db.add(AuditEvent(user_id=device.owner_id,device_id=device_id,action="host.disconnected"))
@@ -350,7 +379,9 @@ async def viewer_socket(ws: WebSocket, device_id: str):
             except json.JSONDecodeError:
                 continue
             kind = event.get("type")
-            if kind == "control":
+            if kind == "heartbeat":
+                await ws.send_json({"type":"heartbeat_ack","at":datetime.now(timezone.utc).isoformat()})
+            elif kind == "control":
                 if user_role != "read_only":
                     await hub.relay(device_id, ws, raw)
             elif kind == "clipboard_update" and hub.is_approved(device_id):
@@ -391,7 +422,7 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                 transfer_id = str(event.get("transfer_id", ""))
                 if hub.transfers.pop(transfer_id, None):
                     await hub.relay(device_id, ws, raw)
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, OSError):
         pass
     except asyncio.TimeoutError:
         await ws.close(code=4408)

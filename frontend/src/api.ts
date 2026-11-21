@@ -33,4 +33,4 @@ export async function request<T>(path:string,token?:string,body?:unknown):Promis
  if(!response.ok) throw new Error(formatApiError(data.detail) || `Request failed (HTTP ${response.status}).`);
  return data as T;
 }
-export const wsUrl=(path:string)=>`${location.protocol==="https:"?"wss:":"ws:"}//${location.host}${path}`;
+export const wsUrl=(path:string)=>{const base=API?new URL(API,location.origin):new URL(location.origin);const protocol=base.protocol==="https:"?"wss:":"ws:";return `${protocol}//${base.host}${path}`;};

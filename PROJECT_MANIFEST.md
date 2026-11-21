@@ -158,3 +158,41 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 - Multi-session architecture review: login access tokens are stateless JWTs with no per-login revocation store; host uses its device secret, viewer uses a separate 15-minute device-scoped session token. Signing into the same account on host and viewer does not inherently invalidate either token. One active viewer per device is enforced; this is a per-device concurrency limit. Same-account host/viewer use has not yet been exercised with the real account on two live devices.
 - Render `/api/health` checked during this task: HTTP 200, `status=ok`, `database=postgresql`. Live host/viewer session behavior after these source changes remains unverified.
 - Release `v1.0.0` was not published because the standalone executable did not pass the reconnect regression test. Do not represent the source-level test as an EXE-level pass.
+
+## Phase 4/4 - Native desktop, persistent sessions, and v1.0.0 release gate (2026-11-21 IST)
+
+### Native Windows desktop app
+- Double-click launch opens the native Tkinter desktop GUI; CLI/headless flags remain supported.
+- First-run GUI supports account sign-in or account creation, then authenticated device pairing.
+- GUI displays device ID and dynamic password with Copy and Rotate Password controls, explicit Disconnect, host-side approval dialog, live status and expandable diagnostics.
+- Device ID remains stable across launches. Device secret, account token and dynamic password are protected with Windows DPAPI in %APPDATA%/RemoteDeskPro/config.json.
+- Agent logs rotate at %APPDATA%/RemoteDeskPro/agent.log. Secrets are not written to logs.
+- Password rotates on application restart or explicit rotation; the previous password is immediately invalidated.
+
+### Session and relay lifecycle
+- Account and viewer session JWTs use the configured 30-day session lifetime. Established WebSockets do not expire mid-session; viewer reconnect reuses its device-scoped token.
+- Dynamic password default TTL is 24 hours and is refreshed on successful password verification; rotation or agent restart replaces it.
+- Host WebSocket uses TLS CA bundle, keepalive, explicit timeouts and bounded reconnect backoff. Viewer sends application heartbeats and reports latency.
+- Backend relays host online/offline/explicit-disconnect states and re-notifies a waiting host when a viewer is present after host reconnect.
+- Replaced host sockets are closed; stale socket cleanup cannot mark a newer host offline.
+- Each device permits one active viewer. Every session requires visible host approval; unattended access remains disabled.
+
+### Frozen Windows build
+- PyInstaller 6.22.3; Python 3.14.0; Windows 10 build 19045.
+- Frozen EXE reconnect regression: PASS - 3 authenticated handshakes across injected WebSocket resets, 3 connection log entries, rotating log created. Harness uses an ephemeral local port: tests/smoke_frozen_reconnect.py.
+- EXE: E:/GitHub-Vault/remote-desk-pro-main/agent/dist/RemoteDeskPro-Agent.exe
+- Size: 21,579,929 bytes.
+- SHA-256: 12D3D4BE26A992D6E8F2AC6E1D3288D6D69F5188D253D8C2F428710691A0A934
+- Existing Desktop shortcut path: E:/Desktop/RemoteDeskPro-Agent.lnk; target path is unchanged and points to the EXE location.
+
+### Validation
+- Python compileall: PASS.
+- pytest: 8 passed (one upstream Starlette/httpx deprecation warning).
+- Frontend TypeScript/Vite production build: PASS.
+- git diff --check: PASS.
+- Frozen EXE relay-reset test: PASS (3/3).
+- Live same-account host/viewer, password rotation, reconnect and audit-persistence E2E: prepared in tests/e2e_live_relay.py; execute after the backend commit deploys. The test creates one synthetic @example.com account and one paired device in the configured database.
+- Render service: remote-desk-pro-pj29 (srv-dc0917utlv9c739h7o30), branch main, auto-deploy enabled, verified URL https://remote-desk-pro-pj29.onrender.com; /api/health returns HTTP 200, status=ok, database=postgresql.
+- Requested alias https://desk-pro-pi29.onrender.com returns HTTP 404 and is not configured as the agent default.
+- GitHub repository is PRIVATE. Release v1.0.0 can be published to repository collaborators; asset downloads require repository access. Repository visibility will not be changed as part of this release.
+- Source commit/push, Render post-deploy E2E, and v1.0.0 release publication remain pending.

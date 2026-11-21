@@ -6,15 +6,50 @@ import json
 import logging
 import os
 import sys
+from logging.handlers import RotatingFileHandler
 from io import BytesIO
-import mss
-import pyautogui
-import pyperclip
-import websockets
-from PIL import Image
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "RemoteDeskPro")
+os.makedirs(APP_DIR, exist_ok=True)
 log = logging.getLogger("remote-desk-agent")
+log.setLevel(logging.INFO)
+if not log.handlers:
+    _handler = RotatingFileHandler(os.path.join(APP_DIR, "agent.log"), maxBytes=2_000_000, backupCount=4, encoding="utf-8")
+    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    log.addHandler(_handler)
+_STATUS_CALLBACK = None
+_CONSENT_CALLBACK = None
+_DIAGNOSTICS_CALLBACK = None
+_LAST_ERROR = "None"
+
+def set_status_callback(callback):
+    global _STATUS_CALLBACK
+    _STATUS_CALLBACK = callback
+
+def set_consent_callback(callback):
+    global _CONSENT_CALLBACK
+    _CONSENT_CALLBACK = callback
+
+def set_diagnostics_callback(callback):
+    global _DIAGNOSTICS_CALLBACK
+    _DIAGNOSTICS_CALLBACK = callback
+
+def set_status(message: str):
+    global _LAST_ERROR
+    if "connected to relay" in message.lower() or message == "Connected (Live)":
+        _LAST_ERROR = "None"
+        if _DIAGNOSTICS_CALLBACK:
+            _DIAGNOSTICS_CALLBACK(_LAST_ERROR, None)
+    if any(term in message.lower() for term in ("error", "unreachable", "denied", "rejected", "invalid")):
+        _LAST_ERROR = message
+        if _DIAGNOSTICS_CALLBACK:
+            _DIAGNOSTICS_CALLBACK(_LAST_ERROR, None)
+    log.info(message)
+    if _STATUS_CALLBACK:
+        try:
+            _STATUS_CALLBACK(message)
+        except Exception:
+            log.exception("Status callback failed")
 
 def _consent_dialog(device_id: str, dynamic_password: str) -> bool:
     import tkinter as tk
@@ -40,9 +75,12 @@ def _consent_dialog(device_id: str, dynamic_password: str) -> bool:
     return decision["approved"]
 
 async def ask_host_consent(device_id: str, dynamic_password: str) -> bool:
+    if _CONSENT_CALLBACK:
+        return await _CONSENT_CALLBACK(device_id, dynamic_password)
     return await asyncio.to_thread(_consent_dialog, device_id, dynamic_password)
 
 async def clipboard_watch(ws, running: asyncio.Event):
+    import pyperclip
     previous = None
     while running.is_set():
         try:
@@ -64,6 +102,8 @@ def choose_save_path(name: str) -> str:
     return path
 
 def encode_screen() -> bytes:
+    import mss
+    from PIL import Image
     with mss.mss() as capture:
         frame = capture.grab(capture.monitors[1])
         image = Image.frombytes("RGB", frame.size, frame.rgb)
@@ -78,6 +118,7 @@ async def stream_screen(ws, running: asyncio.Event):
         await asyncio.sleep(0.25)
 
 def apply_control(message: dict):
+    import pyautogui
     event = message.get("event")
     if event == "mouse_move":
         size = pyautogui.size()
@@ -91,28 +132,52 @@ def apply_control(message: dict):
         if len(key) == 1 or key in allowed:
             pyautogui.press(key)
 
-async def run_once(args):
+async def run_once(args, stop_event=None):
+    import ssl
+    import certifi
+    import websockets
     endpoint = args.server.rstrip("/") + f"/ws/host/{args.device_id}"
     endpoint = endpoint.replace("https://", "wss://").replace("http://", "ws://")
+    tls_context = ssl.create_default_context(cafile=certifi.where()) if endpoint.startswith("wss://") else None
     async with websockets.connect(
-        endpoint, max_size=8 * 1024 * 1024, ping_interval=20,
+        endpoint, ssl=tls_context, max_size=8 * 1024 * 1024, ping_interval=20,
         ping_timeout=20, close_timeout=10, open_timeout=25, max_queue=16,
     ) as ws:
         await ws.send(json.dumps({"type":"auth","secret":args.secret}))
         response = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
         if response.get("type") != "connected":
+            set_status("Invalid device credential — sign in and re-link this computer")
             raise RuntimeError("Server rejected the device credential.")
-        log.info("Device %s connected. Waiting for a viewer.", args.device_id)
+        set_status("Connected to relay. Waiting for a viewer...")
         stream_task = None
         clipboard_task = None
         incoming_file = None
         streaming = asyncio.Event()
+        stop_task = None
+        latency_task = None
+        async def report_latency():
+            while True:
+                await asyncio.sleep(5)
+                latency_seconds = getattr(ws, "latency", None)
+                if _DIAGNOSTICS_CALLBACK:
+                    _DIAGNOSTICS_CALLBACK(_LAST_ERROR, round(latency_seconds * 1000) if latency_seconds is not None else None)
+        latency_task = asyncio.create_task(report_latency())
+        if stop_event is not None:
+            async def close_on_stop():
+                await asyncio.to_thread(stop_event.wait)
+                try:
+                    await ws.send(json.dumps({"type":"host_disconnected"}))
+                except Exception:
+                    pass
+                await ws.close(code=1000, reason="Host disconnected")
+            stop_task = asyncio.create_task(close_on_stop())
         try:
             async for packet in ws:
                 if isinstance(packet, bytes):
                     continue
                 message = json.loads(packet)
                 if message.get("type") == "viewer_joined":
+                    set_status("Waiting for host approval...")
                     if stream_task and not stream_task.done():
                         continue
                     if await ask_host_consent(args.device_id, args.dynamic_password):
@@ -120,9 +185,10 @@ async def run_once(args):
                         await ws.send(json.dumps({"type":"host_approved"}))
                         stream_task = asyncio.create_task(stream_screen(ws, streaming))
                         clipboard_task = asyncio.create_task(clipboard_watch(ws, streaming))
-                        log.info("Session approved; screen sharing is active.")
+                        set_status("Connected (Live)")
                     else:
                         await ws.send(json.dumps({"type":"host_denied"}))
+                        set_status("Connection denied by host")
                 elif message.get("type") == "viewer_left":
                     streaming.clear()
                     if stream_task:
@@ -134,7 +200,7 @@ async def run_once(args):
                     if incoming_file:
                         incoming_file["handle"].close()
                         incoming_file = None
-                    log.info("Viewer disconnected; screen sharing stopped.")
+                    set_status("Viewer disconnected; waiting for a new request")
                 elif message.get("type") == "clipboard_update" and streaming.is_set():
                     value = message.get("text", "")
                     if isinstance(value, str) and len(value) <= 65536:
@@ -179,6 +245,10 @@ async def run_once(args):
                     except Exception as exc:
                         log.warning("Input event rejected: %s", exc)
         finally:
+            if stop_task:
+                stop_task.cancel()
+            if latency_task:
+                latency_task.cancel()
             streaming.clear()
             if stream_task:
                 stream_task.cancel()
@@ -187,21 +257,33 @@ async def run_once(args):
             if incoming_file:
                 incoming_file["handle"].close()
 
-async def run(args):
+async def run(args, stop_event=None):
     """Keep the host agent alive across transient relay/network interruptions."""
     delay = 2
-    while True:
+    attempt = 0
+    while stop_event is None or not stop_event.is_set():
+        attempt += 1
         try:
-            await run_once(args)
-            log.warning("Relay closed the connection; reconnecting in %ss.", delay)
+            if attempt > 1:
+                set_status(f"Reconnecting (Attempt {attempt - 1})...")
+            await run_once(args, stop_event)
+            delay = 2
+            if stop_event is not None and stop_event.is_set():
+                break
+            set_status("Relay disconnected. Reconnecting...")
         except RuntimeError:
             raise
         except Exception as exc:
-            # websockets/OS adapters vary in the concrete exception raised for
-            # a reset socket; keep transient transport failures from killing the agent.
             log.warning("Relay/network interruption (%s); reconnecting in %ss.", exc, delay)
-        await asyncio.sleep(delay)
+            set_status("Server waking up / unreachable — retrying...")
+        if stop_event is None:
+            log.info("Reconnect loop sleeping for %ss.", delay)
+            await asyncio.sleep(delay)
+            log.info("Reconnect delay elapsed; retrying relay.")
+        elif stop_event.wait(delay):
+            break
         delay = min(delay * 2, 30)
+    set_status("Disconnected by host")
 
 def main():
     parser = argparse.ArgumentParser(description="Remote Desk Pro visible-consent host agent")
@@ -210,10 +292,19 @@ def main():
     parser.add_argument("--secret", default=os.getenv("RDP_AGENT_SECRET"))
     parser.add_argument("--dynamic-password", default=os.getenv("RDP_DYNAMIC_PASSWORD", ""))
     args = parser.parse_args()
+    log.info("Startup mode: device_id_set=%s secret_set=%s", bool(args.device_id), bool(args.secret))
+    if not args.device_id and not args.secret:
+        log.info("Launching native desktop GUI")
+        try:
+            from desktop_app import launch
+            launch(args.server)
+        except Exception:
+            log.exception("Native desktop GUI startup failed")
+            raise
+        return
     if not args.device_id or not args.secret:
-        parser.error("Provide --device-id and --secret from the pairing screen.")
-    print("Remote Desk Pro Host Agent — visible-consent mode")
-    print("Unattended access is disabled. No service or auto-start is installed.")
+        parser.error("Provide both --device-id and --secret for headless mode.")
+    import pyautogui
     pyautogui.FAILSAFE = True
     asyncio.run(run(args))
 

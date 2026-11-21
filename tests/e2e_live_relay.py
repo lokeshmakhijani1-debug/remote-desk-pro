@@ -55,13 +55,25 @@ async def run(base_url):
         device_id = paired["device_id"]
         agent_secret = paired["agent_secret"]
         dynamic_password = paired["dynamic_password"]
-        results["device_registration"] = "PASS"
+        from datetime import datetime, timezone
+        expires_at = datetime.fromisoformat(paired["password_expires_at"].replace("Z", "+00:00"))
+        remaining = (expires_at - datetime.now(timezone.utc)).total_seconds()
+        require(23 * 3600 <= remaining <= 24 * 3600 + 60, f"Expected 24-hour password window, got {remaining}s")
+        results["device_registration"] = "PASS (same account owns host and viewer credentials)"
+        results["dynamic_password_ttl"] = "PASS (24 hours)"
 
         connect = (await client.post(
             "/api/devices/connect", headers=headers,
             json={"device_id": device_id, "password": dynamic_password}
         )).raise_for_status().json()
-        session_token = connect["session_token"]
+        old_session_token = connect["session_token"]
+        rotated = (await client.post(f"/api/devices/{device_id}/rotate-password", headers=headers, json={})).raise_for_status().json()
+        rejected_old = await client.post("/api/devices/connect", headers=headers, json={"device_id": device_id, "password": dynamic_password})
+        require(rejected_old.status_code == 401, "Old dynamic password remained valid after rotation")
+        dynamic_password = rotated["dynamic_password"]
+        connect = (await client.post("/api/devices/connect", headers=headers, json={"device_id": device_id, "password": dynamic_password})).raise_for_status().json()
+        session_token = old_session_token  # Existing viewer token survives password rotation.
+        results["password_rotation_invalidation"] = "PASS (old password rejected; existing session token retained)"
 
         host_url = f"{ws_base}/ws/host/{device_id}"
         viewer_url = f"{ws_base}/ws/viewer/{device_id}"
@@ -130,6 +142,28 @@ async def run(base_url):
                 await receive_json(viewer, "file_complete")
                 require(chunks > 1, "Transfer did not exercise multiple chunks")
                 results["chunked_file_transfer"] = f"PASS ({sent} bytes, {chunks} chunks)"
+
+                async with websockets.connect(viewer_url, max_size=8 * 1024 * 1024) as second_viewer:
+                    await second_viewer.send(json.dumps({"type": "auth", "session_token": session_token}))
+                    try:
+                        await asyncio.wait_for(second_viewer.recv(), timeout=5)
+                        raise AssertionError("Second concurrent viewer was unexpectedly accepted")
+                    except websockets.ConnectionClosed as exc:
+                        require(exc.code == 4429, f"Expected one-viewer-per-device close 4429, got {exc.code}")
+                results["single_viewer_guard"] = "PASS (second viewer rejected without invalidating first session)"
+
+                await host.close(code=1011, reason="injected relay interruption")
+                await receive_json(viewer, "host_offline")
+                async with websockets.connect(host_url, max_size=8 * 1024 * 1024) as host2:
+                    await host2.send(json.dumps({"type": "auth", "secret": agent_secret}))
+                    await receive_json(host2, "connected")
+                    await receive_json(viewer, "host_online")
+                    await receive_json(host2, "viewer_joined")
+                    await host2.send(json.dumps({"type": "host_approved"}))
+                    await receive_json(viewer, "host_approved")
+                    await viewer.send(json.dumps({"type": "heartbeat"}))
+                    await receive_json(viewer, "heartbeat_ack")
+                results["host_reconnect_with_live_viewer"] = "PASS (same viewer socket/token survived host reconnect)"
 
         if reg["user"]["role"] == "admin":
             audit_rows = (await client.get("/api/admin/audit", headers=headers)).raise_for_status().json()
