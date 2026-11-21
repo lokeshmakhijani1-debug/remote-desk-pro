@@ -29,3 +29,23 @@ def test_hub_host_replacement_returns_previous_socket():
         assert hub.hosts["device-1"] is second
 
     asyncio.run(exercise())
+
+
+def test_hub_enforces_one_viewer_per_device_and_cleans_up_atomically():
+    import asyncio
+    from backend.main import Hub
+
+    async def exercise():
+        hub = Hub()
+        first, second = object(), object()
+        accepted, active, total = await hub.register_viewer("device-1", first, 50)
+        assert accepted and active == 1 and total == 1
+        accepted, active, total = await hub.register_viewer("device-1", second, 50)
+        assert not accepted and active == 1 and total == 1
+        assert hub.viewers["device-1"] == {first}
+        assert await hub.remove_viewer("device-1", first)
+        assert "device-1" not in hub.viewers
+        accepted, active, total = await hub.register_viewer("device-1", second, 50)
+        assert accepted and active == 1 and total == 1
+
+    asyncio.run(exercise())

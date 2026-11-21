@@ -23,7 +23,7 @@ Run RemoteDeskPro-Agent.exe by double-clicking it. On first launch, sign in to a
 
 - Device identity and the agent secret are stored in %APPDATA%\RemoteDeskPro\config.json; secrets are protected with Windows DPAPI.
 - Rotating logs are stored in %APPDATA%\RemoteDeskPro\agent.log.
-- The password is valid for 24 hours and is rotated on agent restart or when the user selects Rotate Password.
+- The password expires after 24 hours of inactivity; a successful viewer connection refreshes the idle window. It is rotated on agent restart or when the user selects Rotate Password.
 - Every remote session requires explicit local approval. The host can disconnect at any time.
 - CLI/headless mode remains available with --server, --device-id, --secret, and --dynamic-password.
 - RDP_SERVER overrides the server URL. The verified current Render endpoint is https://remote-desk-pro-pj29.onrender.com. The requested alias https://desk-pro-pi29.onrender.com returned HTTP 404 during the Phase 4 check and is not used as a default until it is provisioned.

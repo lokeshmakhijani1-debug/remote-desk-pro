@@ -103,6 +103,7 @@ async def run(base_url):
             results["host_online_presence"] = "PASS"
 
             async with websockets.connect(viewer_url, max_size=8 * 1024 * 1024) as viewer:
+                await receive_json(viewer, "relay_ready")
                 await viewer.send(json.dumps({"type": "auth", "session_token": session_token}))
                 await receive_json(viewer, "viewer_connected")
                 await receive_json(host, "viewer_joined")
@@ -162,16 +163,17 @@ async def run(base_url):
                 results["chunked_file_transfer"] = f"PASS ({sent} bytes, {chunks} chunks)"
 
                 async with websockets.connect(viewer_url, max_size=8 * 1024 * 1024) as second_viewer:
+                    await receive_json(second_viewer, "relay_ready")
                     await second_viewer.send(json.dumps({"type": "auth", "session_token": session_token}))
+                    rejection = await receive_json(second_viewer, "viewer_rejected", timeout=15)
+                    require(rejection.get("code") == 4429,
+                            f"Expected explicit one-viewer rejection, got {rejection}")
                     try:
-                        packet = await asyncio.wait_for(second_viewer.recv(), timeout=15)
-                        require(isinstance(packet, str), "Second viewer received unexpected binary data")
-                        rejection = json.loads(packet)
-                        require(rejection.get("type") == "viewer_rejected" and rejection.get("code") == 4429,
-                                f"Expected explicit one-viewer rejection, got {rejection}")
+                        await asyncio.wait_for(second_viewer.recv(), timeout=5)
+                        raise AssertionError("Second concurrent viewer remained connected after rejection")
                     except websockets.ConnectionClosed as exc:
                         require(exc.code == 4429, f"Expected one-viewer-per-device close 4429, got {exc.code}")
-                results["single_viewer_guard"] = "PASS (second viewer rejected without invalidating first session)"
+                results["single_viewer_guard"] = "PASS (explicit rejection event + close 4429; first session remains active)"
 
                 await host.close(code=1011, reason="injected relay interruption")
                 await receive_json(viewer, "host_offline")

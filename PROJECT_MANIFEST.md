@@ -171,27 +171,28 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 
 ### Session and relay lifecycle
 - Account and viewer session JWTs use the configured 30-day session lifetime. Established WebSockets do not expire mid-session; viewer reconnect reuses its device-scoped token.
-- Dynamic password default TTL is 24 hours and is refreshed on successful password verification; rotation or agent restart replaces it.
+- Dynamic password has a 24-hour idle TTL; successful viewer connection refreshes the inactivity window. Manual rotation or agent restart immediately invalidates the previous password.
 - Host WebSocket uses TLS CA bundle, keepalive, explicit timeouts and bounded reconnect backoff. Viewer sends application heartbeats and reports latency.
 - Backend relays host online/offline/explicit-disconnect states and re-notifies a waiting host when a viewer is present after host reconnect.
 - Replaced host sockets are closed; stale socket cleanup cannot mark a newer host offline.
-- Each device permits one active viewer. Every session requires visible host approval; unattended access remains disabled.
+- Each device permits one active viewer. Viewer registration/removal is atomic under the hub lock; the server sends `relay_ready` before auth and an explicit `viewer_rejected` event before close code 4429. Every session requires visible host approval; unattended access remains disabled.
 
 ### Frozen Windows build
 - PyInstaller 6.22.3; Python 3.14.0; Windows 10 build 19045.
 - Frozen EXE reconnect regression: PASS - 3 authenticated handshakes across injected WebSocket resets, 3 connection log entries, rotating log created. Harness uses an ephemeral local port: tests/smoke_frozen_reconnect.py.
 - EXE: E:/GitHub-Vault/remote-desk-pro-main/agent/dist/RemoteDeskPro-Agent.exe
-- Size: 21,579,929 bytes.
-- SHA-256: 12D3D4BE26A992D6E8F2AC6E1D3288D6D69F5188D253D8C2F428710691A0A934
-- Existing Desktop shortcut path: E:/Desktop/RemoteDeskPro-Agent.lnk; target path is unchanged and points to the EXE location.
+- Size: 21,580,391 bytes.
+- SHA-256: 8B7432A861A1532234808F3A8CBBD5A16DE1A1D81974751CF78600C90AC9F778
+- Existing Desktop shortcut path: E:/Desktop/RemoteDeskPro-Agent.lnk; target path is unchanged and points to the final EXE.
+- GUI startup smoke: PASS — visible Windows titled `Remote Desk Pro` and `Link this computer`; `%APPDATA%/RemoteDeskPro/agent.log` created.
 
 ### Validation
 - Python compileall: PASS.
-- pytest: 8 passed (one upstream Starlette/httpx deprecation warning).
+- pytest: 10 passed (one upstream Starlette/httpx deprecation warning).
 - Frontend TypeScript/Vite production build: PASS.
 - git diff --check: PASS.
 - Frozen EXE relay-reset test: PASS (3/3).
-- Live same-account host/viewer, password rotation, reconnect and audit-persistence E2E: prepared in tests/e2e_live_relay.py; execute after the backend commit deploys. The test creates one synthetic @example.com account and one paired device in the configured database.
+- Live same-account host/viewer E2E: `tests/e2e_live_relay.py` now waits for the explicit viewer-ready handshake and verifies the one-viewer rejection event/close. The first production run reached password rotation and WebSocket relay but timed out on the second-viewer guard; this commit makes viewer registration/removal atomic and exposes explicit handshake diagnostics. Rerun after this backend commit deploys. The test creates one synthetic @example.com account and one paired device in the configured database.
 - Render service: remote-desk-pro-pj29 (srv-dc0917utlv9c739h7o30), branch main, auto-deploy enabled, verified URL https://remote-desk-pro-pj29.onrender.com; /api/health returns HTTP 200, status=ok, database=postgresql.
 - Requested alias https://desk-pro-pi29.onrender.com returns HTTP 404 and is not configured as the agent default.
 - GitHub repository is PRIVATE. Release v1.0.0 can be published to repository collaborators; asset downloads require repository access. Repository visibility will not be changed as part of this release.

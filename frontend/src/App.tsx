@@ -21,9 +21,14 @@ export default function App(){
   if(manualDisconnect.current)return;
   attemptRef.current=attempt;setStatus(attempt?"Reconnecting (Attempt "+attempt+")...":"Connecting to relay...");
   const ws=new WebSocket(wsUrl("/ws/viewer/"+s.device_id));ws.binaryType="arraybuffer";socket.current=ws;
-  ws.onopen=()=>{ws.send(JSON.stringify({session_token:s.session_token}));if(heartbeatTimer.current)window.clearInterval(heartbeatTimer.current);heartbeatTimer.current=window.setInterval(()=>{if(ws.readyState===WebSocket.OPEN){heartbeatSentAt.current=Date.now();ws.send(JSON.stringify({type:"heartbeat"}));}},20000);};
+  ws.onopen=()=>{setStatus("Connecting to relay...");};
   ws.onmessage=e=>{
    if(typeof e.data==="string"){try{const m=JSON.parse(e.data);
+    if(m.type==="relay_ready"){
+     if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify({session_token:s.session_token}));
+     if(heartbeatTimer.current)window.clearInterval(heartbeatTimer.current);
+     heartbeatTimer.current=window.setInterval(()=>{if(ws.readyState===WebSocket.OPEN){heartbeatSentAt.current=Date.now();ws.send(JSON.stringify({type:"heartbeat"}));}},20000);
+    }
     if(m.type==="viewer_connected")setStatus(m.device_online?"Waiting for host approval...":"Host offline");
     if(m.type==="viewer_rejected"){setStatus("Another viewer is already connected");setLastError(String(m.detail||"Only one active viewer is allowed per device."));manualDisconnect.current=true;socket.current?.close(1000,"Viewer limit reached");}
     if(m.type==="host_online")setStatus("Waiting for host approval...");

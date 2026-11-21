@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-import asyncio, json, secrets, time
+import asyncio, json, logging, secrets, time
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -14,6 +14,8 @@ from sqlalchemy import select, func
 from .config import settings
 from .database import SessionLocal, init_db, User, Device, AuditEvent, verify_database_connection, DATABASE_KIND
 from .security import hash_secret, verify_secret, issue_token, read_token, new_device_id, new_dynamic_password
+
+logger = logging.getLogger("uvicorn.error")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -221,6 +223,25 @@ class Hub:
                     self.transfers.pop(transfer_id, None)
             return True
 
+    async def register_viewer(self, device_id: str, ws: WebSocket, max_sessions: int) -> tuple[bool, int, int]:
+        async with self.lock:
+            active = self.viewers.setdefault(device_id, set())
+            total = sum(len(group) for group in self.viewers.values())
+            if active or total >= max_sessions:
+                return False, len(active), total
+            active.add(ws)
+            return True, len(active), total + 1
+
+    async def remove_viewer(self, device_id: str, ws: WebSocket) -> bool:
+        async with self.lock:
+            active = self.viewers.get(device_id)
+            if not active or ws not in active:
+                return False
+            active.discard(ws)
+            if not active:
+                self.viewers.pop(device_id, None)
+            return True
+
     async def relay(self, device_id: str, sender: WebSocket, message: Any):
         async with self.lock:
             targets = ([self.hosts[device_id]] if device_id in self.hosts and self.hosts[device_id] is not sender else [])
@@ -344,12 +365,14 @@ async def host_socket(ws: WebSocket, device_id: str):
 @app.websocket("/ws/viewer/{device_id}")
 async def viewer_socket(ws: WebSocket, device_id: str):
     await ws.accept()
+    logger.info("viewer websocket opened device=%s", device_id)
+    await ws.send_json({"type":"relay_ready"})
     db = SessionLocal()
     registered = False
     user_id = None
     try:
         auth = await asyncio.wait_for(ws.receive_json(), timeout=10)
-        print("RDP_VIEWER_AUTH_RECEIVED", flush=True)
+        logger.info("viewer auth received device=%s", device_id)
         payload = read_token(auth.get("session_token",""))
         subject = payload.get("sub","").split(":")
         if len(subject) != 3 or subject[0] != "viewer" or subject[2] != device_id:
@@ -361,20 +384,13 @@ async def viewer_socket(ws: WebSocket, device_id: str):
             await ws.close(code=4404)
             return
         user_role = payload.get("role","read_only")
-        reject_viewer = False
-        async with hub.lock:
-            active = hub.viewers.setdefault(device_id,set())
-            if active or sum(len(group) for group in hub.viewers.values()) >= settings.max_concurrent_sessions:
-                reject_viewer = True
-            else:
-                active.add(ws)
-                registered = True
-        if reject_viewer:
-            print("RDP_VIEWER_REJECTING_CONCURRENT", flush=True)
+        registered, active_count, total_count = await hub.register_viewer(device_id, ws, settings.max_concurrent_sessions)
+        if not registered:
+            logger.warning("viewer rejected device=%s active_count=%s total_count=%s", device_id, active_count, total_count)
             await ws.send_json({"type":"viewer_rejected","code":4429,"detail":"Another viewer is already connected"})
             await ws.close(code=4429, reason="One active viewer per device")
             return
-        print("RDP_VIEWER_REGISTERED", flush=True)
+        logger.info("viewer registered device=%s active_count=%s total_count=%s", device_id, active_count, total_count)
         await ws.send_json({"type":"viewer_connected","device_online":device_id in hub.hosts})
         await hub.relay(device_id, ws, json.dumps({"type":"viewer_joined"}))
         while True:
@@ -449,8 +465,8 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                 if transfer.get("device_id") == device_id:
                     hub.transfers.pop(transfer_id, None)
             await hub.relay(device_id, ws, json.dumps({"type":"viewer_left"}))
-            async with hub.lock:
-                hub.viewers.get(device_id,set()).discard(ws)
+            removed = await hub.remove_viewer(device_id, ws)
+            logger.info("viewer disconnected device=%s removed=%s", device_id, removed)
         db.close()
 
 @app.get("/")
