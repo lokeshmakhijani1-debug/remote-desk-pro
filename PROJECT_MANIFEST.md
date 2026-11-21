@@ -343,3 +343,12 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 - Added backend/file_transfer.py: resumable partial-file storage, transfer-ID validation, acknowledged chunk offsets, duplicate-chunk conflict detection, optional Zstandard decode, a 100:1 expansion-ratio guard, bounded 256 KiB–1 MiB chunks, maximum 50 MiB file size, streaming SHA-256 verification, and atomic final rename.
 - Added tests/test_file_transfer.py for persisted resume, verified finalization, conflicting retransmission rejection, and incomplete-transfer rejection. The existing pytest CI job discovers this test module automatically.
 - IMPORTANT INTEGRATION BOUNDARY: this storage primitive is not yet connected to the active /ws/viewer and /ws/host protocol, the Windows host agent receive loop, or the React file-transfer UI. Existing live file transfer remains the previous viewer-to-host implementation. Do not claim resumable/compressed file transfer is available until those integrations and their end-to-end tests pass.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: 4eef31542972e1e36f8bd5c964b48a489abc828c.
+- EXE size: 21708591 bytes.
+- EXE SHA-256: DAFEF00F206834E1F3D956275B57F9E12016C1A393CEEF31BCDD45C40ED0BAE5.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
