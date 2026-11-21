@@ -482,3 +482,15 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+## Final Windows release and live E2E dialog hardening — 2026-11-21
+- Latest verified GitHub Release: latest-agent; tag points to the Windows build publication checkpoint on main.
+- Release URL: https://github.com/lokeshmakhijani1-debug/remote-desk-pro/releases/download/latest-agent/RemoteDeskPro-Agent.exe
+- Asset: RemoteDeskPro-Agent.exe; size 22,262,570 bytes; GitHub release API asset digest sha256:638729a546a2a6d647e5e67ea1a318c86c78d58614b72dcbc63d7c67cfbb7d21.
+- Build publication commit: 91d5e76634a31763520041f7c8c938cff1049f0b; release asset uploaded by github-actions[bot] and marked uploaded.
+- E2E hardening commit: aa727d607461095ae5394d863f4243b11ff625d8 (tests/e2e_remote_control_live.py).
+- Consent detection accepts Remote access request and Session approval only when the window is approximately 420x230. Approval uses the requested 34% horizontal / 80% vertical button position and a focused Space fallback. Every .activate() call is guarded by try/except Exception: pass.
+- Save dialogs use guarded activation; if the selected destination already exists, the E2E handler checks for the Windows overwrite prompt and confirms with Alt+Y.
+- The transfer test sends a 2 MiB Zstandard payload, deliberately interrupts the viewer socket after the first ACK, reconnects, resumes from the endpoint's persisted offset, and verifies final SHA-256 against the source payload.
+- Runtime boundary: this cloud-only change was not executed on the enrolled Windows desktop. CI syntax/unit checks do not establish that visible consent, native dialogs, socket interruption, or the 2 MiB resume path pass on the laptop. Final certification remains pending the Windows run.
+- Native input-dispatch implementation was not modified.
