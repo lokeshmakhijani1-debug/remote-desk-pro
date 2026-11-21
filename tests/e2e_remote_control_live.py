@@ -6,6 +6,7 @@ Run: py tests/e2e_remote_control_live.py
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import json
 import os
 import subprocess
@@ -194,6 +195,15 @@ def run_viewer(config: dict, target: subprocess.Popen) -> dict:
             context = browser.new_context(viewport={"width": 390, "height": 844},
                                           device_scale_factor=1, is_mobile=True, has_touch=True)
             context.add_init_script("localStorage.setItem('rdp-token', " + json.dumps(config["access_token"]) + ");")
+            context.add_init_script("""(() => {
+              const Native = window.WebSocket; window.__rdpSockets = []; window.__rdpE2eDropped = false;
+              function Wrapped(...args) { const ws = new Native(...args); window.__rdpSockets.push(ws); const add = ws.addEventListener.bind(ws);
+                ws.addEventListener = (type, listener, options) => { if (type !== "message") return add(type, listener, options);
+                  const wrapped = event => { if (!window.__rdpE2eDropped && typeof event.data === "string") { try {
+                    if (JSON.parse(event.data).type === "transfer_ack") { window.__rdpE2eDropped = true; window.setTimeout(() => ws.close(4001, "E2E simulated interruption"), 0); }
+                  } catch {} } return listener.call(ws, event); }; return add(type, wrapped, options); }; return ws; }
+              Wrapped.prototype = Native.prototype; Object.setPrototypeOf(Wrapped, Native); window.WebSocket = Wrapped;
+            })();""")
             page = context.new_page()
             page.on("console", lambda msg: result["page_console_errors"].append(msg.text) if msg.type == "error" else None)
             def observe_socket(ws):
@@ -353,6 +363,32 @@ def run_viewer(config: dict, target: subprocess.Popen) -> dict:
             except Exception as exc:
                 result["checks"]["keystrokes"] = False
                 result["errors"].append(f"keyboard: {type(exc).__name__}: {exc}")
+            # Zstandard transfer with one deliberate viewer socket interruption after the first ACK.
+            transfer_source = Path(tempfile.gettempdir()) / "rdp-transfer-e2e-source.bin"
+            transfer_destination = Path(tempfile.gettempdir()) / "rdp-transfer-e2e-received.bin"
+            transfer_payload = os.urandom(2 * 1024 * 1024)
+            transfer_source.write_bytes(transfer_payload)
+            expected_transfer_hash = hashlib.sha256(transfer_payload).hexdigest()
+            page.locator('input[type="file"]').set_input_files(str(transfer_source))
+            page.get_by_label("Zstandard compression (WASM)").check()
+            page.get_by_role("button", name="Send selected file").click()
+            save_dialog = wait_until(lambda: (items if (items := pyautogui.getWindowsWithTitle("Save As")) else None), 35, "Host save dialog did not appear")
+            save_dialog[0].activate(); time.sleep(0.3); pyautogui.hotkey("ctrl", "a")
+            pyautogui.write(str(transfer_destination), interval=0.005); pyautogui.press("enter")
+            wait_until(lambda: page.evaluate("() => window.__rdpE2eDropped === true"), 45, "Transfer did not receive first ACK / disconnect trigger")
+            result["checks"]["transfer_disconnect_injected"] = True
+            wait_until(lambda: (items if (items := (pyautogui.getWindowsWithTitle("Remote Desk Pro") or pyautogui.getWindowsWithTitle("Remote access request"))) else None), 45, "Host did not request consent after reconnect")
+            approve_host_consent()
+            resumed_dialog = wait_until(lambda: (items if (items := pyautogui.getWindowsWithTitle("Save As")) else None), 35, "Host resume destination dialog did not appear")
+            resumed_dialog[0].activate(); time.sleep(0.3); pyautogui.hotkey("ctrl", "a")
+            pyautogui.write(str(transfer_destination), interval=0.005); pyautogui.press("enter")
+            wait_until(lambda: "File received and SHA-256 verified" in page.locator(".transfer-tools").inner_text(), 90, "Resumed Zstandard transfer failed SHA-256 verification")
+            received_hash = hashlib.sha256(transfer_destination.read_bytes()).hexdigest()
+            result["checks"]["zstd_transfer_resume"] = received_hash == expected_transfer_hash
+            result["checks"]["transfer_sha256_match"] = received_hash == expected_transfer_hash
+            result["transfer"] = {"bytes": len(transfer_payload), "compression": "zstd", "disconnects_injected": 1, "sha256": received_hash}
+            if received_hash != expected_transfer_hash: result["errors"].append("Resumed transfer SHA-256 mismatch")
+            transfer_source.unlink(missing_ok=True); transfer_destination.unlink(missing_ok=True)
             result["target"] = read_state()
             result["canvas"] = {"css_rect": rect, "remote_frame": dims}
             context.close()
@@ -372,7 +408,8 @@ def main() -> int:
         report = run_viewer(config, target)
         report["result"] = "PASS" if all(report.get("checks", {}).get(k) for k in
             ("viewer_authenticated", "relay_session_approved", "touch_click",
-             "cursor_move", "vertical_scroll", "horizontal_scroll", "keystrokes")) else "PARTIAL"
+             "cursor_move", "vertical_scroll", "horizontal_scroll", "keystrokes",
+             "zstd_transfer_resume", "transfer_sha256_match")) else "PARTIAL"
         report["device_id_suffix"] = config["device_id"][-3:]
         measured = [v for k, v in report.get("latency_ms", {}).items()
                     if k in ("touch_to_click", "pointer_move_round_trip",
