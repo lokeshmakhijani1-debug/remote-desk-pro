@@ -253,8 +253,8 @@ class Hub:
                     await target.send_bytes(message)
                 else:
                     await target.send_text(message)
-            except Exception:
-                pass
+            except (WebSocketDisconnect, OSError, RuntimeError):
+                logger.warning("relay delivery failed device=%s target=%s", device_id, type(target).__name__, exc_info=True)
 
     def is_approved(self, device_id: str) -> bool:
         return device_id in self.approved
@@ -399,8 +399,12 @@ async def viewer_socket(ws: WebSocket, device_id: str):
     user_id = None
     try:
         auth = await asyncio.wait_for(ws.receive_json(), timeout=10)
-        logger.info("viewer auth received device=%s", device_id)
-        payload = read_token(auth.get("session_token",""))
+        if not isinstance(auth, dict) or auth.get("type") != "auth":
+            logger.warning("viewer auth rejected device=%s reason=invalid_handshake_frame", device_id)
+            await ws.close(code=4401, reason="Invalid viewer authentication frame")
+            return
+        logger.info("viewer auth frame received device=%s", device_id)
+        payload = read_token(str(auth.get("session_token", "")))
         subject = payload.get("sub","").split(":")
         if len(subject) != 3 or subject[0] != "viewer" or subject[2] != device_id:
             await ws.close(code=4401)
@@ -419,7 +423,16 @@ async def viewer_socket(ws: WebSocket, device_id: str):
             return
         logger.info("viewer registered device=%s active_count=%s total_count=%s", device_id, active_count, total_count)
         await ws.send_json({"type":"viewer_connected","device_online":device_id in hub.hosts})
-        await hub.relay(device_id, ws, json.dumps({"type":"viewer_joined"}))
+        host_socket = hub.hosts.get(device_id)
+        if host_socket is not None:
+            try:
+                await host_socket.send_json({"type": "viewer_joined"})
+                logger.info("viewer_joined delivered to host device=%s", device_id)
+            except (WebSocketDisconnect, OSError, RuntimeError):
+                logger.exception("viewer_joined delivery failed device=%s", device_id)
+                await ws.send_json({"type": "host_offline"})
+        else:
+            logger.warning("viewer registered without a connected host device=%s", device_id)
         while True:
             packet = await ws.receive()
             raw = packet.get("bytes") if packet.get("bytes") is not None else packet.get("text")
