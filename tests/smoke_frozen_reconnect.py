@@ -21,7 +21,9 @@ async def main():
         handshakes += 1
         await ws.send(json.dumps({"type": "connected", "device_id": "build-smoke"}))
         await asyncio.sleep(0.45)
-        await ws.close(code=1011, reason="injected network reset")
+        # Abort the transport rather than performing a graceful close handshake;
+        # this simulates a relay TCP reset and exercises the real reconnect path.
+        ws.transport.abort()
 
     smoke_root = Path(tempfile.mkdtemp(prefix="rdp-frozen-smoke-"))
     env = os.environ.copy()
