@@ -197,11 +197,23 @@ def run_viewer(config: dict, target: subprocess.Popen) -> dict:
             context.add_init_script("localStorage.setItem('rdp-token', " + json.dumps(config["access_token"]) + ");")
             context.add_init_script("""(() => {
               const Native = window.WebSocket; window.__rdpSockets = []; window.__rdpE2eDropped = false;
-              function Wrapped(...args) { const ws = new Native(...args); window.__rdpSockets.push(ws); const add = ws.addEventListener.bind(ws);
-                ws.addEventListener = (type, listener, options) => { if (type !== "message") return add(type, listener, options);
-                  const wrapped = event => { if (!window.__rdpE2eDropped && typeof event.data === "string") { try {
-                    if (JSON.parse(event.data).type === "transfer_ack") { window.__rdpE2eDropped = true; window.setTimeout(() => ws.close(4001, "E2E simulated interruption"), 0); }
-                  } catch {} } return listener.call(ws, event); }; return add(type, wrapped, options); }; return ws; }
+              function Wrapped(...args) {
+                const ws = new Native(...args); window.__rdpSockets.push(ws);
+                const descriptor = Object.getOwnPropertyDescriptor(Native.prototype, "onmessage");
+                Object.defineProperty(ws, "onmessage", { configurable: true,
+                  get() { return descriptor.get.call(ws); },
+                  set(handler) { descriptor.set.call(ws, event => {
+                    if (!window.__rdpE2eDropped && typeof event.data === "string") {
+                      try { if (JSON.parse(event.data).type === "transfer_ack") {
+                        window.__rdpE2eDropped = true;
+                        window.setTimeout(() => ws.close(4001, "E2E simulated interruption"), 0);
+                      } } catch {}
+                    }
+                    if (handler) return handler.call(ws, event);
+                  }); }
+                });
+                return ws;
+              }
               Wrapped.prototype = Native.prototype; Object.setPrototypeOf(Wrapped, Native); window.WebSocket = Wrapped;
             })();""")
             page = context.new_page()
@@ -288,11 +300,12 @@ def run_viewer(config: dict, target: subprocess.Popen) -> dict:
                 result["latency_ms"]["touch_timeout"] = round((time.perf_counter()-started)*1000, 1)
 
             # A separate mouse click checks the same target even if touch delivery fails.
-            if read_state().get("clicks", 0) < 1:
+            if True:
+                mouse_click_before = read_state().get("clicks", 0)
                 mouse_started = time.perf_counter()
                 page.mouse.click(click["x"], click["y"])
                 try:
-                    wait_until(lambda: (s if (s := read_state()).get("clicks", 0) >= 1 else None),
+                    wait_until(lambda: (s if (s := read_state()).get("clicks", 0) >= mouse_click_before + 1 else None),
                                8, "Windows target did not register mouse click")
                     result["checks"]["mouse_click"] = True
                     result["latency_ms"]["mouse_click_to_event"] = round((time.perf_counter()-mouse_started)*1000, 1)
@@ -408,8 +421,8 @@ def main() -> int:
         report = run_viewer(config, target)
         report["result"] = "PASS" if all(report.get("checks", {}).get(k) for k in
             ("viewer_authenticated", "relay_session_approved", "touch_click",
-             "cursor_move", "vertical_scroll", "horizontal_scroll", "keystrokes",
-             "zstd_transfer_resume", "transfer_sha256_match")) else "PARTIAL"
+             "mouse_click", "cursor_move", "vertical_scroll", "horizontal_scroll", "keystrokes",
+             "transfer_disconnect_injected", "zstd_transfer_resume", "transfer_sha256_match")) else "PARTIAL"
         report["device_id_suffix"] = config["device_id"][-3:]
         measured = [v for k, v in report.get("latency_ms", {}).items()
                     if k in ("touch_to_click", "pointer_move_round_trip",
