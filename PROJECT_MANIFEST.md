@@ -235,5 +235,15 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 - `git diff --check`: PASS.
 - Host input unit tests include DPI scaling across differing MSS/PyAutoGUI resolutions, mouse click dispatch, modifier lifecycle, scrolling, release-on-disconnect, and backend control validation.
 - Public download route test: PASS; TestClient verified HTTP 200, attachment filename, executable content type, and payload size.
-- Live Render deployment and public internet download are verified separately after the GitHub push and Render auto-deploy. Local route tests do not substitute for that live check.
+- Live Render deployment and public internet download were verified after the GitHub push: health HTTP 200 with PostgreSQL, application and manifest HTTP 200, and GET `/download/agent` HTTP 200 with the full executable downloaded and SHA-256 matched to the authoritative build.
 - Full remote-control interaction through a real external viewer and production Render WebSocket is not claimed by the local Windows input smoke test; host consent remains mandatory and the agent captures the primary monitor only.
+
+
+### Post-push CI and Render certification
+- GitHub Actions run: `44896078456` for commit `f3defe6ddb1d0a0a09d0870a432837e2d8d89ae2` - **SUCCESS**.
+- Backend job: **SUCCESS**; the `python -m pytest -q` workflow step completed successfully.
+- Frontend job: **SUCCESS**; the `npm run build` workflow step completed successfully.
+- Render build: `bld-dc0ndvfb9u1s73bnfea0` - **SUCCEEDED** for commit `f3defe6ddb1d0a0a09d0870a432837e2d8d89ae2`.
+- Render deployment: `dep-dc0ndvfb9u1s73bnfe9g` - **SUCCEEDED**.
+- Live public GET download verified from the internet: HTTP 200, content length 21,586,937 bytes, content type `application/vnd.microsoft.portable-executable`; downloaded SHA-256 exactly matched `C1BC99DCBC631DA6DC532F505B4620D908A0ECA71BAA2A968BA55DA90C529223`.
+- Public download URL: https://remote-desk-pro-pj29.onrender.com/download/agent
