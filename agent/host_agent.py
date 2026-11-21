@@ -277,8 +277,11 @@ async def run(args, stop_event=None):
             log.warning("Relay/network interruption (%s); reconnecting in %ss.", exc, delay)
             set_status("Server waking up / unreachable — retrying...")
         if stop_event is None:
+            # The relay session and its async tasks have fully unwound here. A
+            # synchronous wait is deliberate: the frozen Windows one-file build
+            # can stall asyncio timer callbacks after a socket reset.
             log.info("Reconnect loop sleeping for %ss.", delay)
-            await asyncio.sleep(delay)
+            time.sleep(delay)
             log.info("Reconnect delay elapsed; retrying relay.")
         elif stop_event.wait(delay):
             break
