@@ -464,3 +464,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+
+## Viewer-to-host consent relay repair — 2026-11-21
+- Root cause: the browser viewer's first WebSocket authentication frame omitted the protocol discriminator `type: "auth"`, while the Windows host and the repository's live relay harness both use explicit typed authentication frames. The viewer route previously accepted an untyped frame implicitly, making the browser/relay handshake inconsistent with the established protocol and fragile against strict relay deployments.
+- Frontend change: `frontend/src/App.tsx` now sends `{type:"auth", session_token}` after receiving `relay_ready`; the same-origin `wsUrl("/ws/viewer/" + device_id)` remains unchanged.
+- Backend change: `backend/main.py` validates the explicit viewer auth discriminator before decoding the device-scoped session token. After registration it delivers `viewer_joined` directly to the currently registered host socket, with success/failure logging and a host-offline response if delivery fails. Relay delivery exceptions now emit structured server logs instead of being silently swallowed.
+- Protocol/endpoints: HTTPS REST `POST /api/devices/connect`; WSS `/ws/viewer/{device_id}`; WSS `/ws/host/{device_id}`; health `GET /api/health` and `GET /health`. The Dockerfile builds `frontend/dist`, copies it into the FastAPI runtime image, and `backend/main.py` registers WebSocket/API routes before the root static mount. Render deploys the Dockerfile from `main` with autoDeploy enabled.
+- Protected areas: native Windows cursor scaling, `_focus_target_at_cursor()`, vertical/horizontal wheel dispatch, and the file-transfer protocol were not changed.
+- Validation gate: GitHub Actions frontend build + backend pytest/compile must pass. Live Render health and frontend bundle must be checked after auto-deploy; a visible Windows consent dialog still requires the enrolled Windows host to be online and cannot be certified by cloud CI alone.
