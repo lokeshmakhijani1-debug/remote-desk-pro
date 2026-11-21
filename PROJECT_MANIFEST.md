@@ -392,3 +392,12 @@ $ErrorActionPreference='Stop'; $base='https://remote-desk-pro-pj29.onrender.com'
 - Current release SHA-256 remains the older published build until a new successful Windows Actions run completes and its release asset/hash is confirmed.
 
 - Follow-up CI diagnosis: the initial Linux test fix exposed an additional expectation mismatch: Windows `pyautogui.scroll` consumes notch counts, while native horizontal `mouse_event` consumes 120-unit `WHEEL_DELTA`. Vertical dispatch now divides the converted delta by 120 before calling PyAutoGUI; horizontal remains native `MOUSEEVENTF_HWHEEL` with signed 120-unit delta (commit `739f887751123d989779cee2b3cfe487706935be`). CI rerun required.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: 739f887751123d989779cee2b3cfe487706935be.
+- EXE size: 22264493 bytes.
+- EXE SHA-256: C474C1C0043CBB0C924F7BA1CA82DEA81745BD2933543651F1312C05924D0FAB.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
