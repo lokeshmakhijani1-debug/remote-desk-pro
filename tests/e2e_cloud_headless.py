@@ -16,7 +16,10 @@ def check(ok, message):
 async def event(ws, kind, timeout=25):
     end = time.monotonic() + timeout
     while time.monotonic() < end:
-        raw = await asyncio.wait_for(ws.recv(), max(.1, end-time.monotonic()))
+        try:
+            raw = await asyncio.wait_for(ws.recv(), max(.1, end-time.monotonic()))
+        except websockets.exceptions.ConnectionClosed as exc:
+            raise RuntimeError(f"Socket closed while waiting for {kind}; close_code={ws.close_code}; close_reason={ws.close_reason}") from exc
         if isinstance(raw, bytes): continue
         value = json.loads(raw)
         if value.get("type") == kind: return value
@@ -62,7 +65,7 @@ async def main():
         import host_agent
         root = Path(tempfile.mkdtemp(prefix="rdp-cloud-host-"))
         destination = root/"resumable-proof.bin"
-        applied, consents = [], 0
+        applied, consents, host_failures, host_status = [], 0, [], []
         connected = asyncio.Event()
         stop = threading.Event()
         async def approve(_device, _password):
@@ -71,7 +74,10 @@ async def main():
             return True
         async def no_clipboard(_ws, _running): await asyncio.Event().wait()
         host_agent.set_consent_callback(approve)
-        host_agent.set_status_callback(lambda status: connected.set() if status == "Connected to relay. Waiting for a viewer..." else None)
+        def status_hook(status):
+            host_status.append(status)
+            if status == "Connected to relay. Waiting for a viewer...": connected.set()
+        host_agent.set_status_callback(status_hook)
         host_agent.encode_screen = lambda: b"\xff\xd8RDP-CLOUD-VIRTUAL-FRAME\xff\xd9"
         host_agent.apply_control = lambda item: (applied.append(dict(item)) or True)
         host_agent.release_all_inputs = lambda: None
@@ -79,6 +85,10 @@ async def main():
         host_agent.choose_save_path = lambda _name: str(destination)
         args = SimpleNamespace(server=BASE,device_id=paired["device_id"],secret=paired["agent_secret"],dynamic_password=paired["dynamic_password"])
         host_task = asyncio.create_task(host_agent.run_once(args, stop))
+        def capture_host_failure(task):
+            if not task.cancelled() and task.exception() is not None:
+                host_failures.append(f"{type(task.exception()).__name__}: {task.exception()}")
+        host_task.add_done_callback(capture_host_failure)
         wsbase = BASE.replace("https://","wss://").replace("http://","ws://")
         viewer = None
         try:
@@ -134,6 +144,7 @@ async def main():
             check(destination.is_file() and hashlib.sha256(destination.read_bytes()).hexdigest()==digest,"Saved file checksum mismatch")
             check(consents>=2,f"Expected consent hook on both viewer sessions; got {consents}")
             result["checks"]["synthetic_auto_consent_hook"] = "PASS"
+            result["host_status"] = host_status
             result["checks"]["zstd_2mib_resume_sha256"] = "PASS"
             result["transfer"] = {"bytes":TOTAL,"chunk_size":CHUNK,"chunks":len(chunks),"compression":"zstd",
                 "interrupted_after_acknowledged_bytes":CHUNK,"resume_offset":resumed["next_offset"],"sha256":digest}
@@ -146,9 +157,13 @@ async def main():
                 await asyncio.gather(host_task,return_exceptions=True)
             for f in root.glob("*"): f.unlink(missing_ok=True)
             root.rmdir()
+            result["host_agent_failures"] = host_failures
+            result["host_status"] = host_status
         result["status"] = "PASS"
     except Exception as exc:
         result["errors"].append(f"{type(exc).__name__}: {exc}")
+        if "host_status" in locals(): result["host_status"] = host_status
+        if "host_failures" in locals(): result["host_agent_failures"] = host_failures
     REPORT.parent.mkdir(parents=True,exist_ok=True)
     REPORT.write_text(json.dumps(result,indent=2,sort_keys=True),encoding="utf-8")
     print("CLOUD_E2E_JSON_BEGIN")
