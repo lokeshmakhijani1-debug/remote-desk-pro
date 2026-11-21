@@ -327,3 +327,13 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 - Certification gate remains open until an approved live session passes touch, cursor, vertical wheel, native horizontal wheel, keyboard, and records non-empty latency metrics.
 - Final local agent connectivity check: one logical agent process remains, but **0 established relay connections** were observed during final cleanup; do not describe it as healthy or online until connectivity is restored.
 - Code and binary commit: 21d296d01e1f049cb22e38619faa04a0857b54a6
+
+
+## Cloud-only implementation checkpoint (2026-11-21)
+- Added root GET /health alias for the existing database-verified /api/health handler.
+- Added GET /api/download/agent alias for the existing /download/agent handler. Both serve backend/downloads/RemoteDeskPro-Agent.exe; return 503 until a build artifact is present in the Render image.
+- Added .github/workflows/build-windows.yml: Windows runner builds the one-file/windowed agent, reports size and SHA-256, publishes a latest-agent release asset, commits the EXE into the Render image context, and uploads a 30-day workflow artifact.
+- The repository is private, so Render download routes serve the committed binary; they do not redirect unauthenticated clients to a private GitHub release asset.
+- Added zstandard>=0.23,<1 to backend and agent requirements in preparation for the isolated transfer engine.
+- NOT IMPLEMENTED/CERTIFIED: resumable transfer protocol, durable acknowledged-offset state, compression/decompression guards in the active relay, transfer UI pause/resume controls, and Windows live E2E. Existing transfer remains the prior 50 MiB / 192 KiB viewer-to-host flow. Existing input-dispatch modules were not edited.
+- Pending verification: GitHub Actions run, Render deployment and both route HTTP checks, and local Windows E2E (host consent, touch/click, cursor, vertical/horizontal scroll, keyboard, transfer resume/compression, and latency min/avg/max).
