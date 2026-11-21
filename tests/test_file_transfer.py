@@ -1,0 +1,57 @@
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+
+import pytest
+
+from backend.file_transfer import (
+    MIN_CHUNK_SIZE,
+    ResumableTransferStore,
+    TransferError,
+    TransferManifest,
+)
+
+
+def test_resumable_chunks_finalize_atomically(tmp_path: Path) -> None:
+    payload = b"A" * (MIN_CHUNK_SIZE + 17)
+    transfer_id = "12345678-1234-5678-1234-567812345678"
+    store = ResumableTransferStore(tmp_path, MIN_CHUNK_SIZE)
+    manifest = TransferManifest(
+        transfer_id, "payload.bin", len(payload), hashlib.sha256(payload).hexdigest(),
+        MIN_CHUNK_SIZE, "none",
+    )
+    store.begin(manifest)
+    first = payload[:MIN_CHUNK_SIZE]
+    store.append(transfer_id, 0, first, "none")
+    resumed = ResumableTransferStore(tmp_path, MIN_CHUNK_SIZE)
+    assert resumed.status(transfer_id)["next_missing_offset"] == MIN_CHUNK_SIZE
+    resumed.append(transfer_id, MIN_CHUNK_SIZE, payload[MIN_CHUNK_SIZE:], "none")
+    destination = resumed.finalize(transfer_id)
+    assert destination.read_bytes() == payload
+    assert not (tmp_path / f"{transfer_id}.part").exists()
+
+
+def test_conflicting_retransmission_is_rejected(tmp_path: Path) -> None:
+    payload = b"B" * MIN_CHUNK_SIZE
+    transfer_id = "12345678-1234-5678-1234-567812345679"
+    store = ResumableTransferStore(tmp_path)
+    store.begin(TransferManifest(
+        transfer_id, "payload.bin", len(payload), hashlib.sha256(payload).hexdigest(),
+        MIN_CHUNK_SIZE, "none",
+    ))
+    store.append(transfer_id, 0, payload, "none")
+    with pytest.raises(TransferError):
+        store.append(transfer_id, 0, b"C" * MIN_CHUNK_SIZE, "none")
+
+
+def test_finalize_rejects_missing_chunks(tmp_path: Path) -> None:
+    payload = b"C" * (MIN_CHUNK_SIZE + 1)
+    transfer_id = "12345678-1234-5678-1234-567812345670"
+    store = ResumableTransferStore(tmp_path)
+    store.begin(TransferManifest(
+        transfer_id, "payload.bin", len(payload), hashlib.sha256(payload).hexdigest(),
+        MIN_CHUNK_SIZE, "none",
+    ))
+    with pytest.raises(TransferError):
+        store.finalize(transfer_id)
