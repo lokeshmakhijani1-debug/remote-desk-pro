@@ -325,6 +325,9 @@ async def host_socket(ws: WebSocket, device_id: str):
         # Network resets (including Windows WinError 64 on the client) are normal
         # disconnects; the host agent reconnects with bounded backoff.
         pass
+    except RuntimeError as exc:
+        if "disconnect message has been received" not in str(exc):
+            raise
     finally:
         # Removal and identity check are atomic under the Hub lock.
         was_current_host = await hub.remove_host(device_id, ws)
@@ -357,13 +360,17 @@ async def viewer_socket(ws: WebSocket, device_id: str):
             await ws.close(code=4404)
             return
         user_role = payload.get("role","read_only")
+        reject_viewer = False
         async with hub.lock:
             active = hub.viewers.setdefault(device_id,set())
             if active or sum(len(group) for group in hub.viewers.values()) >= settings.max_concurrent_sessions:
-                await ws.close(code=4429)
-                return
-            active.add(ws)
-            registered = True
+                reject_viewer = True
+            else:
+                active.add(ws)
+                registered = True
+        if reject_viewer:
+            await ws.close(code=4429, reason="One active viewer per device")
+            return
         await ws.send_json({"type":"viewer_connected","device_online":device_id in hub.hosts})
         await hub.relay(device_id, ws, json.dumps({"type":"viewer_joined"}))
         while True:
@@ -424,6 +431,9 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                     await hub.relay(device_id, ws, raw)
     except (WebSocketDisconnect, OSError):
         pass
+    except RuntimeError as exc:
+        if "disconnect message has been received" not in str(exc):
+            raise
     except asyncio.TimeoutError:
         await ws.close(code=4408)
     except Exception:

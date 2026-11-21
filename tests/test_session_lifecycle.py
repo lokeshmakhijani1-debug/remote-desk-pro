@@ -15,3 +15,17 @@ def test_viewer_session_token_is_device_scoped_and_long_lived_for_reconnect():
     payload = read_token(viewer_token)
     assert payload["sub"] == "viewer:42:123456789"
     assert payload["exp"] - payload["iat"] >= 29 * 24 * 60 * 60
+
+
+def test_hub_host_replacement_returns_previous_socket():
+    import asyncio
+    from backend.main import Hub
+
+    async def exercise():
+        hub = Hub()
+        first, second = object(), object()
+        assert await hub.register_host("device-1", first) is None
+        assert await hub.register_host("device-1", second) is first
+        assert hub.hosts["device-1"] is second
+
+    asyncio.run(exercise())

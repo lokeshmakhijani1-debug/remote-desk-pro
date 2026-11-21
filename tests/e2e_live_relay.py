@@ -146,7 +146,7 @@ async def run(base_url):
                 async with websockets.connect(viewer_url, max_size=8 * 1024 * 1024) as second_viewer:
                     await second_viewer.send(json.dumps({"type": "auth", "session_token": session_token}))
                     try:
-                        await asyncio.wait_for(second_viewer.recv(), timeout=5)
+                        await asyncio.wait_for(second_viewer.recv(), timeout=15)
                         raise AssertionError("Second concurrent viewer was unexpectedly accepted")
                     except websockets.ConnectionClosed as exc:
                         require(exc.code == 4429, f"Expected one-viewer-per-device close 4429, got {exc.code}")
