@@ -73,6 +73,13 @@ def fake_pyautogui(monkeypatch):
     host_agent._PRESSED_KEYS.clear()
     host_agent._PRESSED_MOUSE_BUTTONS.clear()
     host_agent._PRIMARY_CAPTURE_SIZE = None
+    class FakeUser32:
+        def __init__(self):
+            self.calls = []
+            self.mouse_event = lambda *args: self.calls.append(args)
+    native = FakeUser32()
+    monkeypatch.setattr(host_agent.ctypes, "WinDLL", lambda *_args, **_kwargs: native, raising=False)
+    fake.native_user32 = native
     return fake
 
 
@@ -105,7 +112,9 @@ def test_keyboard_modifier_lifecycle_uses_down_and_up(fake_pyautogui):
 def test_mouse_wheel_dispatches_vertical_and_horizontal_scroll(fake_pyautogui):
     host_agent.apply_control({"event": "mouse_scroll", "deltaX": 120, "deltaY": -240})
     assert ("scroll", (2,), {"_pause": False}) in fake_pyautogui.calls
-    assert ("hscroll", (1,), {"_pause": False}) in fake_pyautogui.calls
+    assert fake_pyautogui.native_user32.calls
+    assert fake_pyautogui.native_user32.calls[-1][0] == 0x01000
+    assert fake_pyautogui.native_user32.calls[-1][3] == 120
 
 
 def test_disconnect_releases_held_inputs(fake_pyautogui):
