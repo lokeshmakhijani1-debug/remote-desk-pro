@@ -337,3 +337,9 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 - Added zstandard>=0.23,<1 to backend and agent requirements in preparation for the isolated transfer engine.
 - NOT IMPLEMENTED/CERTIFIED: resumable transfer protocol, durable acknowledged-offset state, compression/decompression guards in the active relay, transfer UI pause/resume controls, and Windows live E2E. Existing transfer remains the prior 50 MiB / 192 KiB viewer-to-host flow. Existing input-dispatch modules were not edited.
 - Pending verification: GitHub Actions run, Render deployment and both route HTTP checks, and local Windows E2E (host consent, touch/click, cursor, vertical/horizontal scroll, keyboard, transfer resume/compression, and latency min/avg/max).
+
+
+## Cloud transfer primitive (2026-11-21)
+- Added backend/file_transfer.py: resumable partial-file storage, transfer-ID validation, acknowledged chunk offsets, duplicate-chunk conflict detection, optional Zstandard decode, a 100:1 expansion-ratio guard, bounded 256 KiB–1 MiB chunks, maximum 50 MiB file size, streaming SHA-256 verification, and atomic final rename.
+- Added tests/test_file_transfer.py for persisted resume, verified finalization, conflicting retransmission rejection, and incomplete-transfer rejection. The existing pytest CI job discovers this test module automatically.
+- IMPORTANT INTEGRATION BOUNDARY: this storage primitive is not yet connected to the active /ws/viewer and /ws/host protocol, the Windows host agent receive loop, or the React file-transfer UI. Existing live file transfer remains the previous viewer-to-host implementation. Do not claim resumable/compressed file transfer is available until those integrations and their end-to-end tests pass.
