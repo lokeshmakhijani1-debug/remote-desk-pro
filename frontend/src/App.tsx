@@ -25,6 +25,7 @@ export default function App(){
   ws.onmessage=e=>{
    if(typeof e.data==="string"){try{const m=JSON.parse(e.data);
     if(m.type==="viewer_connected")setStatus(m.device_online?"Waiting for host approval...":"Host offline");
+    if(m.type==="viewer_rejected"){setStatus("Another viewer is already connected");setLastError(String(m.detail||"Only one active viewer is allowed per device."));manualDisconnect.current=true;socket.current?.close(1000,"Viewer limit reached");}
     if(m.type==="host_online")setStatus("Waiting for host approval...");
     if(m.type==="host_offline"){setStatus("Host offline");setLastError("Host relay disconnected.");}
     if(m.type==="host_disconnected"){setStatus("Disconnected by host");setLastError("The host closed the Remote Desk Pro agent.");manualDisconnect.current=true;setSession(null);socket.current?.close(1000,"Host disconnected");}

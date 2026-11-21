@@ -31,13 +31,31 @@ async def receive_json(ws, expected_type, timeout=12):
     raise AssertionError(f"Timed out waiting for {expected_type}")
 
 
+async def post_with_transport_retry(base_url, path, headers, payload, timeout):
+    """Retry only transient transport failures; a repeated password rotation is safe."""
+    last_error = None
+    for attempt in range(3):
+        try:
+            limits = httpx.Limits(max_keepalive_connections=0)
+            async with httpx.AsyncClient(base_url=base_url, timeout=timeout, limits=limits) as retry_client:
+                response = await retry_client.post(path, headers=headers, json=payload)
+                response.raise_for_status()
+                return response.json()
+        except (httpx.ReadError, httpx.ConnectError, httpx.RemoteProtocolError) as exc:
+            last_error = exc
+            if attempt == 2:
+                raise
+            await asyncio.sleep(1.0 * (attempt + 1))
+    raise last_error
+
+
 async def run(base_url):
     base_url = base_url.rstrip("/")
     ws_base = base_url.replace("https://", "wss://").replace("http://", "ws://")
     timeout = httpx.Timeout(30.0)
     results = {}
 
-    async with httpx.AsyncClient(base_url=base_url, timeout=timeout) as client:
+    async with httpx.AsyncClient(base_url=base_url, timeout=timeout, limits=httpx.Limits(max_keepalive_connections=0)) as client:
         health = (await client.get("/api/health")).raise_for_status()
         health_data = health.json()
         require(health_data.get("database") == "postgresql", f"Expected PostgreSQL, got {health_data}")
@@ -67,7 +85,7 @@ async def run(base_url):
             json={"device_id": device_id, "password": dynamic_password}
         )).raise_for_status().json()
         old_session_token = connect["session_token"]
-        rotated = (await client.post(f"/api/devices/{device_id}/rotate-password", headers=headers, json={})).raise_for_status().json()
+        rotated = await post_with_transport_retry(base_url, f"/api/devices/{device_id}/rotate-password", headers, {}, timeout)
         rejected_old = await client.post("/api/devices/connect", headers=headers, json={"device_id": device_id, "password": dynamic_password})
         require(rejected_old.status_code == 401, "Old dynamic password remained valid after rotation")
         dynamic_password = rotated["dynamic_password"]
@@ -146,8 +164,11 @@ async def run(base_url):
                 async with websockets.connect(viewer_url, max_size=8 * 1024 * 1024) as second_viewer:
                     await second_viewer.send(json.dumps({"type": "auth", "session_token": session_token}))
                     try:
-                        await asyncio.wait_for(second_viewer.recv(), timeout=15)
-                        raise AssertionError("Second concurrent viewer was unexpectedly accepted")
+                        packet = await asyncio.wait_for(second_viewer.recv(), timeout=15)
+                        require(isinstance(packet, str), "Second viewer received unexpected binary data")
+                        rejection = json.loads(packet)
+                        require(rejection.get("type") == "viewer_rejected" and rejection.get("code") == 4429,
+                                f"Expected explicit one-viewer rejection, got {rejection}")
                     except websockets.ConnectionClosed as exc:
                         require(exc.code == 4429, f"Expected one-viewer-per-device close 4429, got {exc.code}")
                 results["single_viewer_guard"] = "PASS (second viewer rejected without invalidating first session)"

@@ -349,6 +349,7 @@ async def viewer_socket(ws: WebSocket, device_id: str):
     user_id = None
     try:
         auth = await asyncio.wait_for(ws.receive_json(), timeout=10)
+        print("RDP_VIEWER_AUTH_RECEIVED", flush=True)
         payload = read_token(auth.get("session_token",""))
         subject = payload.get("sub","").split(":")
         if len(subject) != 3 or subject[0] != "viewer" or subject[2] != device_id:
@@ -369,8 +370,11 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                 active.add(ws)
                 registered = True
         if reject_viewer:
+            print("RDP_VIEWER_REJECTING_CONCURRENT", flush=True)
+            await ws.send_json({"type":"viewer_rejected","code":4429,"detail":"Another viewer is already connected"})
             await ws.close(code=4429, reason="One active viewer per device")
             return
+        print("RDP_VIEWER_REGISTERED", flush=True)
         await ws.send_json({"type":"viewer_connected","device_online":device_id in hub.hosts})
         await hub.relay(device_id, ws, json.dumps({"type":"viewer_joined"}))
         while True:
