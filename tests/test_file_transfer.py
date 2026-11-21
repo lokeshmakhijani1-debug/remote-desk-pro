@@ -55,3 +55,30 @@ def test_finalize_rejects_missing_chunks(tmp_path: Path) -> None:
     ))
     with pytest.raises(TransferError):
         store.finalize(transfer_id)
+
+
+def test_endpoint_receiver_persists_ack_and_verifies_sha256(tmp_path: Path) -> None:
+    from agent.resumable_transfer import EndpointFileReceiver
+
+    payload = b"R" * (MIN_CHUNK_SIZE + 9)
+    destination = tmp_path / "received.bin"
+    transfer_id = "12345678-1234-5678-1234-567812345681"
+    receiver = EndpointFileReceiver(destination, transfer_id, len(payload),
+                                    hashlib.sha256(payload).hexdigest(), MIN_CHUNK_SIZE, "none")
+    assert receiver.append(0, payload[:MIN_CHUNK_SIZE]) == MIN_CHUNK_SIZE
+    resumed = EndpointFileReceiver(destination, transfer_id, len(payload),
+                                   hashlib.sha256(payload).hexdigest(), MIN_CHUNK_SIZE, "none")
+    assert resumed.next_offset == MIN_CHUNK_SIZE
+    assert resumed.append(MIN_CHUNK_SIZE, payload[MIN_CHUNK_SIZE:]) == len(payload)
+    assert resumed.finalize().read_bytes() == payload
+
+
+def test_endpoint_receiver_rejects_bad_final_checksum(tmp_path: Path) -> None:
+    from agent.resumable_transfer import EndpointFileReceiver, EndpointTransferError
+
+    payload = b"S" * MIN_CHUNK_SIZE
+    receiver = EndpointFileReceiver(tmp_path / "bad.bin", "12345678-1234-5678-1234-567812345682",
+                                    len(payload), "0" * 64, MIN_CHUNK_SIZE, "none")
+    receiver.append(0, payload)
+    with pytest.raises(EndpointTransferError, match="SHA-256"):
+        receiver.finalize()
