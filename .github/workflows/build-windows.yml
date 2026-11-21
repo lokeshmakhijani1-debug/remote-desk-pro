@@ -87,6 +87,7 @@ jobs:
           git add backend/downloads/RemoteDeskPro-Agent.exe PROJECT_MANIFEST.md
           if (git diff --cached --quiet) { Write-Host "No binary or manifest changes to commit."; exit 0 }
           git commit -m "ci: publish latest Windows agent build"
+          git pull --rebase origin main
           git push origin HEAD:main
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
