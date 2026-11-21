@@ -101,7 +101,7 @@ async def main():
             check(any(x.get("event")=="mouse_move" for x in applied),"Input relay not observed by virtual host")
             result["checks"]["input_relay_virtual_host"] = "PASS"
 
-            payload = bytes((i*31+(i>>8)*17)%251 for i in range(TOTAL))
+            payload = os.urandom(TOTAL)
             digest = hashlib.sha256(payload).hexdigest()
             tid = uuid.uuid4().hex
             compressor = zstandard.ZstdCompressor(level=3)
