@@ -541,3 +541,16 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+
+## Linux headless live cloud E2E — final result (2026-11-21)
+- Final workflow: Live Cloud E2E run 44917365781 — **SUCCESS** on ubuntu-latest; source commit 873c9aa2428848638e7488ccf341a97d1888994e. The job completed all steps, including Playwright install, Render wake, live test, and report artifact upload.
+- Live target: https://remote-desk-pro-pj29.onrender.com. GET /health returned status=ok and database=postgresql.
+- Exact report status: **PASS**. Checks: render_health_postgresql=PASS; playwright_chromium_viewer=PASS; live_websocket_frame_delivery=PASS; input_relay_virtual_host=PASS; synthetic_auto_consent_hook=PASS; zstd_2mib_resume_sha256=PASS. errors=[]; host_agent_failures=[].
+- Actual agent loop: tests/e2e_cloud_headless.py imported and ran agent/host_agent.py run_once() on Linux. CI injected a synthetic-device-only auto-consent callback, virtual screen frame bytes, virtual input recorder, inert clipboard hook, and temporary save-path hook. It did not alter native Windows input dispatch or weaken production consent.
+- Transfer result: 2,097,152 bytes; eight 262,144-byte chunks; Zstandard compression; viewer socket deliberately disconnected after the first 262,144-byte acknowledged chunk; reconnect resumed at offset 262,144; receiver finalized and verified SHA-256 e56a80bfe9dc9551338d205cd74a39226347f82b438419ad0e94877216de4e7d.
+- Synthetic device: 368546278; role technician. The generated synthetic account/device is a test artifact in the production app database; the app exposes no safe self-service deletion route, so no destructive cleanup was attempted. No passwords, agent secrets, or session tokens were printed or committed.
+- JSON artifact: live-cloud-e2e-report, artifact ID 14712342924, expires 2026-12-21T15:07:11Z; ZIP SHA-256 f9154e848383bc0ad2595f20ae70f87780c96423fee6108cd391cd6a70fda429. Workflow logs also contain the complete JSON between CLOUD_E2E_JSON_BEGIN/END.
+- Earlier retries: run 44917048388 failed with a relay ConnectionClosedError after basic frame/input checks; run 44917239243 failed on a transient Render 502 during synthetic registration. The final retry adds detailed socket/host diagnostics and transient registration/pair/connect retries and passed.
+- Certification scope: **cloud protocol E2E PASS** for the deployed single-domain Render application and a Linux headless host-agent relay with virtual desktop hooks. This does not certify native Windows GUI consent, Win32 cursor/keyboard/wheel delivery, the Windows EXE runtime, or physical-display capture. Therefore the cloud service/protocol checks are green, but the complete Windows desktop product must not be labeled 100% end-to-end certified solely from this headless run.
+- Native Windows input-dispatch code remained unchanged.
