@@ -13,6 +13,24 @@ CHUNK, TOTAL = 256 * 1024, 2 * 1024 * 1024
 def check(ok, message):
     if not ok: raise AssertionError(message)
 
+async def post_json_retry(client, path, payload, headers=None, attempts=4):
+    last = None
+    for index in range(attempts):
+        try:
+            response = await client.post(path, json=payload, headers=headers)
+            if response.status_code in (502, 503, 504):
+                last = RuntimeError(f"Transient HTTP {response.status_code} from {path}")
+                await asyncio.sleep(2 ** index)
+                continue
+            response.raise_for_status()
+            return response.json()
+        except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError) as exc:
+            last = exc
+            if index + 1 == attempts: raise
+            await asyncio.sleep(2 ** index)
+    raise RuntimeError(f"Request retries exhausted for {path}: {last}")
+
+
 async def event(ws, kind, timeout=25):
     end = time.monotonic() + timeout
     while time.monotonic() < end:
@@ -35,16 +53,26 @@ async def main():
             check(health.get("status") == "ok" and health.get("database") == "postgresql", f"Health/DB mismatch: {health}")
             result["checks"]["render_health_postgresql"] = "PASS"
             suffix = uuid.uuid4().hex[:12]
-            registration = (await api.post("/api/auth/register", json={
-                "email":f"rdp-cloud-e2e-{suffix}@example.com",
-                "password":"Rdp-Cloud-"+uuid.uuid4().hex+"!"
-            })).raise_for_status().json()
+            email = f"rdp-cloud-e2e-{suffix}@example.com"
+            password = "Rdp-Cloud-" + uuid.uuid4().hex + "!"
+            registration = None
+            for attempt in range(4):
+                response = await api.post("/api/auth/register", json={"email":email,"password":password})
+                if response.status_code == 409:
+                    response = await api.post("/api/auth/login", json={"email":email,"password":password})
+                if response.status_code in (502,503,504):
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                response.raise_for_status()
+                registration = response.json()
+                break
+            if registration is None:
+                raise RuntimeError("Registration/login retries exhausted after transient Render gateway errors")
             token = registration["access_token"]
             headers = {"Authorization":"Bearer "+token}
-            paired = (await api.post("/api/devices/pair", headers=headers,
-                json={"name":"GitHub Actions headless "+suffix})).raise_for_status().json()
-            session = (await api.post("/api/devices/connect", headers=headers,
-                json={"device_id":paired["device_id"],"password":paired["dynamic_password"]})).raise_for_status().json()["session_token"]
+            paired = await post_json_retry(api, "/api/devices/pair", {"name":"GitHub Actions headless "+suffix}, headers)
+            session = (await post_json_retry(api, "/api/devices/connect",
+                {"device_id":paired["device_id"],"password":paired["dynamic_password"]}, headers))["session_token"]
             result["synthetic_device_id"] = paired["device_id"]
             result["synthetic_user_role"] = registration["user"]["role"]
 
