@@ -326,3 +326,4 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 - Deployment boundary: GitHub push triggers the configured Render auto-deploy; Render deployment of this commit and public download hash must be verified separately.
 - Certification gate remains open until an approved live session passes touch, cursor, vertical wheel, native horizontal wheel, keyboard, and records non-empty latency metrics.
 - Final local agent connectivity check: one logical agent process remains, but **0 established relay connections** were observed during final cleanup; do not describe it as healthy or online until connectivity is restored.
+- Code and binary commit: 21d296d01e1f049cb22e38619faa04a0857b54a6
