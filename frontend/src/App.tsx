@@ -52,7 +52,7 @@ export default function App(){
     if(m.type==="host_denied"){setStatus("Host denied this session");setLastError("The host denied the connection request.");}
     if(m.type==="heartbeat_ack"&&heartbeatSentAt.current)setLatency(Date.now()-heartbeatSentAt.current);
     if(m.type==="clipboard_update")setRemoteClipboard(String(m.text||""));
-    if(m.type==="file_accept")void uploadPendingFile();
+    if(m.type==="file_accept")void uploadPendingFile(transferOffset.current);
     if(m.type==="file_reject"){pendingFile.current=null;setTransferStatus("Host declined the file");}
     if(m.type==="file_complete"){pendingFile.current=null;setTransferStatus("File transfer complete");}
    }catch{setLastError("Received an invalid relay message.");}}
