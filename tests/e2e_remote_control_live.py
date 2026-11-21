@@ -171,18 +171,46 @@ def agent_log_contains_after(offset: int, marker: str) -> bool:
         return False
 
 
+def find_consent_dialog():
+    for title in ("Remote access request", "Session approval"):
+        for dialog in pyautogui.getWindowsWithTitle(title):
+            if abs(dialog.width - 420) <= 8 and abs(dialog.height - 230) <= 8:
+                return dialog
+    return None
+
+
 def approve_host_consent() -> None:
-    # The real desktop app's explicit consent dialog is approved, not bypassed.
-    windows = wait_until(lambda: pyautogui.getWindowsWithTitle("Remote access request"),
-                         35, "Host consent dialog did not appear")
-    dialog = windows[0]
-    dialog.activate()
-    time.sleep(0.4)
-    pyautogui.click(dialog.left + 170, dialog.top + 212)
-    time.sleep(0.5)
+    dialog = wait_until(find_consent_dialog, 35, "420x230 host consent dialog did not appear")
+    try:
+        dialog.activate()
+    except Exception:
+        pass
+    time.sleep(0.35)
+    pyautogui.click(dialog.left + int(dialog.width * 0.34),
+                    dialog.top + int(dialog.height * 0.80))
+    time.sleep(0.6)
+    if find_consent_dialog():
+        try:
+            dialog.activate()
+        except Exception:
+            pass
+        pyautogui.press("space")
     hwnd = ctypes.windll.user32.FindWindowW(None, "RDP E2E Input Target")
     if hwnd:
         ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
+
+
+def handle_save_overwrite() -> None:
+    for title in ("Confirm Save As", "Confirm overwrite", "Confirm File Replace"):
+        windows = pyautogui.getWindowsWithTitle(title)
+        if windows:
+            try:
+                windows[0].activate()
+            except Exception:
+                pass
+            pyautogui.hotkey("alt", "y")
+            return
+    raise TimeoutError("Overwrite confirmation dialog did not appear")
 
 
 def run_viewer(config: dict, target: subprocess.Popen) -> dict:
@@ -229,8 +257,7 @@ def run_viewer(config: dict, target: subprocess.Popen) -> dict:
             page.get_by_placeholder("Enter 6-digit password").fill(config["dynamic_password"])
             t0 = time.perf_counter()
             page.get_by_role("button", name="Connect", exact=True).first.click()
-            wait_until(lambda: (items if (items := (pyautogui.getWindowsWithTitle("Remote Desk Pro") or pyautogui.getWindowsWithTitle("Remote access request"))) else None),
-                       35, "Host consent dialog did not appear")
+            wait_until(find_consent_dialog, 35, "Host consent dialog did not appear")
             result["latency_ms"]["connect_to_consent"] = round((time.perf_counter()-t0)*1000, 1)
             log_path = Path(os.getenv("APPDATA", str(Path.home()))) / "RemoteDeskPro" / "agent.log"
             log_offset = log_path.stat().st_size if log_path.exists() else 0
@@ -240,7 +267,10 @@ def run_viewer(config: dict, target: subprocess.Popen) -> dict:
                        30, "Host approval was not acknowledged by the agent")
             result["latency_ms"]["consent_to_approved"] = round((time.perf_counter()-approval_started)*1000, 1)
             target_window_handle = wait_until(lambda: pyautogui.getWindowsWithTitle("RDP E2E Input Target"), 8, "Test target window not found after consent")
-            target_window_handle[0].activate()
+            try:
+                target_window_handle[0].activate()
+            except Exception:
+                pass
             result["checks"]["relay_session_approved"] = True
             page.get_by_role("button", name="Control", exact=True).click()
             canvas = page.locator("canvas").first
@@ -386,15 +416,27 @@ def run_viewer(config: dict, target: subprocess.Popen) -> dict:
             page.get_by_label("Zstandard compression (WASM)").check()
             page.get_by_role("button", name="Send selected file").click()
             save_dialog = wait_until(lambda: (items if (items := pyautogui.getWindowsWithTitle("Save file received from remote viewer")) else None), 35, "Host save dialog did not appear")
-            save_dialog[0].activate(); time.sleep(0.3); pyautogui.hotkey("ctrl", "a")
+            try:
+                save_dialog[0].activate()
+            except Exception:
+                pass
+            time.sleep(0.3); pyautogui.hotkey("ctrl", "a")
             pyautogui.write(str(transfer_destination), interval=0.005); pyautogui.press("enter")
+            if transfer_destination.exists():
+                handle_save_overwrite()
             wait_until(lambda: page.evaluate("() => window.__rdpE2eDropped === true"), 45, "Transfer did not receive first ACK / disconnect trigger")
             result["checks"]["transfer_disconnect_injected"] = True
-            wait_until(lambda: (items if (items := (pyautogui.getWindowsWithTitle("Remote Desk Pro") or pyautogui.getWindowsWithTitle("Remote access request"))) else None), 45, "Host did not request consent after reconnect")
+            wait_until(find_consent_dialog, 45, "Host did not request consent after reconnect")
             approve_host_consent()
             resumed_dialog = wait_until(lambda: (items if (items := pyautogui.getWindowsWithTitle("Save file received from remote viewer")) else None), 35, "Host resume destination dialog did not appear")
-            resumed_dialog[0].activate(); time.sleep(0.3); pyautogui.hotkey("ctrl", "a")
+            try:
+                resumed_dialog[0].activate()
+            except Exception:
+                pass
+            time.sleep(0.3); pyautogui.hotkey("ctrl", "a")
             pyautogui.write(str(transfer_destination), interval=0.005); pyautogui.press("enter")
+            if transfer_destination.exists():
+                handle_save_overwrite()
             wait_until(lambda: "File received and SHA-256 verified" in page.locator(".transfer-tools").inner_text(), 90, "Resumed Zstandard transfer failed SHA-256 verification")
             received_hash = hashlib.sha256(transfer_destination.read_bytes()).hexdigest()
             result["checks"]["zstd_transfer_resume"] = received_hash == expected_transfer_hash
