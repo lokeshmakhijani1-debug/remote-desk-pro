@@ -6,7 +6,7 @@ Updated: 2026-11-21 (IST)
 - Repository: lokeshmakhijani1-debug/remote-desk-pro
 - Branch: main
 - Phase 4 starting commit: 347dcd9a67bd630a64fc787956881e3a8d9f050e
-- Current main commit: 2a08441 (pushed to origin/main and deployed to Render).
+- Current main commit: d4b88e3 (pushed to origin/main; Render auto-deploy triggered).
 - Render service: srv-dc0917utlv9c739h7o30 (remote-desk-pro-pj29)
 - Verified live URL: https://remote-desk-pro-pj29.onrender.com
 - Requested alias https://desk-pro-pi29.onrender.com returns HTTP 404.
@@ -38,7 +38,7 @@ Updated: 2026-11-21 (IST)
 - Audit persistence: PASS — read-only Supabase query confirmed 12 persisted `rdp_audit_events` rows for the successful E2E device. The synthetic account role is technician, so the admin-only API was skipped; direct DB read verified persistence.
 
 ## Release gate
-1. Phase 4 source and viewer-handshake fixes are pushed in commit `2a08441` and deployed on Render.
+1. Phase 4 backend/frontend and viewer-handshake fixes are pushed in commit `2a08441` and deployed on Render; the final frozen-agent reconnect backoff fix is pushed in `d4b88e3`.
 2. Local validation: 10 Python tests passed; frontend build, GUI startup smoke and frozen EXE reconnect regression (3/3 handshakes) passed.
 3. Production E2E passed on `https://remote-desk-pro-pj29.onrender.com`; a read-only Supabase query independently confirmed 12 persisted audit rows for the successful synthetic device.
 4. Create private GitHub Release `v1.0.0` and upload the verified EXE plus SHA-256 checksum file. Repository is PRIVATE; release assets remain accessible only to repository collaborators. Do not change visibility.

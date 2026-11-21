@@ -197,4 +197,4 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 - Render service: remote-desk-pro-pj29 (srv-dc0917utlv9c739h7o30), branch main, auto-deploy enabled, verified URL https://remote-desk-pro-pj29.onrender.com; /api/health returns HTTP 200, status=ok, database=postgresql.
 - Requested alias https://desk-pro-pi29.onrender.com returns HTTP 404 and is not configured as the agent default.
 - GitHub repository is PRIVATE. Release v1.0.0 can be published to repository collaborators; asset downloads require repository access. Repository visibility will not be changed as part of this release.
-- Backend/frontend source commit `2a08441` is pushed to `main` and deployed on Render. The final E2E harness adjustment and documentation are included in the release-preparation commit. GitHub Release `v1.0.0` and verified EXE/checksum asset upload remain pending.
+- Backend/frontend source commit `2a08441` is pushed to `main` and deployed on Render. Final Windows-agent reconnect backoff fix is pushed in `d4b88e3`; the E2E harness adjustment and documentation are committed. GitHub Release `v1.0.0` and verified EXE/checksum asset upload remain pending.
