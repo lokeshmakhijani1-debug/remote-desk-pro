@@ -9,6 +9,8 @@ import json
 import logging
 import os
 import sys
+from pathlib import Path
+from resumable_transfer import EndpointFileReceiver, EndpointTransferError
 from logging.handlers import RotatingFileHandler
 from io import BytesIO
 
@@ -307,6 +309,7 @@ async def run_once(args, stop_event=None):
         stream_task = None
         clipboard_task = None
         incoming_file = None
+        incoming_transfers: dict[str, EndpointFileReceiver] = {}
         streaming = asyncio.Event()
         stop_task = None
         latency_task = None
@@ -366,6 +369,51 @@ async def run_once(args, stop_event=None):
                                 await asyncio.to_thread(pyperclip.copy, value)
                         except Exception as exc:
                             log.warning("Clipboard update failed: %s", exc)
+                elif message.get("type") == "transfer_init" and streaming.is_set():
+                    try:
+                        transfer_id = str(message.get("transfer_id", ""))
+                        name = str(message.get("name", "received-file"))[:180]
+                        destination = await asyncio.to_thread(choose_save_path, name)
+                        if destination:
+                            receiver = EndpointFileReceiver(
+                                Path(destination), transfer_id, int(message["total_size"]),
+                                str(message["sha256"]), int(message["chunk_size"]),
+                                str(message.get("compression", "none")),
+                            )
+                            incoming_transfers[transfer_id] = receiver
+                            await ws.send(json.dumps({"type":"transfer_resume_req","transfer_id":transfer_id,
+                                                      "next_offset":receiver.next_offset}))
+                        else:
+                            await ws.send(json.dumps({"type":"transfer_error","transfer_id":transfer_id,
+                                                      "detail":"Host declined destination selection"}))
+                    except (KeyError, TypeError, ValueError, OSError) as exc:
+                        await ws.send(json.dumps({"type":"transfer_error","transfer_id":str(message.get("transfer_id","")),
+                                                  "detail":str(exc)[:200]}))
+                elif message.get("type") == "transfer_chunk" and streaming.is_set():
+                    transfer_id = str(message.get("transfer_id", ""))
+                    receiver = incoming_transfers.get(transfer_id)
+                    if receiver:
+                        try:
+                            encoded = base64.b64decode(message.get("data", ""), validate=True)
+                            offset = receiver.append(int(message.get("offset", -1)), encoded)
+                            await ws.send(json.dumps({"type":"transfer_ack","transfer_id":transfer_id,
+                                                      "next_offset":offset}))
+                        except (ValueError, TypeError, OSError) as exc:
+                            await ws.send(json.dumps({"type":"transfer_error","transfer_id":transfer_id,
+                                                      "detail":str(exc)[:200]}))
+                elif message.get("type") == "transfer_complete" and streaming.is_set():
+                    transfer_id = str(message.get("transfer_id", ""))
+                    receiver = incoming_transfers.get(transfer_id)
+                    if receiver:
+                        try:
+                            destination = receiver.finalize()
+                            incoming_transfers.pop(transfer_id, None)
+                            await ws.send(json.dumps({"type":"transfer_complete","transfer_id":transfer_id,
+                                                      "sha256":receiver.expected_sha256,"verified":True}))
+                            log.info("Verified file transfer complete: %s", destination.name)
+                        except (ValueError, OSError) as exc:
+                            await ws.send(json.dumps({"type":"transfer_error","transfer_id":transfer_id,
+                                                      "detail":str(exc)[:200]}))
                 elif message.get("type") == "file_offer" and streaming.is_set():
                     name = str(message.get("name", "received-file"))[:180]
                     size = int(message.get("size", 0))
