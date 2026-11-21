@@ -473,3 +473,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Protocol/endpoints: HTTPS REST `POST /api/devices/connect`; WSS `/ws/viewer/{device_id}`; WSS `/ws/host/{device_id}`; health `GET /api/health` and `GET /health`. The Dockerfile builds `frontend/dist`, copies it into the FastAPI runtime image, and `backend/main.py` registers WebSocket/API routes before the root static mount. Render deploys the Dockerfile from `main` with autoDeploy enabled.
 - Protected areas: native Windows cursor scaling, `_focus_target_at_cursor()`, vertical/horizontal wheel dispatch, and the file-transfer protocol were not changed.
 - Validation gate: GitHub Actions frontend build + backend pytest/compile must pass. Live Render health and frontend bundle must be checked after auto-deploy; a visible Windows consent dialog still requires the enrolled Windows host to be online and cannot be certified by cloud CI alone.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: 50870dcc1be1cdb9e1ba560b6b4c937936daa288.
+- EXE size: 22262570 bytes.
+- EXE SHA-256: 638729A546A2A6D647E5E67EA1A318C86C78D58614B72DCBC63D7C67CFBB7D21.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
