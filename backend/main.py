@@ -345,25 +345,29 @@ async def host_socket(ws: WebSocket, device_id: str):
                 if validate_clipboard(event):
                     audit(db, "clipboard.relayed", device.owner_id, device_id, f"characters={len(event['text'])}")
                     await hub.relay(device_id, ws, raw)
-            elif kind in ("file_accept", "file_reject", "file_chunk", "file_complete"):
-                transfer = hub.transfers.get(str(event.get("transfer_id", "")))
-                if not transfer or transfer.get("device_id") != device_id or not hub.is_approved(device_id):
+            elif kind and kind.startswith("transfer_") and hub.is_approved(device_id):
+                # File bytes are opaque relay payloads: no server-side disk or transfer state.
+                transfer_id = str(event.get("transfer_id", ""))
+                if not (16 <= len(transfer_id) <= 64) or any(c not in "0123456789abcdefABCDEF-" for c in transfer_id):
                     continue
-                if kind == "file_chunk":
+                if kind == "transfer_chunk":
                     try:
                         import base64
                         chunk = base64.b64decode(event.get("data", ""), validate=True)
                     except Exception:
                         continue
-                    if len(chunk) > MAX_FILE_CHUNK_BYTES:
+                    if not 1 <= len(chunk) <= 1024 * 1024:
                         continue
-                if kind in ("file_accept", "file_reject"):
-                    transfer["accepted"] = kind == "file_accept"
-                    if kind == "file_reject":
-                        hub.transfers.pop(str(event["transfer_id"]), None)
-                if kind == "file_complete":
-                    hub.transfers.pop(str(event["transfer_id"]), None)
-                    audit(db, "file.received", device.owner_id, device_id, f"name={transfer['name']}; bytes={transfer['size']}")
+                    if not isinstance(event.get("offset"), int) or event["offset"] < 0:
+                        continue
+                elif kind == "transfer_init":
+                    try:
+                        size = int(event.get("total_size", 0))
+                        chunk_size = int(event.get("chunk_size", 0))
+                    except (TypeError, ValueError):
+                        continue
+                    if not 0 < size <= MAX_FILE_BYTES or not 256 * 1024 <= chunk_size <= 1024 * 1024:
+                        continue
                 await hub.relay(device_id, ws, raw)
     except (WebSocketDisconnect, asyncio.TimeoutError, OSError):
         # Network resets (including Windows WinError 64 on the client) are normal
@@ -438,40 +442,29 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                 if validate_clipboard(event):
                     audit(db, "clipboard.relayed", user_id, device_id, f"characters={len(event['text'])}")
                     await hub.relay(device_id, ws, raw)
-            elif kind == "file_offer" and hub.is_approved(device_id):
-                try:
-                    transfer_id = str(event.get("transfer_id", ""))
-                    name = safe_file_name(event.get("name"))
-                    size = int(event.get("size", 0))
-                    if not transfer_id or len(transfer_id) > 64 or size < 1 or size > MAX_FILE_BYTES:
-                        continue
-                except (ValueError, TypeError):
-                    continue
-                hub.transfers[transfer_id] = {"device_id":device_id,"name":name,"size":size,"received":0,"accepted":False}
-                event["name"] = name
-                audit(db, "file.offered", user_id, device_id, f"name={name}; bytes={size}")
-                await hub.relay(device_id, ws, json.dumps(event))
-            elif kind == "file_chunk" and hub.is_approved(device_id):
-                transfer = hub.transfers.get(str(event.get("transfer_id", "")))
-                if not transfer or transfer.get("device_id") != device_id or not transfer.get("accepted"):
-                    continue
-                try:
-                    import base64
-                    chunk = base64.b64decode(event.get("data", ""), validate=True)
-                except Exception:
-                    continue
-                if not chunk or len(chunk) > MAX_FILE_CHUNK_BYTES or transfer["received"] + len(chunk) > transfer["size"]:
-                    continue
-                transfer["received"] += len(chunk)
-                await hub.relay(device_id, ws, raw)
-            elif kind == "file_complete" and hub.is_approved(device_id):
-                transfer = hub.transfers.get(str(event.get("transfer_id", "")))
-                if transfer and transfer.get("device_id") == device_id and transfer.get("accepted") and transfer["received"] == transfer["size"]:
-                    await hub.relay(device_id, ws, raw)
-            elif kind == "file_cancel":
+            elif kind and kind.startswith("transfer_") and hub.is_approved(device_id):
                 transfer_id = str(event.get("transfer_id", ""))
-                if hub.transfers.pop(transfer_id, None):
-                    await hub.relay(device_id, ws, raw)
+                if not (16 <= len(transfer_id) <= 64) or any(c not in "0123456789abcdefABCDEF-" for c in transfer_id):
+                    continue
+                if kind == "transfer_chunk":
+                    try:
+                        import base64
+                        chunk = base64.b64decode(event.get("data", ""), validate=True)
+                    except Exception:
+                        continue
+                    if not 1 <= len(chunk) <= 1024 * 1024 or not isinstance(event.get("offset"), int) or event["offset"] < 0:
+                        continue
+                elif kind == "transfer_init":
+                    try:
+                        size = int(event.get("total_size", 0))
+                        chunk_size = int(event.get("chunk_size", 0))
+                    except (TypeError, ValueError):
+                        continue
+                    if not 0 < size <= MAX_FILE_BYTES or not 256 * 1024 <= chunk_size <= 1024 * 1024:
+                        continue
+                    event["name"] = safe_file_name(event.get("name"))
+                    raw = json.dumps(event)
+                await hub.relay(device_id, ws, raw)
     except (WebSocketDisconnect, OSError):
         pass
     except RuntimeError as exc:
