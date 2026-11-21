@@ -198,3 +198,42 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 - Requested alias https://desk-pro-pi29.onrender.com returns HTTP 404 and is not configured as the agent default.
 - GitHub repository is PRIVATE. Release v1.0.0 can be published to repository collaborators; asset downloads require repository access. Repository visibility will not be changed as part of this release.
 - Backend/frontend source commit `2a08441` is pushed to `main` and deployed on Render. Final Windows-agent reconnect backoff fix is pushed in `d4b88e3`; the E2E harness adjustment and documentation are committed. GitHub Release `v1.0.0` and verified EXE/checksum asset upload remain pending.
+
+
+## 2026-11-21 - Remote input, single-instance, and public agent distribution
+
+### Windows input and session safety
+- Viewer input uses Pointer Events for mouse and touch, including pointer capture, pointer cancellation, context-menu suppression, wheel scrolling, and normalized image coordinates that account for letterboxed canvas rendering.
+- Keyboard input uses explicit key-down/key-up lifecycle, maps browser modifier/navigation keys to PyAutoGUI names, suppresses repeated key-down events, and releases held keys when the viewer loses focus.
+- Host input dispatch supports normalized primary-monitor mouse movement, left/middle/right button down/up, keyboard down/up including modifiers, vertical/horizontal scrolling, and release of held keys/buttons on viewer departure or relay teardown.
+- Host startup enables per-monitor DPI awareness. Normalized coordinates are scaled from the MSS primary-monitor capture dimensions to the PyAutoGUI desktop dimensions and clamped to valid physical pixels.
+- PyAutoGUI FAILSAFE is disabled for remote pointer movement; all input remains gated by explicit host approval. The backend validates supported input types, coordinate bounds, button IDs, key lengths, finite scroll values, and relays control packets only to an approved session.
+- Both native GUI and headless host entrypoints enforce the Windows named mutex `Global\RemoteDeskProAgentMutex`. A duplicate launch is rejected; the GUI path attempts to restore and foreground the existing `Remote Desk Pro` window.
+- Windows local input E2E: PASS. The automated `tests/smoke_host_input_windows.py` test opened a temporary Tk window and verified a real button click and text-entry key-down/key-up dispatch through the host-agent input dispatcher.
+- Mutex verification: PASS for both `agent/desktop_app.py` and `agent/host_agent.py` duplicate acquisition paths.
+
+### Public Windows agent download
+- The public API route `GET /download/agent` serves `backend/downloads/RemoteDeskPro-Agent.exe` as an attachment with the Windows executable media type.
+- Docker runtime copies the complete `backend/` directory, including the downloadable executable, into the Render image.
+- Public URL after the Render deployment containing this commit is live: https://remote-desk-pro-pj29.onrender.com/download/agent
+- The GitHub repository remains private; the Render download endpoint is the public distribution path and does not require GitHub repository access.
+
+### Authoritative standalone build
+- Build host: DESKTOP-OLL6O6U, Windows 10 build 19045.
+- Python: 3.14.0; PyInstaller: 6.22.3; one-file, windowed executable with agent runtime dependencies bundled.
+- Authoritative local executable: `agent/dist/RemoteDeskPro-Agent.exe`.
+- Public distribution copy: `backend/downloads/RemoteDeskPro-Agent.exe`.
+- Exact size: **21,586,937 bytes**.
+- SHA-256: `C1BC99DCBC631DA6DC532F505B4620D908A0ECA71BAA2A968BA55DA90C529223`.
+- The authoritative and distribution copies were byte-for-byte identical at checksum verification.
+- Stale `agent/dist-release/` and `agent/build-release/` directories were removed. Only `agent/dist/` is the authoritative EXE output directory.
+
+### Verification
+- Backend suite: `python -m pytest -q` - **28 passed**, one Starlette/httpx deprecation warning.
+- Frontend: `npm run build` - PASS (TypeScript build and Vite production bundle).
+- Python compileall: PASS.
+- `git diff --check`: PASS.
+- Host input unit tests include DPI scaling across differing MSS/PyAutoGUI resolutions, mouse click dispatch, modifier lifecycle, scrolling, release-on-disconnect, and backend control validation.
+- Public download route test: PASS; TestClient verified HTTP 200, attachment filename, executable content type, and payload size.
+- Live Render deployment and public internet download are verified separately after the GitHub push and Render auto-deploy. Local route tests do not substitute for that live check.
+- Full remote-control interaction through a real external viewer and production Render WebSocket is not claimed by the local Windows input smoke test; host consent remains mandatory and the agent captures the primary monitor only.

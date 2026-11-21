@@ -22,6 +22,45 @@ APP_DIR = Path(os.getenv("APPDATA", str(Path.home()))) / "RemoteDeskPro"
 CONFIG_FILE = APP_DIR / "config.json"
 LOG_FILE = APP_DIR / "agent.log"
 logger = logging.getLogger("remote-desk-agent")
+_INSTANCE_MUTEX = None
+
+def _focus_existing_window():
+    if os.name != "nt":
+        return
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = user32.FindWindowW(None, "Remote Desk Pro")
+        if hwnd:
+            user32.ShowWindow(hwnd, 9)
+            user32.SetForegroundWindow(hwnd)
+    except Exception:
+        logger.debug("Could not focus existing GUI window", exc_info=True)
+
+def _acquire_single_instance():
+    global _INSTANCE_MUTEX
+    if os.name != "nt":
+        return True
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW.argtypes = (ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p)
+    kernel32.CreateMutexW.restype = ctypes.c_void_p
+    ctypes.set_last_error(0)
+    handle = kernel32.CreateMutexW(None, True, r"Global\RemoteDeskProAgentMutex")
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    if ctypes.get_last_error() == 183:
+        kernel32.CloseHandle(handle)
+        _focus_existing_window()
+        return False
+    _INSTANCE_MUTEX = handle
+    return True
+
+def _release_single_instance():
+    global _INSTANCE_MUTEX
+    if _INSTANCE_MUTEX and os.name == "nt":
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.ReleaseMutex(_INSTANCE_MUTEX)
+        kernel32.CloseHandle(_INSTANCE_MUTEX)
+        _INSTANCE_MUTEX = None
 logger.setLevel(logging.INFO)
 APP_DIR.mkdir(parents=True, exist_ok=True)
 from logging.handlers import RotatingFileHandler
@@ -343,4 +382,9 @@ class DesktopApp:
         self.root.mainloop()
 
 def launch(server=None):
-    DesktopApp(server).run()
+    if not _acquire_single_instance():
+        return
+    try:
+        DesktopApp(server).run()
+    finally:
+        _release_single_instance()

@@ -1,6 +1,9 @@
 """Visible-consent host bridge. Streaming starts only after explicit local approval."""
 import argparse
 import asyncio
+import ctypes
+import math
+import time
 import base64
 import json
 import logging
@@ -21,6 +24,72 @@ _STATUS_CALLBACK = None
 _CONSENT_CALLBACK = None
 _DIAGNOSTICS_CALLBACK = None
 _LAST_ERROR = "None"
+_INSTANCE_MUTEX = None
+_PRESSED_KEYS = set()
+_PRESSED_MOUSE_BUTTONS = set()
+_PRIMARY_CAPTURE_SIZE = None
+
+
+def _focus_existing_window():
+    if os.name != "nt":
+        return
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = user32.FindWindowW(None, "Remote Desk Pro")
+        if hwnd:
+            user32.ShowWindow(hwnd, 9)
+            user32.SetForegroundWindow(hwnd)
+    except Exception:
+        log.debug("Could not focus existing agent window", exc_info=True)
+
+def acquire_single_instance():
+    """Hold the machine-wide Windows mutex for the lifetime of this agent."""
+    global _INSTANCE_MUTEX
+    if os.name != "nt":
+        return True
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW.argtypes = (ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p)
+    kernel32.CreateMutexW.restype = ctypes.c_void_p
+    ctypes.set_last_error(0)
+    handle = kernel32.CreateMutexW(None, True, r"Global\RemoteDeskProAgentMutex")
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    if ctypes.get_last_error() == 183:
+        kernel32.CloseHandle(handle)
+        _focus_existing_window()
+        return False
+    _INSTANCE_MUTEX = handle
+    return True
+
+def release_single_instance():
+    global _INSTANCE_MUTEX
+    if _INSTANCE_MUTEX and os.name == "nt":
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.ReleaseMutex(_INSTANCE_MUTEX)
+        kernel32.CloseHandle(_INSTANCE_MUTEX)
+        _INSTANCE_MUTEX = None
+
+def set_windows_dpi_awareness():
+    if os.name != "nt":
+        return
+    try:
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+    except Exception:
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            log.warning("Could not enable per-monitor DPI awareness")
+
+def _normalize_key(value):
+    aliases = {
+        " ": "space", "ArrowUp": "up", "ArrowDown": "down",
+        "ArrowLeft": "left", "ArrowRight": "right", "Escape": "esc",
+        "Control": "ctrl", "Shift": "shift", "Alt": "alt", "Meta": "win",
+        "Backspace": "backspace", "Delete": "delete", "Enter": "enter",
+        "Tab": "tab", "PageUp": "pageup", "PageDown": "pagedown",
+    }
+    key = str(value or "")
+    return aliases.get(key, aliases.get(key.lower(), key.lower()))
 
 def set_status_callback(callback):
     global _STATUS_CALLBACK
@@ -118,19 +187,91 @@ async def stream_screen(ws, running: asyncio.Event):
         await asyncio.sleep(0.25)
 
 def apply_control(message: dict):
+    """Dispatch viewer events in the primary monitor's physical pixel coordinate space."""
     import pyautogui
+    pyautogui.FAILSAFE = False
     event = message.get("event")
     if event == "mouse_move":
         size = pyautogui.size()
-        pyautogui.moveTo(message.get("x", 0) * size.width, message.get("y", 0) * size.height, _pause=False)
+        global _PRIMARY_CAPTURE_SIZE
+        if _PRIMARY_CAPTURE_SIZE is None or _PRIMARY_CAPTURE_SIZE[:2] != (size.width, size.height):
+            try:
+                import mss
+                with mss.mss() as capture:
+                    primary = capture.monitors[1]
+                    capture_width = int(primary["width"])
+                    capture_height = int(primary["height"])
+            except Exception:
+                capture_width, capture_height = size.width, size.height
+            _PRIMARY_CAPTURE_SIZE = (size.width, size.height, capture_width, capture_height)
+        _, _, capture_width, capture_height = _PRIMARY_CAPTURE_SIZE
+        x = float(message.get("x", 0))
+        y = float(message.get("y", 0))
+        if not math.isfinite(x) or not math.isfinite(y):
+            return False
+        x = min(1.0, max(0.0, x))
+        y = min(1.0, max(0.0, y))
+        capture_x = x * max(1, capture_width - 1)
+        capture_y = y * max(1, capture_height - 1)
+        px = min(size.width - 1, max(0, round(capture_x * size.width / max(1, capture_width))))
+        py = min(size.height - 1, max(0, round(capture_y * size.height / max(1, capture_height))))
+        pyautogui.moveTo(px, py, _pause=False)
     elif event in ("mouse_down", "mouse_up"):
+        button = {0: "left", 1: "middle", 2: "right"}.get(message.get("button"), "left")
         action = pyautogui.mouseDown if event == "mouse_down" else pyautogui.mouseUp
-        action(button={0:"left",1:"middle",2:"right"}.get(message.get("button"),"left"))
-    elif event == "key_down":
-        key = str(message.get("key", "")).lower()
-        allowed = {"enter","escape","tab","backspace","delete","space","up","down","left","right","shift","ctrl","alt","home","end"}
-        if len(key) == 1 or key in allowed:
-            pyautogui.press(key)
+        action(button=button)
+        if event == "mouse_down":
+            _PRESSED_MOUSE_BUTTONS.add(button)
+        else:
+            _PRESSED_MOUSE_BUTTONS.discard(button)
+    elif event in ("key_down", "key_up"):
+        key = _normalize_key(message.get("key"))
+        allowed = set(getattr(pyautogui, "KEYBOARD_KEYS", ()))
+        if not key or (len(key) != 1 and key not in allowed):
+            return False
+        action = pyautogui.keyDown if event == "key_down" else pyautogui.keyUp
+        action(key, _pause=False)
+        if event == "key_down":
+            _PRESSED_KEYS.add(key)
+        else:
+            _PRESSED_KEYS.discard(key)
+    elif event == "mouse_scroll":
+        dx = float(message.get("deltaX", 0))
+        dy = float(message.get("deltaY", 0))
+        if not math.isfinite(dx) or not math.isfinite(dy) or abs(dx) > 2400 or abs(dy) > 2400:
+            return False
+        vertical = round(dy / 100)
+        horizontal = round(dx / 100)
+        if dy and vertical == 0:
+            vertical = 1 if dy > 0 else -1
+        if dx and horizontal == 0:
+            horizontal = 1 if dx > 0 else -1
+        if vertical:
+            pyautogui.scroll(-vertical, _pause=False)
+        if horizontal:
+            pyautogui.hscroll(horizontal, _pause=False)
+    else:
+        return False
+    return True
+
+def release_all_inputs():
+    """Release held keys and buttons whenever the viewer/relay session ends."""
+    import pyautogui
+    pyautogui.FAILSAFE = False
+    for key in tuple(_PRESSED_KEYS):
+        try:
+            pyautogui.keyUp(key, _pause=False)
+        except Exception:
+            log.warning("Unable to release remote key %s", key)
+        finally:
+            _PRESSED_KEYS.discard(key)
+    for button in tuple(_PRESSED_MOUSE_BUTTONS):
+        try:
+            pyautogui.mouseUp(button=button)
+        except Exception:
+            log.warning("Unable to release remote mouse button %s", button)
+        finally:
+            _PRESSED_MOUSE_BUTTONS.discard(button)
 
 async def run_once(args, stop_event=None):
     import ssl
@@ -190,6 +331,7 @@ async def run_once(args, stop_event=None):
                         await ws.send(json.dumps({"type":"host_denied"}))
                         set_status("Connection denied by host")
                 elif message.get("type") == "viewer_left":
+                    release_all_inputs()
                     streaming.clear()
                     if stream_task:
                         stream_task.cancel()
@@ -245,6 +387,10 @@ async def run_once(args, stop_event=None):
                     except Exception as exc:
                         log.warning("Input event rejected: %s", exc)
         finally:
+            try:
+                release_all_inputs()
+            except Exception:
+                log.exception("Unable to release remote input state")
             if stop_task:
                 stop_task.cancel()
             if latency_task:
@@ -296,6 +442,7 @@ def main():
     parser.add_argument("--dynamic-password", default=os.getenv("RDP_DYNAMIC_PASSWORD", ""))
     args = parser.parse_args()
     log.info("Startup mode: device_id_set=%s secret_set=%s", bool(args.device_id), bool(args.secret))
+    set_windows_dpi_awareness()
     if not args.device_id and not args.secret:
         log.info("Launching native desktop GUI")
         try:
@@ -307,9 +454,15 @@ def main():
         return
     if not args.device_id or not args.secret:
         parser.error("Provide both --device-id and --secret for headless mode.")
-    import pyautogui
-    pyautogui.FAILSAFE = True
-    asyncio.run(run(args))
+    if not acquire_single_instance():
+        return
+    try:
+        import pyautogui
+        pyautogui.FAILSAFE = False
+        asyncio.run(run(args))
+    finally:
+        release_all_inputs()
+        release_single_instance()
 
 if __name__ == "__main__":
     main()

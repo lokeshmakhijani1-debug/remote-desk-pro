@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-import asyncio, json, logging, secrets, time
+import asyncio, json, logging, secrets, time, math
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -267,6 +267,28 @@ def validate_clipboard(event: dict) -> bool:
     value = event.get("text")
     return isinstance(value, str) and len(value) <= MAX_CLIPBOARD_CHARS
 
+
+def validate_control(event: dict) -> bool:
+    kind = event.get("event")
+    if kind == "mouse_move":
+        try:
+            x, y = float(event.get("x")), float(event.get("y"))
+            return math.isfinite(x) and math.isfinite(y) and 0 <= x <= 1 and 0 <= y <= 1
+        except (TypeError, ValueError):
+            return False
+    if kind in ("mouse_down", "mouse_up"):
+        return event.get("button") in (0, 1, 2)
+    if kind in ("key_down", "key_up"):
+        key = event.get("key")
+        return isinstance(key, str) and 0 < len(key) <= 32
+    if kind == "mouse_scroll":
+        try:
+            dx, dy = float(event.get("deltaX", 0)), float(event.get("deltaY", 0))
+            return math.isfinite(dx) and math.isfinite(dy) and abs(dx) <= 2400 and abs(dy) <= 2400
+        except (TypeError, ValueError):
+            return False
+    return False
+
 def safe_file_name(value: Any) -> str:
     name = str(value or "").replace("\\x00", "").replace("\\\\", "/").split("/")[-1]
     if not name or name in (".", "..") or len(name) > 180:
@@ -409,7 +431,7 @@ async def viewer_socket(ws: WebSocket, device_id: str):
             if kind == "heartbeat":
                 await ws.send_json({"type":"heartbeat_ack","at":datetime.now(timezone.utc).isoformat()})
             elif kind == "control":
-                if user_role != "read_only":
+                if user_role != "read_only" and hub.is_approved(device_id) and validate_control(event):
                     await hub.relay(device_id, ws, raw)
             elif kind == "clipboard_update" and hub.is_approved(device_id):
                 if validate_clipboard(event):
@@ -475,6 +497,18 @@ def index():
     if file.exists():
         return FileResponse(file)
     return {"service":"Remote Desk Pro","docs":"/docs"}
+
+@app.get("/download/agent", include_in_schema=False)
+def download_agent():
+    agent_path = Path(__file__).parent / "downloads" / "RemoteDeskPro-Agent.exe"
+    if not agent_path.is_file():
+        raise HTTPException(503, "Windows agent download is not available on this deployment")
+    return FileResponse(
+        agent_path,
+        media_type="application/vnd.microsoft.portable-executable",
+        filename="RemoteDeskPro-Agent.exe",
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 frontend_dist = Path("frontend/dist")
 if frontend_dist.exists():
