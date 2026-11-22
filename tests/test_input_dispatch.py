@@ -243,8 +243,9 @@ def test_clipboard_direct_paste_uses_ctrl_v(fake_pyautogui, monkeypatch):
 
 def test_file_transfer_destination_is_downloads_and_never_overwrites(tmp_path, monkeypatch):
     monkeypatch.setattr(host_agent.Path, "home", classmethod(lambda cls: tmp_path))
-    downloads = tmp_path / "Downloads"
-    downloads.mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path))
+    downloads = tmp_path / "Downloads" / "RemoteDeskPro-Received"
+    downloads.mkdir(parents=True)
     existing = downloads / "report.txt"
     existing.write_text("keep", encoding="utf-8")
     destination = host_agent.downloads_destination("report.txt", "12345678-abcd")
@@ -253,12 +254,10 @@ def test_file_transfer_destination_is_downloads_and_never_overwrites(tmp_path, m
     assert existing.read_text(encoding="utf-8") == "keep"
 
 
-@pytest.mark.parametrize("event", [
-    {"event": "privacy_screen", "enabled": True, "mode": "banner"},
-    {"event": "privacy_screen", "enabled": False, "mode": "banner"},
-])
-def test_backend_accepts_visible_privacy_banner_control(event):
-    assert validate_control(event)
+@pytest.mark.parametrize("mode", ["black", "banner"])
+@pytest.mark.parametrize("enabled", [True, False])
+def test_backend_accepts_privacy_screen_control(mode, enabled):
+    assert validate_control({"event": "privacy_screen", "enabled": enabled, "mode": mode})
 
 
 def test_backend_rejects_hidden_or_unsupported_privacy_modes():
@@ -278,7 +277,7 @@ def test_clipboard_paste_sets_host_clipboard_and_sends_ctrl_v(fake_pyautogui, mo
 
 
 def test_downloads_destination_uses_remote_desk_pro_received_folder(monkeypatch, tmp_path):
-    monkeypatch.setattr(host_agent.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
     destination = host_agent.downloads_destination("report.pdf", "12345678-1234-1234-1234-123456789abc")
     assert destination == tmp_path / "Downloads" / "RemoteDeskPro-Received" / "report.pdf"
     assert destination.parent.is_dir()
