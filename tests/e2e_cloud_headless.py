@@ -105,7 +105,7 @@ async def main():
             def stop(self):
                 recording_events.append(("stop", self.device_id, self.viewer_id))
         class SyntheticPrivacyBanner:
-            def start(self):
+            def start(self, mode="banner"):
                 privacy_events.append("enabled")
                 return True
             def stop(self):
@@ -181,6 +181,13 @@ async def main():
             await viewer.send(json.dumps({"type":"control","event":"privacy_screen","enabled":True,"mode":"banner"}))
             await event(viewer,"privacy_screen_ack")
             result["checks"]["privacy_banner_toggle"] = "PASS"
+            await viewer.send(json.dumps({"type":"control","event":"privacy_screen","enabled":True,"mode":"black"}))
+            black_on = await event(viewer,"privacy_screen_ack")
+            check(black_on.get("enabled") is True and black_on.get("mode") == "black", f"Black curtain did not enable: {black_on}")
+            await viewer.send(json.dumps({"type":"control","event":"privacy_screen","enabled":False,"mode":"black"}))
+            black_off = await event(viewer,"privacy_screen_ack")
+            check(black_off.get("enabled") is False, f"Black curtain did not disable: {black_off}")
+            result["checks"]["privacy_black_curtain_toggle"] = "PASS"
 
             payload = os.urandom(TOTAL)
             digest = hashlib.sha256(payload).hexdigest()
