@@ -90,8 +90,14 @@ async def run(base_url):
         )).raise_for_status().json()
         old_session_token = connect["session_token"]
         rotated = await post_with_transport_retry(base_url, f"/api/devices/{device_id}/rotate-password", headers, {}, timeout)
-        rejected_old = await client.post("/api/devices/connect", headers=headers, json={"device_id": device_id, "password": dynamic_password})
-        require(rejected_old.status_code == 401, "Old dynamic password remained valid after rotation")
+        rejected_old = None
+        for attempt in range(5):
+            rejected_old = await client.post("/api/devices/connect", headers=headers, json={"device_id": device_id, "password": dynamic_password})
+            if rejected_old.status_code not in {502, 503, 504}:
+                break
+            await asyncio.sleep(min(2 ** attempt, 8))
+        require(rejected_old.status_code == 401,
+                f"Old dynamic password must be rejected after rotation; got HTTP {rejected_old.status_code}: {rejected_old.text[:180]}")
         dynamic_password = rotated["dynamic_password"]
         connect = (await client.post("/api/devices/connect", headers=headers, json={"device_id": device_id, "password": dynamic_password})).raise_for_status().json()
         session_token = old_session_token  # Existing viewer token survives password rotation.
