@@ -264,3 +264,27 @@ def test_backend_accepts_visible_privacy_banner_control(event):
 def test_backend_rejects_hidden_or_unsupported_privacy_modes():
     assert not validate_control({"event": "privacy_screen", "enabled": True, "mode": "blank"})
     assert not validate_control({"event": "privacy_screen", "enabled": "yes", "mode": "banner"})
+
+
+def test_clipboard_paste_sets_host_clipboard_and_sends_ctrl_v(fake_pyautogui, monkeypatch):
+    clipboard = {"text": ""}
+    fake_clipboard = types.ModuleType("pyperclip")
+    fake_clipboard.copy = lambda value: clipboard.update(text=value)
+    monkeypatch.setitem(sys.modules, "pyperclip", fake_clipboard)
+    monkeypatch.setattr(host_agent, "_focus_target_at_cursor", lambda: True)
+    assert host_agent.paste_clipboard("delivered from viewer")
+    assert clipboard["text"] == "delivered from viewer"
+    assert fake_pyautogui.calls == [("hotkey", ("ctrl", "v"), {"_pause": False})]
+
+
+def test_downloads_destination_uses_remote_desk_pro_received_folder(monkeypatch, tmp_path):
+    monkeypatch.setattr(host_agent.Path, "home", classmethod(lambda cls: tmp_path))
+    destination = host_agent.downloads_destination("report.pdf", "12345678-1234-1234-1234-123456789abc")
+    assert destination == tmp_path / "Downloads" / "RemoteDeskPro-Received" / "report.pdf"
+    assert destination.parent.is_dir()
+
+
+def test_backend_accepts_both_privacy_screen_modes():
+    assert validate_control({"event": "privacy_screen", "enabled": True, "mode": "black"})
+    assert validate_control({"event": "privacy_screen", "enabled": True, "mode": "banner"})
+    assert not validate_control({"event": "privacy_screen", "enabled": True, "mode": "hidden"})
