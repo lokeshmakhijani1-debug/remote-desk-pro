@@ -70,6 +70,17 @@ jobs:
       - name: Commit Render download binary and manifest
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Drop the pre-rebase staged copy, rebase onto the current branch, then
+          # restage the just-built EXE so concurrent manifest edits cannot conflict.
+          git restore backend/downloads/RemoteDeskPro-Agent.exe
+          git pull --rebase origin main
+          if ($LASTEXITCODE -ne 0) { throw "Could not rebase Windows build commit onto main." }
+          Copy-Item agent/dist/RemoteDeskPro-Agent.exe backend/downloads/RemoteDeskPro-Agent.exe -Force
+          $copyHash = (Get-FileHash backend/downloads/RemoteDeskPro-Agent.exe -Algorithm SHA256).Hash
+          if ($copyHash -ne $env:AGENT_SHA256) { throw "Re-staged Render EXE checksum mismatch." }
           $entry = @"
 
           ## GitHub Actions Windows build (latest)
@@ -82,13 +93,12 @@ jobs:
           - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
           "@
           Add-Content -Path PROJECT_MANIFEST.md -Value $entry
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add backend/downloads/RemoteDeskPro-Agent.exe PROJECT_MANIFEST.md
           if (git diff --cached --quiet) { Write-Host "No binary or manifest changes to commit."; exit 0 }
           git commit -m "ci: publish latest Windows agent build"
-          git pull --rebase origin main
+          if ($LASTEXITCODE -ne 0) { throw "Could not create Windows build commit." }
           git push origin HEAD:main
+          if ($LASTEXITCODE -ne 0) { throw "Could not publish Windows build binary to main." }
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
