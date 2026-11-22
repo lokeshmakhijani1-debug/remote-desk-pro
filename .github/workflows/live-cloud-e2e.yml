@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/live-cloud-e2e.yml'
       - 'tests/e2e_cloud_headless.py'
+      - 'tests/e2e_live_relay.py'
       - 'agent/host_agent.py'
       - 'agent/resumable_transfer.py'
       - 'backend/main.py'
