@@ -11,7 +11,7 @@ Self-hosted remote access MVP built with React, FastAPI, authenticated WebSocket
 - SQLite WAL locally; SQLAlchemy URL support for PostgreSQL.
 - React dashboard and Render Free Docker deployment files.
 
-This is an early MVP, not a full TeamViewer replacement. Bidirectional clipboard sync and viewer-to-host file transfer are implemented with explicit host approval. Audio, session recording, unattended access, multi-monitor controls, Wake-on-LAN, host-to-viewer file transfer, resumable/checksummed file transfer, and a WebRTC peer-media path are not implemented.
+This is an early MVP, not a full TeamViewer replacement. Bidirectional clipboard sync and viewer-to-host file transfer are implemented with explicit host approval. Audio, unattended access, multi-monitor controls, Wake-on-LAN, host-to-viewer file transfer, and a WebRTC peer-media path are not implemented. Approved sessions are locally recorded after a visible host-consent notice; a visible maintenance banner can be enabled by the viewer and has a local emergency unlock.
 
 ## Security and deployment
 The host agent is interactive, visible and does not install a hidden service or auto-start. Use HTTPS/WSS and a unique APP_SECRET_KEY. Render Free storage is ephemeral, so configure managed PostgreSQL for durable accounts/devices. Public STUN alone cannot guarantee connectivity; WebSocket relay requires load testing before commercial use.
