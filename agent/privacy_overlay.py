@@ -70,7 +70,11 @@ class PrivacyBanner:
         root = self._root
         if root is not None:
             try:
-                root.after(0, root.destroy)
+                if threading.current_thread() is self._thread:
+                    root.destroy()
+                else:
+                    root.after(0, root.destroy)
             except Exception:
                 pass
-        self._stopped.wait(3)
+        if threading.current_thread() is not self._thread:
+            self._stopped.wait(3)
