@@ -64,6 +64,7 @@ export default function App(){
     if(m.type==="host_denied"){setStatus("Host denied this session");setLastError("The host denied the connection request.");}
     if(m.type==="heartbeat_ack"){if(heartbeatSentAt.current)setLatency(Date.now()-heartbeatSentAt.current);heartbeatSentAt.current=0;if(resumeProbeTimer.current)window.clearTimeout(resumeProbeTimer.current);resumeProbeTimer.current=undefined;setStatus(current=>m.device_online===false?"Host offline":m.device_online===true&&current==="Host offline"?"Waiting for host approval...":current);}
     if(m.type==="clipboard_update")setRemoteClipboard(String(m.text||""));
+    if(m.type==="input_pending")setTransferStatus(String(m.detail||"Waiting for host approval"));
     if(m.type==="clipboard_ack")setTransferStatus(m.success?"Clipboard pasted successfully on host":String(m.detail||"Host clipboard paste failed"));
     if(m.type==="privacy_screen_ack"){setPrivacyEnabled(Boolean(m.enabled));setToast(m.enabled?"Maintenance banner enabled on host":"Maintenance banner disabled on host");}
     if(m.type==="file_accept")void uploadPendingFile(transferOffset.current);
