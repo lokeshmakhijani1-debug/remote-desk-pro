@@ -31,21 +31,36 @@ def test_hub_host_replacement_returns_previous_socket():
     asyncio.run(exercise())
 
 
-def test_hub_enforces_one_viewer_per_device_and_cleans_up_atomically():
+def test_hub_reclaims_same_authenticated_viewer_but_rejects_other_viewer():
     import asyncio
     from backend.main import Hub
 
     async def exercise():
         hub = Hub()
-        first, second = object(), object()
-        accepted, active, total = await hub.register_viewer("device-1", first, 50)
-        assert accepted and active == 1 and total == 1
-        accepted, active, total = await hub.register_viewer("device-1", second, 50)
-        assert not accepted and active == 1 and total == 1
-        assert hub.viewers["device-1"] == {first}
-        assert await hub.remove_viewer("device-1", first)
+        first, resumed, other = object(), object(), object()
+        accepted, active, total, previous = await hub.register_viewer("device-1", first, 50, 42)
+        assert accepted and active == 1 and total == 1 and previous is None
+        accepted, active, total, previous = await hub.register_viewer("device-1", other, 50, 99)
+        assert not accepted and active == 1 and total == 1 and previous is None
+        accepted, active, total, previous = await hub.register_viewer("device-1", resumed, 50, 42)
+        assert accepted and active == 1 and total == 1 and previous is first
+        assert hub.viewers["device-1"] == {resumed}
+        assert not await hub.remove_viewer("device-1", first)
+        assert await hub.remove_viewer("device-1", resumed)
         assert "device-1" not in hub.viewers
-        accepted, active, total = await hub.register_viewer("device-1", second, 50)
-        assert accepted and active == 1 and total == 1
+
+    asyncio.run(exercise())
+
+
+def test_hub_keeps_viewer_reservation_after_transport_loss_until_explicit_end():
+    import asyncio
+    from backend.main import Hub
+
+    async def exercise():
+        hub = Hub()
+        viewer = object()
+        await hub.register_viewer("device-1", viewer, 50, 42)
+        accepted, active, total, previous = await hub.register_viewer("device-1", object(), 50, 42)
+        assert accepted and active == 1 and total == 1 and previous is viewer
 
     asyncio.run(exercise())

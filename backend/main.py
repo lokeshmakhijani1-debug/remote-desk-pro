@@ -202,6 +202,7 @@ class Hub:
     def __init__(self):
         self.hosts: dict[str, WebSocket] = {}
         self.viewers: dict[str, set[WebSocket]] = {}
+        self.viewer_owners: dict[str, dict[WebSocket, int]] = {}
         self.approved: set[str] = set()
         self.transfers: dict[str, dict[str, Any]] = {}
         self.lock = asyncio.Lock()
@@ -224,24 +225,41 @@ class Hub:
                     self.transfers.pop(transfer_id, None)
             return True
 
-    async def register_viewer(self, device_id: str, ws: WebSocket, max_sessions: int) -> tuple[bool, int, int]:
+    async def register_viewer(self, device_id: str, ws: WebSocket, max_sessions: int, user_id: int) -> tuple[bool, int, int, WebSocket | None]:
         async with self.lock:
             active = self.viewers.setdefault(device_id, set())
+            owners = self.viewer_owners.setdefault(device_id, {})
+            previous = next((socket for socket, owner in owners.items() if owner == user_id), None)
+            if active and previous is None:
+                return False, len(active), sum(len(group) for group in self.viewers.values()), None
             total = sum(len(group) for group in self.viewers.values())
-            if active or total >= max_sessions:
-                return False, len(active), total
+            if previous is None and total >= max_sessions:
+                return False, len(active), total, None
+            if previous is not None:
+                active.discard(previous)
+                owners.pop(previous, None)
             active.add(ws)
-            return True, len(active), total + 1
+            owners[ws] = user_id
+            return True, len(active), total if previous is not None else total + 1, previous
 
     async def remove_viewer(self, device_id: str, ws: WebSocket) -> bool:
         async with self.lock:
             active = self.viewers.get(device_id)
-            if not active or ws not in active:
+            owners = self.viewer_owners.get(device_id)
+            if not active or ws not in active or not owners or ws not in owners:
                 return False
             active.discard(ws)
+            owners.pop(ws, None)
             if not active:
                 self.viewers.pop(device_id, None)
+                self.viewer_owners.pop(device_id, None)
             return True
+
+    async def terminate_viewer(self, device_id: str) -> None:
+        async with self.lock:
+            self.viewers.pop(device_id, None)
+            self.viewer_owners.pop(device_id, None)
+            self.approved.discard(device_id)
 
     async def relay(self, device_id: str, sender: WebSocket, message: Any):
         async with self.lock:
@@ -282,6 +300,9 @@ def validate_control(event: dict) -> bool:
     if kind in ("key_down", "key_up"):
         key = event.get("key")
         return isinstance(key, str) and 0 < len(key) <= 32
+    if kind == "text_input":
+        value = event.get("text")
+        return isinstance(value, str) and 0 < len(value) <= 4096
     if kind == "mouse_scroll":
         try:
             dx, dy = float(event.get("deltaX", 0)), float(event.get("deltaY", 0))
@@ -336,6 +357,7 @@ async def host_socket(ws: WebSocket, device_id: str):
             if kind == "host_disconnected":
                 explicit_disconnect = True
                 await hub.relay(device_id, ws, json.dumps({"type":"host_disconnected"}))
+                await hub.terminate_viewer(device_id)
                 break
             elif kind == "host_approved":
                 hub.approved.add(device_id)
@@ -415,12 +437,18 @@ async def viewer_socket(ws: WebSocket, device_id: str):
             await ws.close(code=4404)
             return
         user_role = payload.get("role","read_only")
-        registered, active_count, total_count = await hub.register_viewer(device_id, ws, settings.max_concurrent_sessions)
+        registered, active_count, total_count, previous_viewer = await hub.register_viewer(device_id, ws, settings.max_concurrent_sessions, user_id)
         if not registered:
             logger.warning("viewer rejected device=%s active_count=%s total_count=%s", device_id, active_count, total_count)
-            await ws.send_json({"type":"viewer_rejected","code":4429,"detail":"Another viewer is already connected"})
-            await ws.close(code=4429, reason="One active viewer per device")
+            await ws.send_json({"type":"viewer_rejected","code":4429,"detail":"Another authenticated viewer owns this device session"})
+            await ws.close(code=4429, reason="Device session belongs to another viewer")
             return
+        if previous_viewer is not None:
+            try:
+                await previous_viewer.close(code=1012, reason="Viewer session resumed on a new connection")
+            except (WebSocketDisconnect, OSError, RuntimeError):
+                logger.debug("Previous viewer socket already closed device=%s", device_id)
+            logger.info("viewer session reclaimed device=%s user_id=%s", device_id, user_id)
         logger.info("viewer registered device=%s active_count=%s total_count=%s", device_id, active_count, total_count)
         await ws.send_json({"type":"viewer_connected","device_online":device_id in hub.hosts})
         host_socket = hub.hosts.get(device_id)
@@ -446,7 +474,14 @@ async def viewer_socket(ws: WebSocket, device_id: str):
             except json.JSONDecodeError:
                 continue
             kind = event.get("type")
-            if kind == "heartbeat":
+            if kind == "viewer_end":
+                removed = await hub.remove_viewer(device_id, ws)
+                if removed:
+                    hub.approved.discard(device_id)
+                    await hub.relay(device_id, ws, json.dumps({"type":"viewer_left"}))
+                registered = False
+                break
+            elif kind == "heartbeat":
                 await ws.send_json({"type":"heartbeat_ack","at":datetime.now(timezone.utc).isoformat()})
             elif kind == "control":
                 if user_role != "read_only" and hub.is_approved(device_id) and validate_control(event):
@@ -489,13 +524,9 @@ async def viewer_socket(ws: WebSocket, device_id: str):
         await ws.close(code=4401)
     finally:
         if registered:
-            hub.approved.discard(device_id)
-            for transfer_id, transfer in list(hub.transfers.items()):
-                if transfer.get("device_id") == device_id:
-                    hub.transfers.pop(transfer_id, None)
-            await hub.relay(device_id, ws, json.dumps({"type":"viewer_left"}))
-            removed = await hub.remove_viewer(device_id, ws)
-            logger.info("viewer disconnected device=%s removed=%s", device_id, removed)
+            # A transport close is not a session termination. Keep the authenticated
+            # owner reservation and host approval so a suspended tab can reclaim it.
+            logger.info("viewer transport closed; session reservation retained device=%s user_id=%s", device_id, user_id)
         db.close()
 
 @app.get("/")

@@ -533,6 +533,13 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
 
+## Session persistence, mobile keyboard and clipboard relay — 2026-11-22
+- `backend/main.py`: authenticated viewer ownership is tracked per device. A reconnect from the same user atomically replaces the stale WebSocket while a different authenticated viewer remains blocked. Unexpected transport closure retains the viewer reservation and host approval; only explicit `viewer_end` releases it. Host `host_disconnected` explicitly terminates the reservation.
+- `frontend/src/App.tsx`: stale socket close callbacks cannot schedule duplicate reconnects; Viewer End sends `viewer_end`. Added a mobile Keyboard control with a focusable hidden text input (`autoCapitalize`/`autoCorrect` off, spellcheck disabled), text-input events, and special-key down/up events.
+- `backend/main.py` validates bounded text-input events. `agent/host_agent.py` applies mobile text through `pyperclip.copy()` and focused Ctrl+V; incoming Send clipboard events update the host clipboard and optionally paste when `paste: true` is set. Clipboard failures are caught and logged without crashing the relay.
+- Focused tests added/updated: same-owner reconnect reclaim, different-viewer rejection, transport-loss reservation retention, text-input validation, and host clipboard paste dispatch. No environment keys or unrelated modules changed.
+- Files changed in this delivery: `backend/main.py`, `frontend/src/App.tsx`, `frontend/src/styles.css`, `agent/host_agent.py`, `tests/test_session_lifecycle.py`, `tests/test_input_dispatch.py`, and this manifest entry.
+
 ## GitHub Actions Windows build (latest)
 - Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
 - Build source: 873c9aa2428848638e7488ccf341a97d1888994e.

@@ -273,6 +273,14 @@ def apply_control(message: dict):
             _PRESSED_MOUSE_BUTTONS.add(button)
         else:
             _PRESSED_MOUSE_BUTTONS.discard(button)
+    elif event == "text_input":
+        text = message.get("text")
+        if not isinstance(text, str) or not text or len(text) > 4096:
+            return False
+        import pyperclip
+        pyperclip.copy(text)
+        _focus_target_at_cursor()
+        pyautogui.hotkey("ctrl", "v", _pause=False)
     elif event in ("key_down", "key_up"):
         _focus_target_at_cursor()
         key = _normalize_key(message.get("key"))
@@ -410,6 +418,17 @@ async def run_once(args, stop_event=None):
                                 await asyncio.to_thread(pyperclip.copy, value)
                         except Exception as exc:
                             log.warning("Clipboard update failed: %s", exc)
+                elif message.get("type") == "clipboard_update" and streaming.is_set():
+                    value = message.get("text", "")
+                    if isinstance(value, str) and len(value) <= 65536:
+                        try:
+                            await asyncio.to_thread(__import__("pyperclip").copy, value)
+                            if message.get("paste") is True:
+                                await asyncio.to_thread(_focus_target_at_cursor)
+                                import pyautogui
+                                await asyncio.to_thread(pyautogui.hotkey, "ctrl", "v", _pause=False)
+                        except Exception:
+                            log.warning("Incoming clipboard update failed", exc_info=True)
                 elif message.get("type") == "transfer_init" and streaming.is_set():
                     try:
                         transfer_id = str(message.get("transfer_id", ""))
