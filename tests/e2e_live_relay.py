@@ -32,20 +32,24 @@ async def receive_json(ws, expected_type, timeout=12):
 
 
 async def post_with_transport_retry(base_url, path, headers, payload, timeout):
-    """Retry only transient transport failures; a repeated password rotation is safe."""
+    """Retry transient transport and Render gateway failures for this synthetic device."""
     last_error = None
-    for attempt in range(3):
+    for attempt in range(5):
         try:
             limits = httpx.Limits(max_keepalive_connections=0)
             async with httpx.AsyncClient(base_url=base_url, timeout=timeout, limits=limits) as retry_client:
                 response = await retry_client.post(path, headers=headers, json=payload)
                 response.raise_for_status()
                 return response.json()
+        except httpx.HTTPStatusError as exc:
+            last_error = exc
+            if exc.response.status_code not in {502, 503, 504} or attempt == 4:
+                raise
         except (httpx.ReadError, httpx.ConnectError, httpx.RemoteProtocolError) as exc:
             last_error = exc
-            if attempt == 2:
+            if attempt == 4:
                 raise
-            await asyncio.sleep(1.0 * (attempt + 1))
+        await asyncio.sleep(min(2 ** attempt, 8))
     raise last_error
 
 
