@@ -506,7 +506,10 @@ async def run_once(args, stop_event=None):
                         privacy_banner.stop()
                         privacy_banner = None
                     if recorder:
-                        recorder.stop()
+                        try:
+                            recorder.stop()
+                        except Exception:
+                            log.exception("Session recording finalization failed")
                         recorder = None
                     if stream_task:
                         stream_task.cancel()
@@ -662,7 +665,10 @@ async def run_once(args, stop_event=None):
             if privacy_banner:
                 privacy_banner.stop()
             if recorder:
-                recorder.stop()
+                try:
+                    recorder.stop()
+                except Exception:
+                    log.exception("Session recording finalization failed during disconnect")
             if stream_task:
                 stream_task.cancel()
             if clipboard_task:
