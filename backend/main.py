@@ -255,13 +255,15 @@ class Hub:
                 self.viewer_owners.pop(device_id, None)
             return True
 
-    async def detach_viewer(self, device_id: str, ws: WebSocket) -> None:
+    async def detach_viewer(self, device_id: str, ws: WebSocket) -> bool:
         async with self.lock:
             active = self.viewers.get(device_id)
-            if active:
-                active.discard(ws)
-                if not active:
-                    self.viewers.pop(device_id, None)
+            if not active or ws not in active:
+                return False
+            active.discard(ws)
+            if not active:
+                self.viewers.pop(device_id, None)
+            return True
 
     async def terminate_viewer(self, device_id: str) -> None:
         async with self.lock:
@@ -572,10 +574,18 @@ async def viewer_socket(ws: WebSocket, device_id: str):
         await ws.close(code=4401)
     finally:
         if registered:
-            # A transport close is not a session termination. Keep the authenticated
-            # owner reservation and host approval so a suspended tab can reclaim it.
-            await hub.detach_viewer(device_id, ws)
-            logger.info("viewer transport closed; session reservation retained device=%s user_id=%s", device_id, user_id)
+            # Keep the owner reservation for same-user reconnect, but terminate the
+            # approved control session so host overlays/recorders are always cleaned up.
+            detached = await hub.detach_viewer(device_id, ws)
+            if detached:
+                hub.approved.discard(device_id)
+                active_host = hub.hosts.get(device_id)
+                if active_host is not None:
+                    try:
+                        await active_host.send_json({"type": "viewer_left"})
+                    except (WebSocketDisconnect, OSError, RuntimeError):
+                        logger.warning("viewer disconnect cleanup delivery failed device=%s", device_id, exc_info=True)
+                logger.info("viewer disconnected; approved session cleanup sent device=%s user_id=%s", device_id, user_id)
         db.close()
 
 @app.get("/")
