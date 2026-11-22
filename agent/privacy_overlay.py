@@ -101,12 +101,11 @@ class PrivacyBanner:
             try:
                 message = wintypes.MSG()
                 while not self._hotkey_stop.is_set():
-                    result = user32.GetMessageW(ctypes.byref(message), None, 0, 0)
-                    if result <= 0:
-                        break
-                    if message.message == 0x0312 and message.wParam == 0x5244:
-                        self.stop()
-                        break
+                    while user32.PeekMessageW(ctypes.byref(message), None, 0, 0, 1):
+                        if message.message == 0x0312 and message.wParam == 0x5244:
+                            self.stop()
+                            return
+                    threading.Event().wait(0.05)
             finally:
                 user32.UnregisterHotKey(None, 0x5244)
         self._hotkey_thread = threading.Thread(target=listen, name="rdp-privacy-emergency-unlock", daemon=True)
