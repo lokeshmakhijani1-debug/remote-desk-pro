@@ -598,3 +598,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - `ask_file_consent()` now accepts both synchronous and asynchronous consent callbacks. This keeps production Tkinter consent asynchronous while allowing deterministic synchronous consent adapters in headless integration tests and external embedders.
 - Live cloud E2E exercised real Render WebSocket text relay, clipboard acknowledgement/paste, privacy-banner on/off, frame delivery, and resumed file-transfer setup. Those checks passed before the transfer test exposed the callback awaitability mismatch; the callback contract is now normalized.
 - Follow-up source commit: `d2788147e09bca55af574ed8ca958aa57fc7d3af`; CI, Windows packaging, and the next live cloud E2E run are pending.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: d2788147e09bca55af574ed8ca958aa57fc7d3af.
+- EXE size: 61076692 bytes.
+- EXE SHA-256: CCB127E8375FBE0DC4097BA445D7E2065A3BB4F6C602BCFB113D336A444A9AB4.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
