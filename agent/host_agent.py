@@ -229,9 +229,10 @@ def paste_clipboard(text: str):
         return False
     import pyautogui
     import pyperclip
+    pyautogui.FAILSAFE = False
     _focus_target_at_cursor()
     pyperclip.copy(text)
-    pyautogui.hotkey("ctrl", "v")
+    pyautogui.hotkey("ctrl", "v", _pause=False)
     return True
 
 
