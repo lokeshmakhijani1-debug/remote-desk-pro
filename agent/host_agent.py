@@ -12,8 +12,12 @@ import sys
 import threading
 from pathlib import Path
 from resumable_transfer import EndpointFileReceiver, EndpointTransferError
-from privacy_overlay import PrivacyBanner
-from session_recorder import SessionRecorder
+try:
+    from privacy_overlay import PrivacyBanner
+    from session_recorder import SessionRecorder
+except ModuleNotFoundError:
+    from agent.privacy_overlay import PrivacyBanner
+    from agent.session_recorder import SessionRecorder
 from logging.handlers import RotatingFileHandler
 from io import BytesIO
 
