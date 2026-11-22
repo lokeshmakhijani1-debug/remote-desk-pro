@@ -157,7 +157,9 @@ async def main():
             viewer = None
             await asyncio.sleep(1)
             viewer = await new_viewer()
-            await event(viewer,"host_approved")
+            # Same authenticated viewer reclaims the existing approved session.
+            # The host stream and transfer receiver remain live; no second consent
+            # prompt or host_approved event is expected on transport resumption.
             await viewer.send(json.dumps(manifest))
             resumed = await event(viewer,"transfer_resume_req")
             check(resumed.get("next_offset")==CHUNK,f"Resume did not continue from persisted ACK: {resumed}")
@@ -170,8 +172,9 @@ async def main():
             complete = await event(viewer,"transfer_complete",timeout=30)
             check(complete.get("verified") is True and complete.get("sha256")==digest,f"Checksum result: {complete}")
             check(destination.is_file() and hashlib.sha256(destination.read_bytes()).hexdigest()==digest,"Saved file checksum mismatch")
-            check(consents>=2,f"Expected consent hook on both viewer sessions; got {consents}")
+            check(consents==1,f"Expected one consent for the original session and none on reconnect; got {consents}")
             result["checks"]["synthetic_auto_consent_hook"] = "PASS"
+            result["checks"]["same_viewer_resume_without_reconsent"] = "PASS"
             result["host_status"] = host_status
             result["checks"]["zstd_2mib_resume_sha256"] = "PASS"
             result["transfer"] = {"bytes":TOTAL,"chunk_size":CHUNK,"chunks":len(chunks),"compression":"zstd",
