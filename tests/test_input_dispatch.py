@@ -225,7 +225,8 @@ def test_mobile_text_unicode_uses_clipboard_paste(fake_pyautogui, monkeypatch):
     monkeypatch.setattr(host_agent, "_focus_target_at_cursor", lambda: True)
     assert host_agent.apply_text({"type": "text", "text": "नमस्ते"})
     assert copied == ["नमस्ते"]
-    assert fake_pyautogui.calls == [("hotkey", ("ctrl", "v"), {})]
+    assert fake_pyautogui.FAILSAFE is False
+    assert fake_pyautogui.calls == [("hotkey", ("ctrl", "v"), {"_pause": False})]
 
 
 def test_clipboard_direct_paste_uses_ctrl_v(fake_pyautogui, monkeypatch):
