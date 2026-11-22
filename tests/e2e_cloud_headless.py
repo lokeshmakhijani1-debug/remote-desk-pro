@@ -131,6 +131,7 @@ async def main():
         host_agent.release_all_inputs = lambda: None
         host_agent.clipboard_watch = no_clipboard
         host_agent.choose_save_path = lambda _name: str(destination)
+        host_agent.downloads_destination = lambda _name, _transfer_id: destination
         args = SimpleNamespace(server=BASE,device_id=paired["device_id"],secret=paired["agent_secret"],dynamic_password=paired["dynamic_password"])
         host_task = asyncio.create_task(host_agent.run_once(args, stop))
         def capture_host_failure(task):
