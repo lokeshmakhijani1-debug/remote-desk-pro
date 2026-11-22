@@ -230,9 +230,9 @@ class Hub:
             active = self.viewers.setdefault(device_id, set())
             owners = self.viewer_owners.setdefault(device_id, {})
             previous = next((socket for socket, owner in owners.items() if owner == user_id), None)
-            if active and previous is None:
-                return False, len(active), sum(len(group) for group in self.viewers.values()), None
-            total = sum(len(group) for group in self.viewers.values())
+            if owners and previous is None:
+                return False, len(active), sum(len(group) for group in self.viewer_owners.values()), None
+            total = sum(len(group) for group in self.viewer_owners.values())
             if previous is None and total >= max_sessions:
                 return False, len(active), total, None
             if previous is not None:
@@ -254,6 +254,14 @@ class Hub:
                 self.viewers.pop(device_id, None)
                 self.viewer_owners.pop(device_id, None)
             return True
+
+    async def detach_viewer(self, device_id: str, ws: WebSocket) -> None:
+        async with self.lock:
+            active = self.viewers.get(device_id)
+            if active:
+                active.discard(ws)
+                if not active:
+                    self.viewers.pop(device_id, None)
 
     async def terminate_viewer(self, device_id: str) -> None:
         async with self.lock:
@@ -526,6 +534,7 @@ async def viewer_socket(ws: WebSocket, device_id: str):
         if registered:
             # A transport close is not a session termination. Keep the authenticated
             # owner reservation and host approval so a suspended tab can reclaim it.
+            await hub.detach_viewer(device_id, ws)
             logger.info("viewer transport closed; session reservation retained device=%s user_id=%s", device_id, user_id)
         db.close()
 
