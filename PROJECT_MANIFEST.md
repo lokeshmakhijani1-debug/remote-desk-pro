@@ -527,3 +527,32 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+
+## Phase 7 — input relay lifecycle, visible privacy banner, and session security recording (2026-11-22)
+
+### Input and session lifecycle repairs
+- Mobile IME composition completion now sends the completed input value (falling back to the composition payload only when the input value is empty), rather than sending only the final composition fragment.
+- Clipboard paste now uses a request ID and waits for a host-generated `clipboard_ack`; the viewer no longer reports success optimistically. Host paste errors are returned as a failed acknowledgement.
+- Backend returns an explicit `input_pending` event when text or clipboard input arrives before host approval.
+- Viewer `viewer_end` now clears approval, sends `viewer_left` to the host, and releases the active viewer socket. An abrupt viewer transport disconnect also clears approval and sends host cleanup while retaining the authenticated owner reservation for same-user reconnect; reconnect requires fresh host approval.
+- Host reconnect signaling preserves the waiting viewer ID. Existing transfer-init/resume/chunk handlers remain approval-gated; a pending transfer is re-issued by the viewer after `host_approved`.
+
+### Host privacy and recording
+- Added `agent/privacy_overlay.py`: an always-on-top, full-screen, visibly labeled maintenance banner. Local emergency unlock: `Ctrl+Alt+Shift+U`. It is removed on explicit viewer end, viewer transport loss, or host-agent disconnect.
+- Viewer toolbar now provides a Privacy Banner toggle and an Auto banner checkbox for session start.
+- **Pure blank/hidden-screen mode and `WDA_EXCLUDEFROMCAPTURE` are intentionally not enabled.** The supported capture path uses MSS and does not guarantee that excluding an overlay from capture preserves the underlying desktop stream; hiding the technician's activity from the physical user would also defeat visible-session transparency. The implemented banner remains visible to the local host.
+- Added `agent/session_recorder.py`: after the host explicitly approves a viewer, a background worker records the primary display to `%USERPROFILE%\\Videos\\RemoteDeskPro-Recordings\\session_<device_id>_<timestamp>.mp4`. The host consent dialog discloses local recording. The worker finalizes the MP4 and appends session start/end, viewer ID, file size, and SHA-256 to `audit_log.jsonl` in the same folder.
+- Viewer session header shows a subtle `REC` indicator when the host confirms recording startup. Recording failures are logged locally and do not bypass or weaken host consent.
+
+### Dependencies, packaging, and modified files
+- New agent dependency: `imageio-ffmpeg>=0.6,<1` for bundled H.264 MP4 encoding. No new external API keys or OAuth credentials.
+- PyInstaller packaging updated in `agent/build_windows.ps1` and `.github/workflows/build-windows.yml` to collect `imageio_ffmpeg` and include `session_recorder` and `privacy_overlay`. No standalone PyInstaller .spec file exists in the repository; the current build uses explicit CLI arguments.
+- Modified: `backend/main.py`, `frontend/src/App.tsx`, `frontend/src/styles.css`, `agent/host_agent.py`, `agent/requirements.txt`, `agent/build_windows.ps1`, `.github/workflows/build-windows.yml`, `README.md`, `tests/test_input_dispatch.py`, `tests/test_session_lifecycle.py`.
+- Added: `agent/privacy_overlay.py`, `agent/session_recorder.py`, `tests/test_session_security.py`.
+- No recordings, audit output files, credentials, or generated executables are committed. Recording outputs are created only on the approved host machine.
+
+### Verification checkpoint
+- Added unit coverage for the recorder worker's file finalization and audit SHA-256, non-Windows privacy-banner gating, and backend privacy-mode validation.
+- GitHub Actions backend/frontend tests and Windows PyInstaller packaging are triggered by the source commits; final results and Render deployment health are pending this checkpoint.
+- Cloud unit tests do not certify physical Windows overlay rendering, global keyboard behavior, or live host desktop recording; those require an interactive Windows host smoke test.
