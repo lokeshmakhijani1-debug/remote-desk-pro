@@ -90,13 +90,20 @@ def test_privacy_banner_starts_and_stops_with_emergency_unlock_binding(monkeypat
     fake_tk.Frame = FakeWidget
     fake_tk.Label = FakeWidget
     monkeypatch.setattr(privacy_overlay.os, "name", "nt")
+    class FakeFunction:
+        def __init__(self, callback):
+            self.callback = callback
+            self.restype = None
+        def __call__(self, *args):
+            return self.callback(*args)
     class FakeUser32:
-        def GetAncestor(self, hwnd, _flags): return hwnd
-        def GetWindowLongW(self, *_args): return 0
-        def SetWindowLongW(self, *_args): return 0
-        def SetWindowPos(self, *_args): return 1
-        def SetWindowDisplayAffinity(self, *_args): return 1
-        def RegisterHotKey(self, *_args): return 0
+        def __init__(self):
+            self.GetAncestor = FakeFunction(lambda hwnd, _flags: hwnd)
+            self.GetWindowLongW = FakeFunction(lambda *_args: 0)
+            self.SetWindowLongW = FakeFunction(lambda *_args: 0)
+            self.SetWindowPos = FakeFunction(lambda *_args: 1)
+            self.SetWindowDisplayAffinity = FakeFunction(lambda *_args: 1)
+            self.RegisterHotKey = FakeFunction(lambda *_args: 0)
     monkeypatch.setattr(privacy_overlay.ctypes, "WinDLL", lambda *_args, **_kwargs: FakeUser32(), raising=False)
     monkeypatch.setitem(sys.modules, "tkinter", fake_tk)
 
