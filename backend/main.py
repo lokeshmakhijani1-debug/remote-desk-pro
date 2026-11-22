@@ -523,12 +523,16 @@ async def viewer_socket(ws: WebSocket, device_id: str):
             elif kind == "control":
                 if user_role != "read_only" and hub.is_approved(device_id) and validate_control(event):
                     await hub.relay(device_id, ws, raw)
-            elif kind == "clipboard_paste" and user_role != "read_only" and hub.is_approved(device_id):
-                if validate_clipboard(event):
+            elif kind == "clipboard_paste" and user_role != "read_only":
+                if not hub.is_approved(device_id):
+                    await ws.send_json({"type":"input_pending","operation":"clipboard","detail":"Waiting for host approval"})
+                elif validate_clipboard(event):
                     audit(db, "clipboard.pasted", user_id, device_id, f"characters={len(event['text'])}")
                     await hub.relay(device_id, ws, raw)
-            elif kind == "text" and user_role != "read_only" and hub.is_approved(device_id):
-                if validate_text_event(event):
+            elif kind == "text" and user_role != "read_only":
+                if not hub.is_approved(device_id):
+                    await ws.send_json({"type":"input_pending","operation":"text","detail":"Waiting for host approval"})
+                elif validate_text_event(event):
                     await hub.relay(device_id, ws, raw)
             elif kind == "clipboard_update" and hub.is_approved(device_id):
                 if validate_clipboard(event):
