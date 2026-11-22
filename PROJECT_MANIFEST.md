@@ -563,3 +563,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Native Windows input-dispatch code remained unchanged.
 
 - Post-certification main CI run 44917517510 for manifest commit e4826d7389fe7766e10bd0a8d65cf7f466bd33b2: **SUCCESS**. Backend py_compile + pytest and frontend npm build all passed; the manifest is synchronized with the passing cloud E2E report.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: 5e1269cce5364503fdb2e9fe81788ec73d602e47.
+- EXE size: 22265883 bytes.
+- EXE SHA-256: 1EC553D271976FA005BF7B8D707860369CBAD95E9C178E25528248361D3709F0.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
