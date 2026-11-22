@@ -448,6 +448,22 @@ def run_viewer(config: dict, target: subprocess.Popen) -> dict:
             if read_state().get("clicks", 0) != click_count_before_pan:
                 raise RuntimeError("Zoomed one-finger drag generated an accidental remote click")
             result["checks"]["zoomed_one_finger_pan_no_click"] = True
+            # Two-finger pinch must zoom the viewport without dispatching remote clicks.
+            pinch_before = canvas.evaluate("(c) => c.style.transform")
+            pinch_rect = canvas.bounding_box()
+            pinch_x = pinch_rect["x"] + pinch_rect["width"] * 0.5
+            pinch_y = pinch_rect["y"] + pinch_rect["height"] * 0.5
+            clicks_before_pinch = read_state().get("clicks", 0)
+            cdp.send("Input.dispatchTouchEvent", {"type":"touchStart","touchPoints":[
+                {"x":pinch_x-24,"y":pinch_y,"id":11},{"x":pinch_x+24,"y":pinch_y,"id":12}]})
+            cdp.send("Input.dispatchTouchEvent", {"type":"touchMove","touchPoints":[
+                {"x":pinch_x-52,"y":pinch_y,"id":11},{"x":pinch_x+52,"y":pinch_y,"id":12}]})
+            cdp.send("Input.dispatchTouchEvent", {"type":"touchEnd","touchPoints":[]})
+            wait_until(lambda: (v if (v := canvas.evaluate("(c) => c.style.transform")) != pinch_before else None),
+                       5, "Two-finger pinch did not change the viewport transform")
+            if read_state().get("clicks", 0) != clicks_before_pinch:
+                raise RuntimeError("Two-finger pinch generated an accidental remote click")
+            result["checks"]["two_finger_pinch_no_click"] = True
             zoomed_click = point("click_xy", canvas.bounding_box())
             clicks_before_zoom_tap = read_state().get("clicks", 0)
             page.touchscreen.tap(zoomed_click["x"], zoomed_click["y"])
