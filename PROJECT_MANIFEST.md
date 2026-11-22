@@ -613,3 +613,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - The initial post-callback E2E retry successfully completed the resumable transfer protocol and receiver-side SHA-256 verification, but the test asserted against a separate temporary path. Production `transfer_init` intentionally uses `downloads_destination()` (the host Downloads folder), not the legacy `choose_save_path()` hook.
 - The headless test now overrides `host_agent.downloads_destination()` to direct the synthetic host receiver to its isolated temporary destination. This preserves production behavior while ensuring the E2E checksum assertion inspects the exact file written by the receiver.
 - A fresh live cloud E2E run is required before certification; this correction is not considered verified until that run passes.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: 554af56b32aca79f4ba21e847501e368d1d1d9b8.
+- EXE size: 61077228 bytes.
+- EXE SHA-256: 79BC62F6E3A5939ED91F790132D2D4153D441566EBA8F0D162353DFC29A4247A.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
