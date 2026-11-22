@@ -474,7 +474,7 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 ## Frontend TypeScript repair — 2026-11-22
 - Fixed `frontend/src/App.tsx`: declared `SESSION_STORAGE_KEY` and the `PersistedSession` interface matching the existing `{ sessionId, deviceId, viewerToken }` sessionStorage payload; changed the End button to `onClick={() => disconnect()}` so React's mouse event is not passed as the boolean `explicitEnd` argument.
 - Commit: `11ad77c2d5bcbcfe9adb1e9138703ea94f8b79f0`.
-- Frontend build, GitHub CI, Render deployment, and live mobile Playwright verification are pending; do not certify until their results are recorded.
+- Verification: GitHub frontend CI `npm run build` PASS; backend CI remains FAIL on the pre-existing `tests/test_input_dispatch.py::test_text_input_uses_clipboard_and_pastes_into_focused_host` assertion (52 passed, 1 failed; `host_agent.py` and tests were intentionally not changed). Render service `remote-desk-pro-pj29` auto-deployed commit `b8f23b98e77b6d3ff86e342cda1ebd8136f37d13` and reached status `live` at 2026-11-22T10:35:44Z; Docker `npm run build` completed successfully. Live mobile Playwright gate was not executed: GitHub workflow-dispatch is not exposed by the connected GitHub actions, and the available browser automation service refused to start due to insufficient credits. Do not claim the mobile keyboard, touch-pan, clipboard, file-consent, or visibility-resume checks passed.
 
 ## GitHub Actions Windows build (latest)
 - Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
