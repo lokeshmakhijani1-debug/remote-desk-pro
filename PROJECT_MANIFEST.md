@@ -556,3 +556,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Added unit coverage for the recorder worker's file finalization and audit SHA-256, non-Windows privacy-banner gating, and backend privacy-mode validation.
 - GitHub Actions backend/frontend tests and Windows PyInstaller packaging are triggered by the source commits; final results and Render deployment health are pending this checkpoint.
 - Cloud unit tests do not certify physical Windows overlay rendering, global keyboard behavior, or live host desktop recording; those require an interactive Windows host smoke test.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: 14bb352492ec767550de2623d5631a0860f39a9e.
+- EXE size: 61074628 bytes.
+- EXE SHA-256: 23F3318E15FA31D3837B6AD2C1AEA17EF440B88C3ABC567B05EA515DD836F383.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
