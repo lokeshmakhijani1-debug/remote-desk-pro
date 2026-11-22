@@ -574,3 +574,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: 9c31b230f8808638bd9baa3a9bf6fc0ef0362e31.
+- EXE size: 61076269 bytes.
+- EXE SHA-256: 5B3F615F40C9D74B192EFE4CCCF927FE0F2D9DB937E5339EA243FFBCA11EF0DF.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
