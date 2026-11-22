@@ -630,7 +630,7 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - File transfer: approved remote sessions automatically receive files into %USERPROFILE%\Downloads\RemoteDeskPro-Received\; resumable receiver offsets acknowledge each chunk and final SHA-256 verification is reported to the viewer.
 - Privacy Screen: viewer offers Black Curtain and Technician Working Banner. Windows overlay uses topmost/tool-window extended styles, requests WDA_EXCLUDEFROMCAPTURE, blocks local interaction with a Tk grab, supports Ctrl+Alt+Shift+U emergency unlock, and is torn down on viewer disconnect.
 - Protected behavior: existing mobile keyboard sendText/sendTextKey path, live JPEG stream, mouse dispatch, and SessionRecorder start/stop logic were not rewritten.
-- Verification: automated CI and Windows build/live E2E are pending for the resulting commits; source changes are not runtime certification.
+- Verification: CI and Render headless cloud E2E passed on 2026-11-22; physical Windows desktop input/overlay certification remains separate.
 
 ## GitHub Actions Windows build (latest)
 - Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
@@ -649,3 +649,14 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+
+## Final certification snapshot (2026-11-22)
+- Current source branch: main; Windows build workflow source includes the full viewer, host-agent and privacy-overlay implementation. The build workflow published its generated EXE and committed the distribution copy plus manifest update.
+- Backend/frontend CI: PASS — run 45027987877 (frontend build and backend pytest suite).
+- Render headless protocol E2E: PASS — run 45027845280. Clipboard paste ACK, mobile text relay, live WebSocket frame delivery, both privacy-screen modes, MP4 recording cleanup, fresh-consent reconnect, PostgreSQL health and 2 MiB interrupted/resumed Zstandard transfer with SHA-256 all passed.
+- Windows Agent build: PASS — run 45027914341; EXE 61,077,936 bytes; SHA-256 3CEE09EB405318D6322D6D6E3530442DCB59D235707C9D4F8594F16E7AA86EAC.
+- Release asset: latest-agent / RemoteDeskPro-Agent.exe. Render-served binary path: backend/downloads/RemoteDeskPro-Agent.exe.
+- Render deployment: service remote-desk-pro-pj29, deploy dep-dc1etsrbc2fs73e8l94g, commit a13e2577d77b987da0f6f7d397b56be0505ab456, status LIVE.
+- The Live Cloud E2E workflow now also runs tests/e2e_live_relay.py against Render before the headless browser protocol test. Its first result is pending after the workflow update.
+- tests/e2e_remote_control_live.py compiles in CI and now contains a two-finger pinch/no-accidental-click check. Its full run still requires the registered interactive Windows host with its DPAPI-protected agent config; no local machine was accessed for this task.
