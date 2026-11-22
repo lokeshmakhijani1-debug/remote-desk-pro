@@ -249,3 +249,16 @@ def test_file_transfer_destination_is_downloads_and_never_overwrites(tmp_path, m
     assert destination.parent == downloads
     assert destination.name == "report-12345678.txt"
     assert existing.read_text(encoding="utf-8") == "keep"
+
+
+@pytest.mark.parametrize("event", [
+    {"event": "privacy_screen", "enabled": True, "mode": "banner"},
+    {"event": "privacy_screen", "enabled": False, "mode": "banner"},
+])
+def test_backend_accepts_visible_privacy_banner_control(event):
+    assert validate_control(event)
+
+
+def test_backend_rejects_hidden_or_unsupported_privacy_modes():
+    assert not validate_control({"event": "privacy_screen", "enabled": True, "mode": "blank"})
+    assert not validate_control({"event": "privacy_screen", "enabled": "yes", "mode": "banner"})
