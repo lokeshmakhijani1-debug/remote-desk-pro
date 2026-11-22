@@ -360,7 +360,9 @@ async def host_socket(ws: WebSocket, device_id: str):
         await hub.relay(device_id, ws, json.dumps({"type":"host_online"}))
         # A viewer may already be waiting while this host reconnects.
         if hub.viewers.get(device_id):
-            await ws.send_json({"type":"viewer_joined"})
+            owners = hub.viewer_owners.get(device_id, {})
+            waiting_viewer_id = next(iter(owners.values()), "unknown")
+            await ws.send_json({"type":"viewer_joined", "viewer_id": str(waiting_viewer_id)})
         while True:
             packet = await ws.receive()
             raw = packet.get("bytes") if packet.get("bytes") is not None else packet.get("text")
