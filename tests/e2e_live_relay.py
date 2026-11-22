@@ -185,9 +185,21 @@ async def run(base_url):
                 require(chunks > 1, "Transfer did not exercise multiple chunks")
                 results["chunked_file_transfer_sha256"] = f"PASS ({sent} bytes, {chunks} chunks)"
 
+                # Use a distinct authenticated user: same-user reconnect is intentionally allowed
+                # to reclaim its own session, while a second user must be rejected.
+                second_suffix = uuid.uuid4().hex[:12]
+                second_email = f"rdp-e2e-viewer-{second_suffix}@example.com"
+                second_password = f"Rdp-E2E-{uuid.uuid4().hex}!"
+                second_reg = (await client.post("/api/auth/register",
+                                               json={"email": second_email, "password": second_password})).raise_for_status().json()
+                second_headers = {"Authorization": f"Bearer {second_reg['access_token']}"}
+                second_connect = await post_with_transport_retry(
+                    base_url, "/api/devices/connect", second_headers,
+                    {"device_id": device_id, "password": dynamic_password}, timeout
+                )
                 async with websockets.connect(viewer_url, max_size=8 * 1024 * 1024) as second_viewer:
                     await receive_json(second_viewer, "relay_ready")
-                    await second_viewer.send(json.dumps({"type": "auth", "session_token": session_token}))
+                    await second_viewer.send(json.dumps({"type": "auth", "session_token": second_connect["session_token"]}))
                     rejection = await receive_json(second_viewer, "viewer_rejected", timeout=15)
                     require(rejection.get("code") == 4429,
                             f"Expected explicit one-viewer rejection, got {rejection}")
