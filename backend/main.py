@@ -387,6 +387,9 @@ async def host_socket(ws: WebSocket, device_id: str):
                 hub.approved.add(device_id)
                 audit(db, "session.host_approved", device.owner_id, device_id)
                 await hub.relay(device_id, ws, raw)
+            elif kind == "host_denied":
+                hub.approved.discard(device_id)
+                await hub.relay(device_id, ws, raw)
             elif kind in ("clipboard_ack", "privacy_screen_ack") and hub.is_approved(device_id):
                 await hub.relay(device_id, ws, raw)
             elif kind == "clipboard_paste" and hub.is_approved(device_id):
