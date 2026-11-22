@@ -196,7 +196,7 @@ async def ask_file_consent(name: str, size: int) -> bool:
 
 def downloads_destination(name: str, transfer_id: str) -> Path:
     safe_name = Path(str(name).replace("\\", "/")).name[:180] or "received-file"
-    folder = Path.home() / "Downloads"
+    folder = Path.home() / "Downloads" / "RemoteDeskPro-Received"
     folder.mkdir(parents=True, exist_ok=True)
     destination = folder / safe_name
     if destination.exists():
@@ -572,10 +572,6 @@ async def run_once(args, stop_event=None):
                         size = int(message["total_size"])
                         if not transfer_id or not 0 < size <= 50 * 1024 * 1024:
                             raise ValueError("Invalid transfer ID or file size")
-                        if not await ask_file_consent(name, size):
-                            await ws.send(json.dumps({"type":"transfer_error","transfer_id":transfer_id,
-                                                      "detail":"Host declined the file transfer"}))
-                            continue
                         destination = downloads_destination(name, transfer_id)
                         receiver = EndpointFileReceiver(
                             destination, transfer_id, size, str(message["sha256"]),
@@ -645,24 +641,25 @@ async def run_once(args, stop_event=None):
                 elif message.get("type") == "control" and streaming.is_set():
                     try:
                         if message.get("event") == "privacy_screen":
-                            if message.get("mode") != "banner":
-                                raise ValueError("Only the visible maintenance banner mode is supported")
+                            mode = str(message.get("mode") or "banner")
+                            if mode not in {"black", "banner"}:
+                                raise ValueError("Unsupported privacy screen mode")
                             if message.get("enabled") is True:
                                 if privacy_banner is None:
                                     privacy_banner = PrivacyBanner()
-                                applied = privacy_banner.start()
+                                applied = privacy_banner.start(mode)
                             else:
                                 if privacy_banner:
                                     privacy_banner.stop()
                                     privacy_banner = None
                                 applied = True
-                            await ws.send(json.dumps({"type":"privacy_screen_ack","enabled":bool(message.get("enabled")) and bool(applied),"mode":"banner"}))
+                            await ws.send(json.dumps({"type":"privacy_screen_ack","enabled":bool(message.get("enabled")) and bool(applied),"mode":mode}))
                         else:
                             await asyncio.to_thread(apply_control, message)
                     except Exception as exc:
                         log.warning("Input event rejected: %s", exc)
                         if message.get("event") == "privacy_screen":
-                            await ws.send(json.dumps({"type":"privacy_screen_ack","enabled":False,"mode":"banner","detail":"Maintenance banner could not be applied"}))
+                            await ws.send(json.dumps({"type":"privacy_screen_ack","enabled":False,"mode":str(message.get("mode") or "banner"),"detail":"Privacy screen could not be applied"}))
         finally:
             try:
                 release_all_inputs()
