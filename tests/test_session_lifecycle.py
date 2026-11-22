@@ -60,7 +60,7 @@ def test_hub_keeps_viewer_reservation_after_transport_loss_until_explicit_end():
         hub = Hub()
         viewer = object()
         await hub.register_viewer("device-1", viewer, 50, 42)
-        await hub.detach_viewer("device-1", viewer)
+        assert await hub.detach_viewer("device-1", viewer)
         rejected, active, total, previous = await hub.register_viewer("device-1", object(), 50, 99)
         assert not rejected and active == 0 and total == 1 and previous is None
         resumed = object()
