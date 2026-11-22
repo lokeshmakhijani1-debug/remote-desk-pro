@@ -484,3 +484,10 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+
+## Remote text-input clipboard regression fix — 2026-11-22
+- Fixed `agent/host_agent.py` in `apply_control()` so clipboard paste is used for text containing spaces or Unicode; only ASCII alphanumeric text uses `pyautogui.write()`. This aligns the legacy control handler with the mobile `apply_text()` path and prevents spaces from being injected through the direct typing branch.
+- The existing test `test_text_input_uses_clipboard_and_pastes_into_focused_host` expects clipboard copy followed by Ctrl+V for `mobile typing`; the fake clipboard and PyAutoGUI mocks make this deterministic in Linux CI without requiring an X11 display.
+- Source fix commit: `9d478dbaf7e217e61d2459b1a894bfac1b270f83`.
+- Backend pytest, GitHub CI, and the Windows `latest-agent` rebuild are pending; update this checkpoint only after workflow results are verified.
