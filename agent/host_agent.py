@@ -187,7 +187,10 @@ def _file_consent_dialog(name: str, size: int) -> bool:
 
 async def ask_file_consent(name: str, size: int) -> bool:
     if _FILE_CONSENT_CALLBACK:
-        return await _FILE_CONSENT_CALLBACK(name, size)
+        result = _FILE_CONSENT_CALLBACK(name, size)
+        if asyncio.iscoroutine(result) or hasattr(result, "__await__"):
+            result = await result
+        return bool(result)
     return await asyncio.to_thread(_file_consent_dialog, name, size)
 
 
