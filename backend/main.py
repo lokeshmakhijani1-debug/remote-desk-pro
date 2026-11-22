@@ -97,7 +97,7 @@ def manifest():
     return {
         "name":"Remote Desk Pro",
         "api_version":"0.1.0",
-        "features":{"websocket_binary_relay":True,"webrtc_ice_config":True,"device_pairing":True,"rbac":["admin","technician","read_only"],"file_transfer":True,"clipboard_sync":True,"recording":False},
+        "features":{"websocket_binary_relay":True,"webrtc_ice_config":True,"device_pairing":True,"rbac":["admin","technician","read_only"],"file_transfer":True,"clipboard_sync":True,"recording":True,"privacy_banner":True},
         "limits":{"max_concurrent_viewers":settings.max_concurrent_sessions,"one_viewer_per_device":True},
         "deployment":{"environment":settings.app_env,"database_dialect":DATABASE_KIND,"database_table_prefix":"rdp_","persistent_disk_required_for_sqlite":True}
     }
