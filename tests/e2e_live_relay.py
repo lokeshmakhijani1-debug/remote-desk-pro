@@ -6,6 +6,7 @@ Creates one synthetic account and one synthetic paired device in the configured 
 import argparse
 import asyncio
 import base64
+import hashlib
 import json
 import time
 import uuid
@@ -138,39 +139,52 @@ async def run(base_url):
                 require(got.get("text") == viewer_clip, "Viewer-to-host clipboard mismatch")
                 results["bidirectional_clipboard"] = "PASS"
 
-                # Four 48 KiB chunks exercise the multi-chunk transfer path.
-                payload = (b"remote-desk-pro-e2e-file:" + suffix.encode()) * 5000
+                # Three 256 KiB chunks exercise the current resumable transfer protocol.
+                payload = (b"remote-desk-pro-e2e-file:" + suffix.encode()) * 20000
                 transfer_id = uuid.uuid4().hex
+                chunk_size = 256 * 1024
+                expected_sha256 = hashlib.sha256(payload).hexdigest()
                 await viewer.send(json.dumps({
-                    "type": "file_offer", "transfer_id": transfer_id,
-                    "name": "../../rdp-e2e-synthetic.txt", "size": len(payload)
+                    "type": "transfer_init", "transfer_id": transfer_id,
+                    "name": "../../rdp-e2e-synthetic.txt", "total_size": len(payload),
+                    "sha256": expected_sha256, "chunk_size": chunk_size, "compression": "none"
                 }))
-                offer = await receive_json(host, "file_offer")
-                require(offer.get("name") == "rdp-e2e-synthetic.txt", "File name was not sanitized")
-                await host.send(json.dumps({"type": "file_accept", "transfer_id": transfer_id}))
-                await receive_json(viewer, "file_accept")
+                offer = await receive_json(host, "transfer_init")
+                require(offer.get("name") == "rdp-e2e-synthetic.txt", "Transfer filename was not sanitized")
+                await host.send(json.dumps({"type":"transfer_resume_req","transfer_id":transfer_id,"next_offset":0}))
+                resume = await receive_json(viewer, "transfer_resume_req")
+                require(resume.get("next_offset") == 0, "New transfer did not resume at offset zero")
 
-                chunk_size = 48 * 1024
+                received = bytearray()
                 sent = 0
                 chunks = 0
                 while sent < len(payload):
                     chunk = payload[sent:sent + chunk_size]
                     await viewer.send(json.dumps({
-                        "type": "file_chunk", "transfer_id": transfer_id,
+                        "type": "transfer_chunk", "transfer_id": transfer_id, "offset": sent,
                         "data": base64.b64encode(chunk).decode("ascii")
                     }))
-                    packet = await asyncio.wait_for(host.recv(), timeout=10)
-                    event = json.loads(packet)
-                    require(event.get("type") == "file_chunk" and event.get("transfer_id") == transfer_id, "File chunk relay mismatch")
+                    event = json.loads(await asyncio.wait_for(host.recv(), timeout=10))
+                    require(event.get("type") == "transfer_chunk" and event.get("offset") == sent,
+                            "Transfer chunk relay mismatch")
+                    received.extend(base64.b64decode(event["data"], validate=True))
                     sent += len(chunk)
                     chunks += 1
+                    await host.send(json.dumps({"type":"transfer_ack","transfer_id":transfer_id,"next_offset":sent}))
+                    ack = await receive_json(viewer, "transfer_ack")
+                    require(ack.get("next_offset") == sent, "Transfer progress acknowledgment mismatch")
 
-                await viewer.send(json.dumps({"type": "file_complete", "transfer_id": transfer_id}))
-                await receive_json(host, "file_complete")
-                await host.send(json.dumps({"type": "file_complete", "transfer_id": transfer_id}))
-                await receive_json(viewer, "file_complete")
+                await viewer.send(json.dumps({"type":"transfer_complete","transfer_id":transfer_id}))
+                complete_request = await receive_json(host, "transfer_complete")
+                require(complete_request.get("transfer_id") == transfer_id, "Transfer completion relay mismatch")
+                verified = hashlib.sha256(received).hexdigest() == expected_sha256
+                await host.send(json.dumps({"type":"transfer_complete","transfer_id":transfer_id,
+                                            "sha256":expected_sha256,"verified":verified}))
+                complete_ack = await receive_json(viewer, "transfer_complete")
+                require(complete_ack.get("verified") is True and complete_ack.get("sha256") == expected_sha256,
+                        "Final transfer SHA-256 verification was not acknowledged")
                 require(chunks > 1, "Transfer did not exercise multiple chunks")
-                results["chunked_file_transfer"] = f"PASS ({sent} bytes, {chunks} chunks)"
+                results["chunked_file_transfer_sha256"] = f"PASS ({sent} bytes, {chunks} chunks)"
 
                 async with websockets.connect(viewer_url, max_size=8 * 1024 * 1024) as second_viewer:
                     await receive_json(second_viewer, "relay_ready")
@@ -200,7 +214,7 @@ async def run(base_url):
         if reg["user"]["role"] == "admin":
             audit_rows = (await client.get("/api/admin/audit", headers=headers)).raise_for_status().json()
             actions = {row["action"] for row in audit_rows if row.get("device_id") == device_id}
-            expected = {"device.paired", "session.requested", "session.host_approved", "clipboard.relayed", "file.offered", "file.received"}
+            expected = {"device.paired", "session.requested", "session.host_approved", "clipboard.relayed"}
             missing = expected - actions
             require(not missing, f"Missing audit events: {sorted(missing)}")
             results["rdp_audit_persistence"] = "PASS (" + ", ".join(sorted(expected)) + ")"
