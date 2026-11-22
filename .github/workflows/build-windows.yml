@@ -40,7 +40,7 @@ jobs:
         shell: pwsh
         working-directory: agent
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name RemoteDeskPro-Agent --collect-all mss --collect-all pyautogui --collect-all pyperclip --collect-data certifi --hidden-import tkinter --hidden-import desktop_app --hidden-import certifi --hidden-import websockets.asyncio.client --hidden-import websockets.asyncio.connection host_agent.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name RemoteDeskPro-Agent --collect-all mss --collect-all pyautogui --collect-all pyperclip --collect-all imageio_ffmpeg --collect-data imageio_ffmpeg --collect-data certifi --hidden-import session_recorder --hidden-import privacy_overlay --hidden-import tkinter --hidden-import desktop_app --hidden-import certifi --hidden-import websockets.asyncio.client --hidden-import websockets.asyncio.connection host_agent.py
           if (!(Test-Path "dist/RemoteDeskPro-Agent.exe")) { throw "PyInstaller did not produce the expected executable." }
           $file = Get-Item "dist/RemoteDeskPro-Agent.exe"
           $hash = (Get-FileHash "dist/RemoteDeskPro-Agent.exe" -Algorithm SHA256).Hash
