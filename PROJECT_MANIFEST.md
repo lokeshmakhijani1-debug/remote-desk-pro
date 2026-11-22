@@ -460,3 +460,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Local validation on 2026-11-22: Python compilation PASS; pytest 49 passed (one upstream Starlette/httpx deprecation warning); frontend TypeScript/Vite production build PASS; git diff --check PASS.
 - tests/e2e_remote_control_live.py now includes headless Chromium mobile keyboard, clipboard paste, visibility-resume, zoomed touch-pan/tap, host file-consent, reconnect/resume, and Downloads SHA-256 checks at 390x844 with touch enabled. The expanded live test has not yet been run; do not certify the live Windows-to-Render path until its report is PASS.
 - No .env files or secret values were changed. Deployment target remains Render https://remote-desk-pro-pj29.onrender.com; Vercel is not used.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: c5a4aaf7c3fb37b6d3729926570578b442060c4c.
+- EXE size: 22272555 bytes.
+- EXE SHA-256: AA0C90E13EE22EAB4871AA89D88D69CEE5339EAABB65845F8B35B7B57013B1A0.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
