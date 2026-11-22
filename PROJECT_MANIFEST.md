@@ -622,3 +622,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+
+## Remote Desk Pro viewer, transfer and privacy fixes (2026-11-22)
+- Viewer gestures: one-finger viewport pan works at 1x and above when Control is off; two-finger pinch/pan is available regardless of Control mode; zoom is clamped to 1x–4x. Control-mode one-finger pointer events retain remote mouse dispatch. Keyboard input element handlers are unchanged.
+- Clipboard: retained viewer clipboard_paste request and host clipboard copy/Ctrl+V/clipboard_ack flow; added direct clipboard delivery regression coverage.
+- File transfer: approved remote sessions automatically receive files into %USERPROFILE%\Downloads\RemoteDeskPro-Received\; resumable receiver offsets acknowledge each chunk and final SHA-256 verification is reported to the viewer.
+- Privacy Screen: viewer offers Black Curtain and Technician Working Banner. Windows overlay uses topmost/tool-window extended styles, requests WDA_EXCLUDEFROMCAPTURE, blocks local interaction with a Tk grab, supports Ctrl+Alt+Shift+U emergency unlock, and is torn down on viewer disconnect.
+- Protected behavior: existing mobile keyboard sendText/sendTextKey path, live JPEG stream, mouse dispatch, and SessionRecorder start/stop logic were not rewritten.
+- Verification: automated CI and Windows build/live E2E are pending for the resulting commits; source changes are not runtime certification.
