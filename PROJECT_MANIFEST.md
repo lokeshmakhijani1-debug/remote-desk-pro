@@ -475,3 +475,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Fixed `frontend/src/App.tsx`: declared `SESSION_STORAGE_KEY` and the `PersistedSession` interface matching the existing `{ sessionId, deviceId, viewerToken }` sessionStorage payload; changed the End button to `onClick={() => disconnect()}` so React's mouse event is not passed as the boolean `explicitEnd` argument.
 - Commit: `11ad77c2d5bcbcfe9adb1e9138703ea94f8b79f0`.
 - Frontend build, GitHub CI, Render deployment, and live mobile Playwright verification are pending; do not certify until their results are recorded.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: 11ad77c2d5bcbcfe9adb1e9138703ea94f8b79f0.
+- EXE size: 22269781 bytes.
+- EXE SHA-256: 7CB5AC6E6A7D9374C7E4F0999FA4E80652623F47CBBB843A2FB4A286A272E101.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
