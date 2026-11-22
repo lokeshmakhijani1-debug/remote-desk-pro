@@ -599,3 +599,10 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+
+## Mobile remote viewer and keyboard reliability update — 2026-11-22
+- `frontend/src/App.tsx`: persists tab-scoped viewer metadata (`sessionId`, `deviceId`, `viewerToken`) and reattaches the authenticated WebSocket after refresh without ending the session; clears metadata only on explicit End or host `host_disconnected`; adds fullscreen/landscape, client-only pinch zoom/pan clamped to 1.0×–3.0×, transformed-canvas coordinate mapping, and 1.8× focus zoom.
+- `frontend/src/styles.css`: adds fullscreen-only viewer presentation and an opacity-hidden in-viewport Android keyboard textarea; transforms are confined to the phone-side canvas.
+- `agent/host_agent.py`: serializes host input dispatch in a worker thread, uses `pyautogui.write(text, interval=0.01)` with clipboard fallback for Unicode/write failures, and reuses existing host approval when the viewer transport reattaches.
+- Scope: only the remote viewer frontend, its stylesheet, host keyboard dispatch, and this manifest were changed; environment keys and values were not edited.
