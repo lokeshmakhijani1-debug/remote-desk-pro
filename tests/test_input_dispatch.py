@@ -38,6 +38,9 @@ class FakePyAutoGUI(types.ModuleType):
     def keyUp(self, *args, **kwargs):
         self.calls.append(("keyUp", args, kwargs))
 
+    def hotkey(self, *args, **kwargs):
+        self.calls.append(("hotkey", args, kwargs))
+
     def scroll(self, *args, **kwargs):
         self.calls.append(("scroll", args, kwargs))
 
@@ -118,6 +121,16 @@ def test_keyboard_modifier_lifecycle_uses_down_and_up(fake_pyautogui):
     ]
 
 
+def test_text_input_uses_clipboard_and_pastes_into_focused_host(fake_pyautogui, monkeypatch):
+    clipboard = {"text": ""}
+    fake_clipboard = types.ModuleType("pyperclip")
+    fake_clipboard.copy = lambda value: clipboard.update(text=value)
+    monkeypatch.setitem(sys.modules, "pyperclip", fake_clipboard)
+    assert host_agent.apply_control({"event": "text_input", "text": "mobile typing"})
+    assert clipboard["text"] == "mobile typing"
+    assert fake_pyautogui.calls[-1] == ("hotkey", ("ctrl", "v"), {"_pause": False})
+
+
 def test_mouse_wheel_dispatches_vertical_and_horizontal_scroll(fake_pyautogui):
     host_agent.apply_control({"event": "mouse_scroll", "deltaX": 120, "deltaY": -240})
     assert ("scroll", (2,), {"_pause": False}) in fake_pyautogui.calls
@@ -146,6 +159,7 @@ def test_invalid_input_is_rejected(fake_pyautogui):
     {"event": "mouse_up", "button": 2},
     {"event": "key_down", "key": "Control"},
     {"event": "key_up", "key": "a"},
+    {"event": "text_input", "text": "mobile text"},
     {"event": "mouse_scroll", "deltaX": 0, "deltaY": 120},
 ])
 def test_backend_accepts_supported_control_events(event):
@@ -157,6 +171,7 @@ def test_backend_accepts_supported_control_events(event):
     {"event": "mouse_move", "x": float("nan"), "y": 0},
     {"event": "mouse_down", "button": 8},
     {"event": "key_down", "key": ""},
+    {"event": "text_input", "text": "x" * 4097},
     {"event": "mouse_scroll", "deltaY": float("inf")},
 ])
 def test_backend_rejects_invalid_control_events(event):

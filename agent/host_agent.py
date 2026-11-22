@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import sys
+import threading
 from pathlib import Path
 from resumable_transfer import EndpointFileReceiver, EndpointTransferError
 from logging.handlers import RotatingFileHandler
@@ -31,6 +32,7 @@ _INSTANCE_MUTEX = None
 _PRESSED_KEYS = set()
 _PRESSED_MOUSE_BUTTONS = set()
 _PRIMARY_CAPTURE_SIZE = None
+_INPUT_LOCK = threading.RLock()
 
 
 def _focus_existing_window():
@@ -311,7 +313,7 @@ def _focus_target_at_cursor() -> bool:
                 log.debug("Could not detach foreground input threads", exc_info=True)
 
 
-def apply_control(message: dict):
+def _apply_control_unlocked(message: dict):
     """Dispatch viewer events in the primary monitor's physical pixel coordinate space."""
     import pyautogui
     pyautogui.FAILSAFE = False
@@ -350,6 +352,20 @@ def apply_control(message: dict):
             _PRESSED_MOUSE_BUTTONS.add(button)
         else:
             _PRESSED_MOUSE_BUTTONS.discard(button)
+    elif event == "text_input":
+        text = message.get("text")
+        if not isinstance(text, str) or not text or len(text) > 4096:
+            return False
+        _focus_target_at_cursor()
+        try:
+            if text.isascii():
+                pyautogui.write(text, interval=0.01)
+            else:
+                raise UnicodeEncodeError("ascii", text, 0, len(text), "Unicode requires clipboard paste")
+        except Exception:
+            import pyperclip
+            pyperclip.copy(text)
+            pyautogui.hotkey("ctrl", "v", _pause=False)
     elif event in ("key_down", "key_up"):
         _focus_target_at_cursor()
         key = _normalize_key(message.get("key"))
@@ -387,6 +403,11 @@ def apply_control(message: dict):
     else:
         return False
     return True
+
+def apply_control(message: dict):
+    """Serialize host input dispatch across async WebSocket events."""
+    with _INPUT_LOCK:
+        return _apply_control_unlocked(message)
 
 def release_all_inputs():
     """Release held keys and buttons whenever the viewer/relay session ends."""
@@ -455,6 +476,7 @@ async def run_once(args, stop_event=None):
                 if message.get("type") == "viewer_joined":
                     set_status("Waiting for host approval...")
                     if stream_task and not stream_task.done():
+                        await ws.send(json.dumps({"type":"host_approved"}))
                         continue
                     if await ask_host_consent(args.device_id, args.dynamic_password):
                         streaming.set()
@@ -497,6 +519,17 @@ async def run_once(args, stop_event=None):
                                 await asyncio.to_thread(pyperclip.copy, value)
                         except Exception as exc:
                             log.warning("Clipboard update failed: %s", exc)
+                elif message.get("type") == "clipboard_update" and streaming.is_set():
+                    value = message.get("text", "")
+                    if isinstance(value, str) and len(value) <= 65536:
+                        try:
+                            await asyncio.to_thread(__import__("pyperclip").copy, value)
+                            if message.get("paste") is True:
+                                await asyncio.to_thread(_focus_target_at_cursor)
+                                import pyautogui
+                                await asyncio.to_thread(pyautogui.hotkey, "ctrl", "v", _pause=False)
+                        except Exception:
+                            log.warning("Incoming clipboard update failed", exc_info=True)
                 elif message.get("type") == "transfer_init" and streaming.is_set():
                     try:
                         transfer_id = str(message.get("transfer_id", ""))
@@ -576,7 +609,7 @@ async def run_once(args, stop_event=None):
                             log.warning("File transfer size mismatch; incomplete file retained.")
                 elif message.get("type") == "control" and streaming.is_set():
                     try:
-                        apply_control(message)
+                        await asyncio.to_thread(apply_control, message)
                     except Exception as exc:
                         log.warning("Input event rejected: %s", exc)
         finally:

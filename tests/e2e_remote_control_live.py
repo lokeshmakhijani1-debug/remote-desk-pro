@@ -172,6 +172,14 @@ def agent_log_contains_after(offset: int, marker: str) -> bool:
         return False
 
 
+def find_consent_dialog():
+    for title in ("Remote access request", "Session approval"):
+        for dialog in pyautogui.getWindowsWithTitle(title):
+            if abs(dialog.width - 420) <= 8 and abs(dialog.height - 230) <= 8:
+                return dialog
+    return None
+
+
 def approve_host_consent() -> None:
     windows = wait_until(lambda: (pyautogui.getWindowsWithTitle("Remote access request") or pyautogui.getWindowsWithTitle("Session approval")),
                          35, "Host session-consent dialog did not appear")
