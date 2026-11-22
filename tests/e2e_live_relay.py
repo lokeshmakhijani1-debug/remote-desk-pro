@@ -69,12 +69,12 @@ async def run(base_url):
         suffix = uuid.uuid4().hex[:12]
         email = f"rdp-e2e-{suffix}@example.com"
         password = f"Rdp-E2E-{uuid.uuid4().hex}!"
-        reg = (await client.post("/api/auth/register", json={"email": email, "password": password})).raise_for_status().json()
+        reg = await post_with_transport_retry(base_url, "/api/auth/register", {}, {"email": email, "password": password}, timeout)
         token = reg["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
         results["synthetic_user_role"] = reg["user"]["role"]
 
-        paired = (await client.post("/api/devices/pair", headers=headers, json={"name": f"E2E Synthetic {suffix}"})).raise_for_status().json()
+        paired = await post_with_transport_retry(base_url, "/api/devices/pair", headers, {"name": f"E2E Synthetic {suffix}"}, timeout)
         device_id = paired["device_id"]
         agent_secret = paired["agent_secret"]
         dynamic_password = paired["dynamic_password"]
@@ -85,10 +85,8 @@ async def run(base_url):
         results["device_registration"] = "PASS (same account owns host and viewer credentials)"
         results["dynamic_password_ttl"] = "PASS (24 hours)"
 
-        connect = (await client.post(
-            "/api/devices/connect", headers=headers,
-            json={"device_id": device_id, "password": dynamic_password}
-        )).raise_for_status().json()
+        connect = await post_with_transport_retry(base_url, "/api/devices/connect", headers,
+                                                  {"device_id": device_id, "password": dynamic_password}, timeout)
         old_session_token = connect["session_token"]
         rotated = await post_with_transport_retry(base_url, f"/api/devices/{device_id}/rotate-password", headers, {}, timeout)
         rejected_old = None
@@ -100,7 +98,8 @@ async def run(base_url):
         require(rejected_old.status_code == 401,
                 f"Old dynamic password must be rejected after rotation; got HTTP {rejected_old.status_code}: {rejected_old.text[:180]}")
         dynamic_password = rotated["dynamic_password"]
-        connect = (await client.post("/api/devices/connect", headers=headers, json={"device_id": device_id, "password": dynamic_password})).raise_for_status().json()
+        connect = await post_with_transport_retry(base_url, "/api/devices/connect", headers,
+                                                  {"device_id": device_id, "password": dynamic_password}, timeout)
         session_token = old_session_token  # Existing viewer token survives password rotation.
         results["password_rotation_invalidation"] = "PASS (old password rejected; existing session token retained)"
 
