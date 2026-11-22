@@ -469,3 +469,9 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+
+## Frontend TypeScript repair — 2026-11-22
+- Fixed `frontend/src/App.tsx`: declared `SESSION_STORAGE_KEY` and the `PersistedSession` interface matching the existing `{ sessionId, deviceId, viewerToken }` sessionStorage payload; changed the End button to `onClick={() => disconnect()}` so React's mouse event is not passed as the boolean `explicitEnd` argument.
+- Commit: `11ad77c2d5bcbcfe9adb1e9138703ea94f8b79f0`.
+- Frontend build, GitHub CI, Render deployment, and live mobile Playwright verification are pending; do not certify until their results are recorded.
