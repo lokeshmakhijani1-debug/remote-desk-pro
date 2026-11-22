@@ -491,3 +491,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - The existing test `test_text_input_uses_clipboard_and_pastes_into_focused_host` expects clipboard copy followed by Ctrl+V for `mobile typing`; the fake clipboard and PyAutoGUI mocks make this deterministic in Linux CI without requiring an X11 display.
 - Source fix commit: `9d478dbaf7e217e61d2459b1a894bfac1b270f83`.
 - Backend pytest, GitHub CI, and the Windows `latest-agent` rebuild are pending; update this checkpoint only after workflow results are verified.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: 9d478dbaf7e217e61d2459b1a894bfac1b270f83.
+- EXE size: 22270779 bytes.
+- EXE SHA-256: E9370C5FFB0A241CED19025723286058FCA46DFA1FCFF325E96F6F6DFC13B0BA.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
