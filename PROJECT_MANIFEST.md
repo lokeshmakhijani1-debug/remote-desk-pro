@@ -660,3 +660,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Render deployment: service remote-desk-pro-pj29, deploy dep-dc1etsrbc2fs73e8l94g, commit a13e2577d77b987da0f6f7d397b56be0505ab456, status LIVE.
 - The Live Cloud E2E workflow now also runs tests/e2e_live_relay.py against Render before the headless browser protocol test. Its first result is pending after the workflow update.
 - tests/e2e_remote_control_live.py compiles in CI and now contains a two-finger pinch/no-accidental-click check. Its full run still requires the registered interactive Windows host with its DPAPI-protected agent config; no local machine was accessed for this task.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: 5ee7497369aa0c438304842df39fe3178d58c450.
+- EXE size: 61078350 bytes.
+- EXE SHA-256: B1290690EC9BE8FCD57F986C0CAC9E3E621A6CF879F28AFF0ABB9EA6646C1948.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
