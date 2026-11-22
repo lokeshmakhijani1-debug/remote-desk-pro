@@ -443,3 +443,20 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 ```
 - Live Windows input and transfer E2E has not been executed by the cloud workflow. The laptop command is the required final runtime verification; do not mark the application fully certified until its report is PASS.
 - No Desktop Commander, local Windows tools or GitHub Codespaces were used. No Codespace was created or started in this work.
+## Desktop release installation — 2026-11-22
+- Latest GitHub Release: https://github.com/lokeshmakhijani1-debug/remote-desk-pro/releases/tag/latest-agent
+- Release asset: RemoteDeskPro-Agent.exe (22264723 bytes).
+- Installed Desktop executable: %USERPROFILE%\Desktop\RemoteDeskPro.exe (resolved path: C:\Users\hp\Desktop\RemoteDeskPro.exe).
+- Verified SHA-256: B827E7EB509DC5916D2E8E2DA73E2CD384A8C319D5978A9481E837961BC56ABD.
+- PE subsystem: Windows GUI (2); no console subsystem.
+- Launch verification: latest standalone executable started successfully; process PID 7424 remained running for 10 seconds with a visible GUI window (title: Remote Desk Pro).
+
+## Host keepalive, mobile input, file-consent, and viewer gesture hardening — 2026-11-22
+- Host relay now retries transient network/proxy disconnects at a fixed 2-second interval and uses a 5-second WebSocket ping/pong heartbeat. The Windows desktop GUI holds ES_CONTINUOUS | ES_SYSTEM_REQUIRED while open and clears the execution state on GUI close.
+- File transfer follows the active transfer_init WebSocket flow. The Windows desktop app presents a top-most Tkinter Accept/Decline dialog on its main GUI thread, displays filename and byte size, and saves accepted transfers under the host user's Downloads folder. The endpoint receiver retains resumable chunk state and verifies SHA-256 before finalizing.
+- Mobile keyboard mode now uses a visible floating input field with autocomplete/correction/capitalization disabled, input and IME composition handling, immediate text WebSocket events, and Enter/Backspace/Tab/Escape key packets. The backend validates the event schema; the host uses PyAutoGUI for ASCII alphanumeric input and clipboard Ctrl+V for spaces/Unicode/special characters.
+- Clipboard direct paste is a distinct authenticated clipboard_paste event that copies via pyperclip and invokes standard Ctrl+V. The viewer supports 1.0x–3.0x pinch/button zoom, clamped one-finger pan while zoomed, and tap-to-click using normalized remote coordinates.
+- Viewer visibility resume refreshes device presence and sends an immediate heartbeat; a missing heartbeat acknowledgement closes and reattaches the viewer WebSocket.
+- Local validation on 2026-11-22: Python compilation PASS; pytest 49 passed (one upstream Starlette/httpx deprecation warning); frontend TypeScript/Vite production build PASS; git diff --check PASS.
+- tests/e2e_remote_control_live.py now includes headless Chromium mobile keyboard, clipboard paste, visibility-resume, zoomed touch-pan/tap, host file-consent, reconnect/resume, and Downloads SHA-256 checks at 390x844 with touch enabled. The expanded live test has not yet been run; do not certify the live Windows-to-Render path until its report is PASS.
+- No .env files or secret values were changed. Deployment target remains Render https://remote-desk-pro-pj29.onrender.com; Vercel is not used.

@@ -24,6 +24,7 @@ if not log.handlers:
     log.addHandler(_handler)
 _STATUS_CALLBACK = None
 _CONSENT_CALLBACK = None
+_FILE_CONSENT_CALLBACK = None
 _DIAGNOSTICS_CALLBACK = None
 _LAST_ERROR = "None"
 _INSTANCE_MUTEX = None
@@ -101,6 +102,10 @@ def set_consent_callback(callback):
     global _CONSENT_CALLBACK
     _CONSENT_CALLBACK = callback
 
+def set_file_consent_callback(callback):
+    global _FILE_CONSENT_CALLBACK
+    _FILE_CONSENT_CALLBACK = callback
+
 def set_diagnostics_callback(callback):
     global _DIAGNOSTICS_CALLBACK
     _DIAGNOSTICS_CALLBACK = callback
@@ -149,6 +154,78 @@ async def ask_host_consent(device_id: str, dynamic_password: str) -> bool:
     if _CONSENT_CALLBACK:
         return await _CONSENT_CALLBACK(device_id, dynamic_password)
     return await asyncio.to_thread(_consent_dialog, device_id, dynamic_password)
+
+def _file_consent_dialog(name: str, size: int) -> bool:
+    import tkinter as tk
+    root = tk.Tk()
+    root.title("Remote Desk Pro — Incoming file")
+    root.geometry("440x230")
+    root.resizable(False, False)
+    root.attributes("-topmost", True)
+    decision = {"accepted": False}
+    tk.Label(root, text="INCOMING FILE TRANSFER", font=("Segoe UI", 14, "bold")).pack(pady=(22, 10))
+    tk.Label(root, text=f"File: {name}\nSize: {size:,} bytes", font=("Segoe UI", 10), justify="left").pack(pady=8)
+    tk.Label(root, text="Accept to save this file in your Downloads folder.", wraplength=380).pack(pady=6)
+    buttons = tk.Frame(root); buttons.pack(pady=14)
+    def finish(value):
+        decision["accepted"] = value
+        root.destroy()
+    tk.Button(buttons, text="Accept", command=lambda: finish(True), width=14, bg="#087d65", fg="white").pack(side="left", padx=8)
+    tk.Button(buttons, text="Decline", command=lambda: finish(False), width=14).pack(side="left", padx=8)
+    root.protocol("WM_DELETE_WINDOW", lambda: finish(False))
+    root.mainloop()
+    return decision["accepted"]
+
+
+async def ask_file_consent(name: str, size: int) -> bool:
+    if _FILE_CONSENT_CALLBACK:
+        return await _FILE_CONSENT_CALLBACK(name, size)
+    return await asyncio.to_thread(_file_consent_dialog, name, size)
+
+
+def downloads_destination(name: str, transfer_id: str) -> Path:
+    safe_name = Path(str(name).replace("\\", "/")).name[:180] or "received-file"
+    folder = Path.home() / "Downloads"
+    folder.mkdir(parents=True, exist_ok=True)
+    destination = folder / safe_name
+    if destination.exists():
+        destination = folder / f"{destination.stem}-{transfer_id[:8]}{destination.suffix}"
+    return destination
+
+
+def apply_text(message: dict):
+    import pyautogui
+    pyautogui.FAILSAFE = False
+    _focus_target_at_cursor()
+    key = message.get("key")
+    if key:
+        normalized = _normalize_key(key)
+        if normalized not in set(getattr(pyautogui, "KEYBOARD_KEYS", ())):
+            return False
+        pyautogui.press(normalized, _pause=False)
+        return True
+    value = message.get("text", "")
+    if not isinstance(value, str) or not value or len(value) > 2048:
+        return False
+    if value.isascii() and value.isalnum():
+        pyautogui.write(value, interval=0.01)
+    else:
+        import pyperclip
+        pyperclip.copy(value)
+        pyautogui.hotkey("ctrl", "v")
+    return True
+
+
+def paste_clipboard(text: str):
+    if not isinstance(text, str) or len(text) > 65536:
+        return False
+    import pyautogui
+    import pyperclip
+    _focus_target_at_cursor()
+    pyperclip.copy(text)
+    pyautogui.hotkey("ctrl", "v")
+    return True
+
 
 async def clipboard_watch(ws, running: asyncio.Event):
     import pyperclip
@@ -338,8 +415,8 @@ async def run_once(args, stop_event=None):
     endpoint = endpoint.replace("https://", "wss://").replace("http://", "ws://")
     tls_context = ssl.create_default_context(cafile=certifi.where()) if endpoint.startswith("wss://") else None
     async with websockets.connect(
-        endpoint, ssl=tls_context, max_size=8 * 1024 * 1024, ping_interval=20,
-        ping_timeout=20, close_timeout=10, open_timeout=25, max_queue=16,
+        endpoint, ssl=tls_context, max_size=8 * 1024 * 1024, ping_interval=5,
+        ping_timeout=5, close_timeout=10, open_timeout=25, max_queue=16,
     ) as ws:
         await ws.send(json.dumps({"type":"auth","secret":args.secret}))
         response = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
@@ -401,6 +478,16 @@ async def run_once(args, stop_event=None):
                         incoming_file["handle"].close()
                         incoming_file = None
                     set_status("Viewer disconnected; waiting for a new request")
+                elif message.get("type") == "text" and streaming.is_set():
+                    try:
+                        await asyncio.to_thread(apply_text, message)
+                    except Exception as exc:
+                        log.warning("Remote text injection failed: %s", exc)
+                elif message.get("type") == "clipboard_paste" and streaming.is_set():
+                    try:
+                        await asyncio.to_thread(paste_clipboard, message.get("text", ""))
+                    except Exception as exc:
+                        log.warning("Clipboard paste failed: %s", exc)
                 elif message.get("type") == "clipboard_update" and streaming.is_set():
                     value = message.get("text", "")
                     if isinstance(value, str) and len(value) <= 65536:
@@ -413,20 +500,23 @@ async def run_once(args, stop_event=None):
                 elif message.get("type") == "transfer_init" and streaming.is_set():
                     try:
                         transfer_id = str(message.get("transfer_id", ""))
-                        name = str(message.get("name", "received-file"))[:180]
-                        destination = await asyncio.to_thread(choose_save_path, name)
-                        if destination:
-                            receiver = EndpointFileReceiver(
-                                Path(destination), transfer_id, int(message["total_size"]),
-                                str(message["sha256"]), int(message["chunk_size"]),
-                                str(message.get("compression", "none")),
-                            )
-                            incoming_transfers[transfer_id] = receiver
-                            await ws.send(json.dumps({"type":"transfer_resume_req","transfer_id":transfer_id,
-                                                      "next_offset":receiver.next_offset}))
-                        else:
+                        name = Path(str(message.get("name", "received-file")).replace("\\", "/")).name[:180]
+                        size = int(message["total_size"])
+                        if not transfer_id or not 0 < size <= 50 * 1024 * 1024:
+                            raise ValueError("Invalid transfer ID or file size")
+                        if not await ask_file_consent(name, size):
                             await ws.send(json.dumps({"type":"transfer_error","transfer_id":transfer_id,
-                                                      "detail":"Host declined destination selection"}))
+                                                      "detail":"Host declined the file transfer"}))
+                            continue
+                        destination = downloads_destination(name, transfer_id)
+                        receiver = EndpointFileReceiver(
+                            destination, transfer_id, size, str(message["sha256"]),
+                            int(message["chunk_size"]), str(message.get("compression", "none")),
+                        )
+                        incoming_transfers[transfer_id] = receiver
+                        await ws.send(json.dumps({"type":"transfer_resume_req","transfer_id":transfer_id,
+                                                  "next_offset":receiver.next_offset}))
+                        log.info("Host accepted %s (%s bytes); saving to %s", name, size, destination)
                     except (KeyError, TypeError, ValueError, OSError) as exc:
                         await ws.send(json.dumps({"type":"transfer_error","transfer_id":str(message.get("transfer_id","")),
                                                   "detail":str(exc)[:200]}))
@@ -508,7 +598,7 @@ async def run_once(args, stop_event=None):
 
 async def run(args, stop_event=None):
     """Keep the host agent alive across transient relay/network interruptions."""
-    delay = 2
+    retry_delay = 2
     attempt = 0
     while stop_event is None or not stop_event.is_set():
         attempt += 1
@@ -516,25 +606,23 @@ async def run(args, stop_event=None):
             if attempt > 1:
                 set_status(f"Reconnecting (Attempt {attempt - 1})...")
             await run_once(args, stop_event)
-            delay = 2
             if stop_event is not None and stop_event.is_set():
                 break
             set_status("Relay disconnected. Reconnecting...")
         except RuntimeError:
             raise
         except Exception as exc:
-            log.warning("Relay/network interruption (%s); reconnecting in %ss.", exc, delay)
+            log.warning("Relay/network interruption (%s); reconnecting in %ss.", exc, retry_delay)
             set_status("Server waking up / unreachable — retrying...")
         if stop_event is None:
             # The relay session and its async tasks have fully unwound here. A
             # synchronous wait is deliberate: the frozen Windows one-file build
             # can stall asyncio timer callbacks after a socket reset.
-            log.info("Reconnect loop sleeping for %ss.", delay)
-            time.sleep(delay)
+            log.info("Reconnect loop sleeping for %ss.", retry_delay)
+            time.sleep(retry_delay)
             log.info("Reconnect delay elapsed; retrying relay.")
-        elif stop_event.wait(delay):
+        elif stop_event.wait(retry_delay):
             break
-        delay = min(delay * 2, 30)
     set_status("Disconnected by host")
 
 def main():

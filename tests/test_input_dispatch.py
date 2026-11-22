@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agent import host_agent
-from backend.main import app, validate_control
+from backend.main import app, validate_control, validate_text_event
 
 
 class FakePyAutoGUI(types.ModuleType):
@@ -43,6 +43,15 @@ class FakePyAutoGUI(types.ModuleType):
 
     def hscroll(self, *args, **kwargs):
         self.calls.append(("hscroll", args, kwargs))
+
+    def write(self, *args, **kwargs):
+        self.calls.append(("write", args, kwargs))
+
+    def press(self, *args, **kwargs):
+        self.calls.append(("press", args, kwargs))
+
+    def hotkey(self, *args, **kwargs):
+        self.calls.append(("hotkey", args, kwargs))
 
 
 @pytest.fixture
@@ -161,3 +170,67 @@ def test_public_agent_download_serves_standalone_executable():
     assert "attachment; filename=\"RemoteDeskPro-Agent.exe\"" in response.headers["content-disposition"]
     assert response.headers["content-type"] == "application/vnd.microsoft.portable-executable"
     assert len(response.content) > 10_000_000
+
+
+@pytest.mark.parametrize("event", [
+    {"type": "text", "text": "alpha123"},
+    {"type": "text", "text": "हिन्दी"},
+    {"type": "text", "text": " ", "key": None},
+    {"type": "text", "text": "", "key": "Enter"},
+    {"type": "text", "text": "", "key": "Backspace"},
+    {"type": "text", "text": "", "key": "Tab"},
+    {"type": "text", "text": "", "key": "Escape"},
+])
+def test_backend_accepts_mobile_text_schema(event):
+    assert validate_text_event(event)
+
+
+@pytest.mark.parametrize("event", [
+    {"type": "text", "text": ""},
+    {"type": "text", "text": "", "key": "Win"},
+    {"type": "text", "text": "x" * 2049},
+    {"type": "text", "text": "\x01"},
+    {"type": "text", "text": 123},
+])
+def test_backend_rejects_invalid_mobile_text_schema(event):
+    assert not validate_text_event(event)
+
+
+def test_mobile_text_ascii_uses_pyautogui_write(fake_pyautogui, monkeypatch):
+    monkeypatch.setattr(host_agent, "_focus_target_at_cursor", lambda: True)
+    assert host_agent.apply_text({"type": "text", "text": "RDP123"})
+    assert fake_pyautogui.calls == [("write", ("RDP123",), {"interval": 0.01})]
+
+
+def test_mobile_text_unicode_uses_clipboard_paste(fake_pyautogui, monkeypatch):
+    copied = []
+    clipboard = types.ModuleType("pyperclip")
+    clipboard.copy = copied.append
+    monkeypatch.setitem(sys.modules, "pyperclip", clipboard)
+    monkeypatch.setattr(host_agent, "_focus_target_at_cursor", lambda: True)
+    assert host_agent.apply_text({"type": "text", "text": "नमस्ते"})
+    assert copied == ["नमस्ते"]
+    assert fake_pyautogui.calls == [("hotkey", ("ctrl", "v"), {})]
+
+
+def test_clipboard_direct_paste_uses_ctrl_v(fake_pyautogui, monkeypatch):
+    copied = []
+    clipboard = types.ModuleType("pyperclip")
+    clipboard.copy = copied.append
+    monkeypatch.setitem(sys.modules, "pyperclip", clipboard)
+    monkeypatch.setattr(host_agent, "_focus_target_at_cursor", lambda: True)
+    assert host_agent.paste_clipboard("paste this")
+    assert copied == ["paste this"]
+    assert fake_pyautogui.calls == [("hotkey", ("ctrl", "v"), {})]
+
+
+def test_file_transfer_destination_is_downloads_and_never_overwrites(tmp_path, monkeypatch):
+    monkeypatch.setattr(host_agent.Path, "home", classmethod(lambda cls: tmp_path))
+    downloads = tmp_path / "Downloads"
+    downloads.mkdir()
+    existing = downloads / "report.txt"
+    existing.write_text("keep", encoding="utf-8")
+    destination = host_agent.downloads_destination("report.txt", "12345678-abcd")
+    assert destination.parent == downloads
+    assert destination.name == "report-12345678.txt"
+    assert existing.read_text(encoding="utf-8") == "keep"

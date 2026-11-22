@@ -48,3 +48,13 @@ Updated: 2026-11-21 (IST)
 - No production account password, device secret or APP_SECRET_KEY is embedded in the EXE or committed.
 - No Codespace was used.
 - Temporary debug-build folders/specs and generated frontend/tsconfig.tsbuildinfo were removed after diagnosis; only source, tests and project documentation are intended for commit.
+
+## Phase 7 checkpoint — host keepalive, mobile input, file consent, and gesture fixes (2026-11-22)
+- Repository: lokeshmakhijani1-debug/remote-desk-pro; branch main. Local base commit: 6664c70.
+- Updated only the host agent, desktop GUI, FastAPI relay, React viewer styles/UI, focused input/file-transfer tests, live E2E harness, and project checkpoint documentation.
+- Host relay: 2-second fixed retry and 5-second ping/pong; Windows system execution state is held while the desktop GUI is open.
+- File transfer: visible top-most Accept/Decline prompt from the Tkinter main thread, accepted file saves to Downloads, resumable chunks and SHA-256 finalization.
+- Mobile viewer: validated text event schema, visible Gboard-compatible text input/IME handling, direct Ctrl+V paste, pinch zoom 1.0x–3.0x, clamped one-finger pan, and zoomed tap coordinate mapping.
+- Visibility resume: refresh device presence, immediate heartbeat, and WebSocket reattachment if the resume heartbeat does not return.
+- Local validation: 49 pytest passed, Python compilation PASS, frontend production build PASS, git diff --check PASS. Live Playwright/Render/Windows host E2E is pending.
+- Next gate: commit/push targeted changes to main, verify CI and the latest-agent Windows workflow, confirm Render deployment/health, update the Desktop EXE with verified SHA-256, then run the expanded headless 390x844/touch E2E and record its report. No Codespace was started.

@@ -269,6 +269,16 @@ def validate_clipboard(event: dict) -> bool:
     return isinstance(value, str) and len(value) <= MAX_CLIPBOARD_CHARS
 
 
+def validate_text_event(event: dict) -> bool:
+    value = event.get("text", "")
+    key = event.get("key")
+    if key is not None:
+        return key in {"Enter", "Backspace", "Tab", "Escape"} and value == ""
+    return isinstance(value, str) and 0 < len(value) <= 2048 and all(
+        ord(char) >= 32 or char in "\n\r\t" for char in value
+    )
+
+
 def validate_control(event: dict) -> bool:
     kind = event.get("event")
     if kind == "mouse_move":
@@ -341,6 +351,13 @@ async def host_socket(ws: WebSocket, device_id: str):
                 hub.approved.add(device_id)
                 audit(db, "session.host_approved", device.owner_id, device_id)
                 await hub.relay(device_id, ws, raw)
+            elif kind == "clipboard_paste" and hub.is_approved(device_id):
+                if validate_clipboard(event):
+                    audit(db, "clipboard.pasted", device.owner_id, device_id, f"characters={len(event['text'])}")
+                    await hub.relay(device_id, ws, raw)
+            elif kind == "text" and hub.is_approved(device_id):
+                if validate_text_event(event):
+                    await hub.relay(device_id, ws, raw)
             elif kind == "clipboard_update" and hub.is_approved(device_id):
                 if validate_clipboard(event):
                     audit(db, "clipboard.relayed", device.owner_id, device_id, f"characters={len(event['text'])}")
@@ -434,9 +451,17 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                 continue
             kind = event.get("type")
             if kind == "heartbeat":
-                await ws.send_json({"type":"heartbeat_ack","at":datetime.now(timezone.utc).isoformat()})
+                await ws.send_json({"type":"heartbeat_ack","at":datetime.now(timezone.utc).isoformat(),
+                                    "device_online":device_id in hub.hosts})
             elif kind == "control":
                 if user_role != "read_only" and hub.is_approved(device_id) and validate_control(event):
+                    await hub.relay(device_id, ws, raw)
+            elif kind == "clipboard_paste" and user_role != "read_only" and hub.is_approved(device_id):
+                if validate_clipboard(event):
+                    audit(db, "clipboard.pasted", user_id, device_id, f"characters={len(event['text'])}")
+                    await hub.relay(device_id, ws, raw)
+            elif kind == "text" and user_role != "read_only" and hub.is_approved(device_id):
+                if validate_text_event(event):
                     await hub.relay(device_id, ws, raw)
             elif kind == "clipboard_update" and hub.is_approved(device_id):
                 if validate_clipboard(event):

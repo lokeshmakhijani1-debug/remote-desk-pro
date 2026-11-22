@@ -14,6 +14,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from pathlib import Path
 
 import pyautogui
@@ -172,17 +173,32 @@ def agent_log_contains_after(offset: int, marker: str) -> bool:
 
 
 def approve_host_consent() -> None:
-    # The real desktop app's explicit consent dialog is approved, not bypassed.
-    windows = wait_until(lambda: pyautogui.getWindowsWithTitle("Remote access request"),
-                         35, "Host consent dialog did not appear")
+    windows = wait_until(lambda: (pyautogui.getWindowsWithTitle("Remote access request") or pyautogui.getWindowsWithTitle("Session approval")),
+                         35, "Host session-consent dialog did not appear")
     dialog = windows[0]
-    dialog.activate()
+    try:
+        dialog.activate()
+    except Exception:
+        pass
     time.sleep(0.4)
-    pyautogui.click(dialog.left + 170, dialog.top + 212)
+    pyautogui.click(dialog.left + int(dialog.width * 0.34), dialog.top + int(dialog.height * 0.80))
     time.sleep(0.5)
     hwnd = ctypes.windll.user32.FindWindowW(None, "RDP E2E Input Target")
     if hwnd:
         ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
+
+
+def approve_file_consent() -> None:
+    windows = wait_until(lambda: pyautogui.getWindowsWithTitle("Incoming file"),
+                         35, "Host file-consent dialog did not appear")
+    dialog = windows[0]
+    try:
+        dialog.activate()
+    except Exception:
+        pass
+    time.sleep(0.35)
+    pyautogui.click(dialog.left + int(dialog.width * 0.34), dialog.top + int(dialog.height * 0.82))
+    time.sleep(0.4)
 
 
 def run_viewer(config: dict, target: subprocess.Popen) -> dict:
@@ -196,18 +212,22 @@ def run_viewer(config: dict, target: subprocess.Popen) -> dict:
                                           device_scale_factor=1, is_mobile=True, has_touch=True)
             context.add_init_script("localStorage.setItem('rdp-token', " + json.dumps(config["access_token"]) + ");")
             context.add_init_script("""(() => {
-              const Native = window.WebSocket; window.__rdpSockets = []; window.__rdpE2eDropped = false;
+              const Native = window.WebSocket; window.__rdpSockets = []; window.__rdpHeartbeatAcks = []; window.__rdpE2eDropped = false;
               function Wrapped(...args) {
                 const ws = new Native(...args); window.__rdpSockets.push(ws);
                 const descriptor = Object.getOwnPropertyDescriptor(Native.prototype, "onmessage");
                 Object.defineProperty(ws, "onmessage", { configurable: true,
                   get() { return descriptor.get.call(ws); },
                   set(handler) { descriptor.set.call(ws, event => {
-                    if (!window.__rdpE2eDropped && typeof event.data === "string") {
-                      try { if (JSON.parse(event.data).type === "transfer_ack") {
-                        window.__rdpE2eDropped = true;
-                        window.setTimeout(() => ws.close(4001, "E2E simulated interruption"), 0);
-                      } } catch {}
+                    if (typeof event.data === "string") {
+                      try {
+                        const message = JSON.parse(event.data);
+                        if (message.type === "heartbeat_ack") window.__rdpHeartbeatAcks.push(message);
+                        if (!window.__rdpE2eDropped && message.type === "transfer_ack") {
+                          window.__rdpE2eDropped = true;
+                          window.setTimeout(() => ws.close(4001, "E2E simulated interruption"), 0);
+                        }
+                      } catch {}
                     }
                     if (handler) return handler.call(ws, event);
                   }); }
@@ -229,7 +249,7 @@ def run_viewer(config: dict, target: subprocess.Popen) -> dict:
             page.get_by_placeholder("Enter 6-digit password").fill(config["dynamic_password"])
             t0 = time.perf_counter()
             page.get_by_role("button", name="Connect", exact=True).first.click()
-            wait_until(lambda: (items if (items := (pyautogui.getWindowsWithTitle("Remote Desk Pro") or pyautogui.getWindowsWithTitle("Remote access request"))) else None),
+            wait_until(lambda: (items if (items := (pyautogui.getWindowsWithTitle("Remote Desk Pro") or (pyautogui.getWindowsWithTitle("Remote access request") or pyautogui.getWindowsWithTitle("Session approval")))) else None),
                        35, "Host consent dialog did not appear")
             result["latency_ms"]["connect_to_consent"] = round((time.perf_counter()-t0)*1000, 1)
             log_path = Path(os.getenv("APPDATA", str(Path.home()))) / "RemoteDeskPro" / "agent.log"
@@ -240,7 +260,10 @@ def run_viewer(config: dict, target: subprocess.Popen) -> dict:
                        30, "Host approval was not acknowledged by the agent")
             result["latency_ms"]["consent_to_approved"] = round((time.perf_counter()-approval_started)*1000, 1)
             target_window_handle = wait_until(lambda: pyautogui.getWindowsWithTitle("RDP E2E Input Target"), 8, "Test target window not found after consent")
-            target_window_handle[0].activate()
+            try:
+                target_window_handle[0].activate()
+            except Exception:
+                pass
             result["checks"]["relay_session_approved"] = True
             page.get_by_role("button", name="Control", exact=True).click()
             canvas = page.locator("canvas").first
@@ -261,19 +284,20 @@ def run_viewer(config: dict, target: subprocess.Popen) -> dict:
             state = wait_until(lambda: (s if (s := read_state()).get("ready") else None),
                                10, "Windows input target did not initialize")
 
-            def point(key: str):
+            def point(key: str, box=None):
+                rect_now = box or rect
                 x, y = state[key]
                 image_aspect = dims["width"] / max(1, dims["height"])
-                box_aspect = rect["width"] / max(1, rect["height"])
-                content_width, content_height, left, top = rect["width"], rect["height"], 0, 0
+                box_aspect = rect_now["width"] / max(1, rect_now["height"])
+                content_width, content_height, left, top = rect_now["width"], rect_now["height"], 0, 0
                 if box_aspect > image_aspect:
-                    content_width = rect["height"] * image_aspect
-                    left = (rect["width"] - content_width) / 2
+                    content_width = rect_now["height"] * image_aspect
+                    left = (rect_now["width"] - content_width) / 2
                 else:
-                    content_height = rect["width"] / image_aspect
-                    top = (rect["height"] - content_height) / 2
-                return {"x": rect["x"] + left + (x / dims["width"]) * content_width,
-                        "y": rect["y"] + top + (y / dims["height"]) * content_height}
+                    content_height = rect_now["width"] / image_aspect
+                    top = (rect_now["height"] - content_height) / 2
+                return {"x": rect_now["x"] + left + (x / dims["width"]) * content_width,
+                        "y": rect_now["y"] + top + (y / dims["height"]) * content_height}
 
             # Touch tap: real Chromium touchscreen input -> React Pointer Events -> relay.
             click = point("click_xy")
@@ -376,25 +400,73 @@ def run_viewer(config: dict, target: subprocess.Popen) -> dict:
             except Exception as exc:
                 result["checks"]["keystrokes"] = False
                 result["errors"].append(f"keyboard: {type(exc).__name__}: {exc}")
+            # Mobile keyboard dispatches real text frames to the focused Windows Entry.
+            page.get_by_role("button", name="Keyboard", exact=True).click()
+            mobile_keyboard = page.get_by_label("Remote keyboard input")
+            started = time.perf_counter()
+            mobile_keyboard.type("MOB", delay=80)
+            wait_until(lambda: (s if (s := read_state()).get("entry") == "RDP_OKMOB" else None),
+                       12, "Mobile keyboard text was not injected into the Windows target")
+            result["checks"]["mobile_keyboard_text"] = True
+            result["latency_ms"]["mobile_keyboard_to_entry"] = round((time.perf_counter()-started)*1000, 1)
+
+            # Clipboard action must paste directly into the focused host window using Ctrl+V.
+            page.locator(".transfer-tools textarea").first.fill(" clipboard!")
+            page.get_by_role("button", name="Send clipboard & paste", exact=True).click()
+            wait_until(lambda: (s if (s := read_state()).get("entry") == "RDP_OKMOB clipboard!" else None),
+                       12, "Clipboard direct paste did not reach the focused Windows target")
+            result["checks"]["clipboard_direct_paste"] = True
+
+            # Visibility resume must refresh host presence and receive an online heartbeat ACK.
+            page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+            wait_until(lambda: page.evaluate("() => window.__rdpHeartbeatAcks.some(x => x.device_online === true)"),
+                       10, "Visibility resume did not receive an online heartbeat acknowledgement")
+            result["checks"]["visibility_resume"] = True
+
+            # Zoomed one-finger drag pans without generating a click; a quick touch tap still clicks.
+            page.get_by_role("button", name="Zoom in", exact=True).click()
+            page.get_by_role("button", name="Zoom in", exact=True).click()
+            canvas = page.locator("canvas").first
+            before_transform = canvas.evaluate("(c) => c.style.transform")
+            click_count_before_pan = read_state().get("clicks", 0)
+            zoom_rect = canvas.bounding_box()
+            drag_x, drag_y = zoom_rect["x"] + zoom_rect["width"] * 0.48, zoom_rect["y"] + zoom_rect["height"] * 0.48
+            cdp = context.new_cdp_session(page)
+            cdp.send("Input.dispatchTouchEvent", {"type":"touchStart","touchPoints":[{"x":drag_x,"y":drag_y,"id":1}]})
+            cdp.send("Input.dispatchTouchEvent", {"type":"touchMove","touchPoints":[{"x":drag_x+36,"y":drag_y+24,"id":1}]})
+            cdp.send("Input.dispatchTouchEvent", {"type":"touchEnd","touchPoints":[]})
+            wait_until(lambda: (v if (v := canvas.evaluate("(c) => c.style.transform")) != before_transform else None),
+                       5, "One-finger drag did not change the zoomed viewport pan")
+            if read_state().get("clicks", 0) != click_count_before_pan:
+                raise RuntimeError("Zoomed one-finger drag generated an accidental remote click")
+            result["checks"]["zoomed_one_finger_pan_no_click"] = True
+            zoomed_click = point("click_xy", canvas.bounding_box())
+            clicks_before_zoom_tap = read_state().get("clicks", 0)
+            page.touchscreen.tap(zoomed_click["x"], zoomed_click["y"])
+            wait_until(lambda: (s if (s := read_state()).get("clicks", 0) >= clicks_before_zoom_tap + 1 else None),
+                       10, "Zoomed one-finger tap did not dispatch a remote click")
+            zoom_cursor = pyautogui.position()
+            target_xy = state["click_xy"]
+            result["checks"]["zoomed_tap_normalized_coordinates"] = abs(zoom_cursor.x-target_xy[0]) <= 35 and abs(zoom_cursor.y-target_xy[1]) <= 35
+            if not result["checks"]["zoomed_tap_normalized_coordinates"]:
+                result["errors"].append(f"zoomed tap cursor mismatch: actual={(zoom_cursor.x,zoom_cursor.y)} expected={target_xy}")
+
             # Zstandard transfer with one deliberate viewer socket interruption after the first ACK.
-            transfer_source = Path(tempfile.gettempdir()) / "rdp-transfer-e2e-source.bin"
-            transfer_destination = Path(tempfile.gettempdir()) / "rdp-transfer-e2e-received.bin"
+            transfer_source = Path(tempfile.gettempdir()) / f"rdp-transfer-e2e-{uuid.uuid4().hex}.bin"
+            transfer_destination = Path.home() / "Downloads" / transfer_source.name
             transfer_payload = os.urandom(2 * 1024 * 1024)
             transfer_source.write_bytes(transfer_payload)
             expected_transfer_hash = hashlib.sha256(transfer_payload).hexdigest()
             page.locator('input[type="file"]').set_input_files(str(transfer_source))
             page.get_by_label("Zstandard compression (WASM)").check()
             page.get_by_role("button", name="Send selected file").click()
-            save_dialog = wait_until(lambda: (items if (items := pyautogui.getWindowsWithTitle("Save file received from remote viewer")) else None), 35, "Host save dialog did not appear")
-            save_dialog[0].activate(); time.sleep(0.3); pyautogui.hotkey("ctrl", "a")
-            pyautogui.write(str(transfer_destination), interval=0.005); pyautogui.press("enter")
+            approve_file_consent()
+            result["checks"]["file_consent_accepted"] = True
             wait_until(lambda: page.evaluate("() => window.__rdpE2eDropped === true"), 45, "Transfer did not receive first ACK / disconnect trigger")
             result["checks"]["transfer_disconnect_injected"] = True
-            wait_until(lambda: (items if (items := (pyautogui.getWindowsWithTitle("Remote Desk Pro") or pyautogui.getWindowsWithTitle("Remote access request"))) else None), 45, "Host did not request consent after reconnect")
+            wait_until(lambda: (items if (items := (pyautogui.getWindowsWithTitle("Remote Desk Pro") or (pyautogui.getWindowsWithTitle("Remote access request") or pyautogui.getWindowsWithTitle("Session approval")))) else None), 45, "Host did not request consent after reconnect")
             approve_host_consent()
-            resumed_dialog = wait_until(lambda: (items if (items := pyautogui.getWindowsWithTitle("Save file received from remote viewer")) else None), 35, "Host resume destination dialog did not appear")
-            resumed_dialog[0].activate(); time.sleep(0.3); pyautogui.hotkey("ctrl", "a")
-            pyautogui.write(str(transfer_destination), interval=0.005); pyautogui.press("enter")
+            approve_file_consent()
             wait_until(lambda: "File received and SHA-256 verified" in page.locator(".transfer-tools").inner_text(), 90, "Resumed Zstandard transfer failed SHA-256 verification")
             received_hash = hashlib.sha256(transfer_destination.read_bytes()).hexdigest()
             result["checks"]["zstd_transfer_resume"] = received_hash == expected_transfer_hash
@@ -422,7 +494,10 @@ def main() -> int:
         report["result"] = "PASS" if all(report.get("checks", {}).get(k) for k in
             ("viewer_authenticated", "relay_session_approved", "touch_click",
              "mouse_click", "cursor_move", "vertical_scroll", "horizontal_scroll", "keystrokes",
-             "transfer_disconnect_injected", "zstd_transfer_resume", "transfer_sha256_match")) else "PARTIAL"
+             "mobile_keyboard_text", "clipboard_direct_paste", "visibility_resume",
+             "zoomed_one_finger_pan_no_click", "zoomed_tap_normalized_coordinates",
+             "file_consent_accepted", "transfer_disconnect_injected", "zstd_transfer_resume",
+             "transfer_sha256_match")) and not report.get("errors") and not report.get("page_console_errors") else "PARTIAL"
         report["device_id_suffix"] = config["device_id"][-3:]
         measured = [v for k, v in report.get("latency_ms", {}).items()
                     if k in ("touch_to_click", "pointer_move_round_trip",

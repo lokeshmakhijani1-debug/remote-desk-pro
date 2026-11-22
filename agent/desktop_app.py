@@ -159,6 +159,8 @@ class DesktopApp:
         self.root.geometry("500x570")
         self.root.minsize(460, 520)
         self.root.configure(bg="#f3f6fa")
+        self._set_system_awake(True)
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.config = load_config()
         self.server = self.config.get("server") or server or DEFAULT_SERVER
         self.running = False
@@ -213,6 +215,23 @@ class DesktopApp:
             self.diag_text.pack(anchor="w", padx=8, pady=5)
         else:
             self.diag_text.pack_forget()
+
+    def _set_system_awake(self, enabled: bool):
+        if os.name != "nt":
+            return
+        try:
+            ctypes.windll.kernel32.SetThreadExecutionState(
+                0x80000001 if enabled else 0x80000000
+            )
+        except Exception:
+            logger.warning("Unable to update Windows execution state", exc_info=True)
+
+    def close(self):
+        if self.running:
+            self.stop_event.set()
+            self.running = False
+        self._set_system_awake(False)
+        self.root.destroy()
 
     def _copy(self, value):
         self.root.clipboard_clear(); self.root.clipboard_append(value); self.root.update()
@@ -319,6 +338,37 @@ class DesktopApp:
             self.status_var.set("Disconnected by host")
             self.running = False
 
+    async def _ask_file_consent(self, name: str, size: int):
+        future = concurrent.futures.Future()
+        def show():
+            dialog = tk.Toplevel(self.root)
+            dialog.title("Remote Desk Pro — Incoming file")
+            dialog.geometry("460x245")
+            dialog.resizable(False, False)
+            dialog.transient(self.root)
+            dialog.attributes("-topmost", True)
+            dialog.grab_set()
+            tk.Label(dialog, text="INCOMING FILE TRANSFER", font=("Segoe UI", 14, "bold")).pack(pady=(22, 10))
+            tk.Label(dialog, text=f"File: {name}\nSize: {size:,} bytes ({size / 1024:.1f} KB)",
+                     font=("Segoe UI", 10), justify="left").pack(pady=8)
+            tk.Label(dialog, text="Accept saves the verified file in your Downloads folder.",
+                     wraplength=390).pack(pady=6)
+            def finish(value):
+                if not future.done():
+                    future.set_result(value)
+                dialog.grab_release()
+                dialog.destroy()
+            buttons = tk.Frame(dialog); buttons.pack(pady=12)
+            tk.Button(buttons, text="Accept", command=lambda: finish(True),
+                      width=15, bg="#087d65", fg="white").pack(side="left", padx=8)
+            tk.Button(buttons, text="Decline", command=lambda: finish(False),
+                      width=15).pack(side="left", padx=8)
+            dialog.protocol("WM_DELETE_WINDOW", lambda: finish(False))
+            dialog.lift()
+            dialog.focus_force()
+        self.root.after(0, show)
+        return await asyncio.wrap_future(future)
+
     async def _ask_consent(self, device_id: str, dynamic_password: str):
         future = concurrent.futures.Future()
         def show():
@@ -351,6 +401,7 @@ class DesktopApp:
                 import host_agent
                 host_agent.set_status_callback(self._agent_status)
                 host_agent.set_consent_callback(self._ask_consent)
+                host_agent.set_file_consent_callback(self._ask_file_consent)
                 host_agent.set_diagnostics_callback(self._agent_diagnostics)
                 args = type("Args", (), {"server":self.server,"device_id":self.config["device_id"],"secret":self.config["device_secret"],"dynamic_password":self.config.get("dynamic_password","")})()
                 self.agent_args = args
