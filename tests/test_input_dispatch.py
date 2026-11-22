@@ -242,7 +242,7 @@ def test_clipboard_direct_paste_uses_ctrl_v(fake_pyautogui, monkeypatch):
 
 
 def test_file_transfer_destination_is_downloads_and_never_overwrites(tmp_path, monkeypatch):
-    monkeypatch.setattr(host_agent.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("HOME", str(tmp_path))
     downloads = tmp_path / "Downloads" / "RemoteDeskPro-Received"
     downloads.mkdir(parents=True)
