@@ -358,10 +358,10 @@ def _apply_control_unlocked(message: dict):
             return False
         _focus_target_at_cursor()
         try:
-            if text.isascii():
+            if text.isascii() and text.isalnum():
                 pyautogui.write(text, interval=0.01)
             else:
-                raise UnicodeEncodeError("ascii", text, 0, len(text), "Unicode requires clipboard paste")
+                raise UnicodeEncodeError("ascii", text, 0, len(text), "Spaces and Unicode require clipboard paste")
         except Exception:
             import pyperclip
             pyperclip.copy(text)
