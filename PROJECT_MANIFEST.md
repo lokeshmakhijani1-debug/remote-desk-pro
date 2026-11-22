@@ -631,3 +631,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Privacy Screen: viewer offers Black Curtain and Technician Working Banner. Windows overlay uses topmost/tool-window extended styles, requests WDA_EXCLUDEFROMCAPTURE, blocks local interaction with a Tk grab, supports Ctrl+Alt+Shift+U emergency unlock, and is torn down on viewer disconnect.
 - Protected behavior: existing mobile keyboard sendText/sendTextKey path, live JPEG stream, mouse dispatch, and SessionRecorder start/stop logic were not rewritten.
 - Verification: automated CI and Windows build/live E2E are pending for the resulting commits; source changes are not runtime certification.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: a5eeefa9102cd4893fbc282a8b72080001f32f2c.
+- EXE size: 61077813 bytes.
+- EXE SHA-256: 05EBD0781250682FAADEE962CC65334EF3EDD3578B6C06E950111ED3514303E8.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
