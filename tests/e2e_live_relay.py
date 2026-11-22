@@ -69,12 +69,12 @@ async def run(base_url):
         suffix = uuid.uuid4().hex[:12]
         email = f"rdp-e2e-{suffix}@example.com"
         password = f"Rdp-E2E-{uuid.uuid4().hex}!"
-        reg = await post_with_transport_retry(base_url, "/api/auth/register", {}, {"email": email, "password": password}, timeout)
+        reg = (await client.post("/api/auth/register", json={"email": email, "password": password})).raise_for_status().json()
         token = reg["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
         results["synthetic_user_role"] = reg["user"]["role"]
 
-        paired = await post_with_transport_retry(base_url, "/api/devices/pair", headers, {"name": f"E2E Synthetic {suffix}"}, timeout)
+        paired = (await client.post("/api/devices/pair", headers=headers, json={"name": f"E2E Synthetic {suffix}"})).raise_for_status().json()
         device_id = paired["device_id"]
         agent_secret = paired["agent_secret"]
         dynamic_password = paired["dynamic_password"]
