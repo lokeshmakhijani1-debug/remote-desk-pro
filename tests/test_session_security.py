@@ -89,7 +89,7 @@ def test_privacy_banner_starts_and_stops_with_emergency_unlock_binding(monkeypat
     fake_tk.Tk = FakeRoot
     fake_tk.Frame = FakeWidget
     fake_tk.Label = FakeWidget
-    monkeypatch.setattr(privacy_overlay.os, "name", "nt")
+    monkeypatch.setattr(privacy_overlay, "os", types.SimpleNamespace(name="nt"))
     class FakeFunction:
         def __init__(self, callback):
             self.callback = callback
