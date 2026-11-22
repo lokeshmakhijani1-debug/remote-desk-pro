@@ -12,6 +12,8 @@ import sys
 import threading
 from pathlib import Path
 from resumable_transfer import EndpointFileReceiver, EndpointTransferError
+from privacy_overlay import PrivacyBanner
+from session_recorder import SessionRecorder
 from logging.handlers import RotatingFileHandler
 from io import BytesIO
 
@@ -138,7 +140,7 @@ def _consent_dialog(device_id: str, dynamic_password: str) -> bool:
     tk.Label(root, text="REMOTE ACCESS REQUEST", font=("Segoe UI", 14, "bold")).pack(pady=(20, 8))
     tk.Label(root, text="Device ID: " + device_id, font=("Segoe UI", 11)).pack(pady=3)
     tk.Label(root, text="Dynamic password: " + (dynamic_password or "Check the dashboard"), font=("Segoe UI", 11)).pack(pady=3)
-    tk.Label(root, text="A remote viewer is requesting access to this computer.", wraplength=360).pack(pady=12)
+    tk.Label(root, text="A remote viewer is requesting access. Approved sessions are recorded locally for security and audit.", wraplength=360).pack(pady=12)
     tk.Checkbutton(root, text="Unattended access (not available)", state="disabled").pack()
     decision = {"approved": False}
     buttons = tk.Frame(root)
@@ -450,6 +452,9 @@ async def run_once(args, stop_event=None):
         incoming_file = None
         incoming_transfers: dict[str, EndpointFileReceiver] = {}
         streaming = asyncio.Event()
+        viewer_id = "unknown"
+        recorder = None
+        privacy_banner = None
         stop_task = None
         latency_task = None
         async def report_latency():
@@ -474,22 +479,35 @@ async def run_once(args, stop_event=None):
                     continue
                 message = json.loads(packet)
                 if message.get("type") == "viewer_joined":
+                    viewer_id = str(message.get("viewer_id") or "unknown")
                     set_status("Waiting for host approval...")
                     if stream_task and not stream_task.done():
-                        await ws.send(json.dumps({"type":"host_approved"}))
+                        await ws.send(json.dumps({"type":"host_approved","recording":bool(recorder)}))
                         continue
                     if await ask_host_consent(args.device_id, args.dynamic_password):
+                        try:
+                            recorder = SessionRecorder(args.device_id, viewer_id)
+                            recorder.start()
+                        except Exception:
+                            log.exception("Session recording could not start; session remains visibly approved")
+                            recorder = None
                         streaming.set()
-                        await ws.send(json.dumps({"type":"host_approved"}))
+                        await ws.send(json.dumps({"type":"host_approved","recording":bool(recorder)}))
                         stream_task = asyncio.create_task(stream_screen(ws, streaming))
                         clipboard_task = asyncio.create_task(clipboard_watch(ws, streaming))
-                        set_status("Connected (Live)")
+                        set_status("Connected (Live)" + (" · REC" if recorder else " · recording unavailable"))
                     else:
                         await ws.send(json.dumps({"type":"host_denied"}))
                         set_status("Connection denied by host")
                 elif message.get("type") == "viewer_left":
                     release_all_inputs()
                     streaming.clear()
+                    if privacy_banner:
+                        privacy_banner.stop()
+                        privacy_banner = None
+                    if recorder:
+                        recorder.stop()
+                        recorder = None
                     if stream_task:
                         stream_task.cancel()
                         stream_task = None
@@ -506,10 +524,13 @@ async def run_once(args, stop_event=None):
                     except Exception as exc:
                         log.warning("Remote text injection failed: %s", exc)
                 elif message.get("type") == "clipboard_paste" and streaming.is_set():
+                    request_id = str(message.get("request_id") or "")
                     try:
-                        await asyncio.to_thread(paste_clipboard, message.get("text", ""))
+                        pasted = await asyncio.to_thread(paste_clipboard, message.get("text", ""))
+                        await ws.send(json.dumps({"type":"clipboard_ack","request_id":request_id,"success":bool(pasted)}))
                     except Exception as exc:
                         log.warning("Clipboard paste failed: %s", exc)
+                        await ws.send(json.dumps({"type":"clipboard_ack","request_id":request_id,"success":False,"detail":"Host clipboard paste failed"}))
                 elif message.get("type") == "clipboard_update" and streaming.is_set():
                     value = message.get("text", "")
                     if isinstance(value, str) and len(value) <= 65536:
@@ -609,9 +630,25 @@ async def run_once(args, stop_event=None):
                             log.warning("File transfer size mismatch; incomplete file retained.")
                 elif message.get("type") == "control" and streaming.is_set():
                     try:
-                        await asyncio.to_thread(apply_control, message)
+                        if message.get("event") == "privacy_screen":
+                            if message.get("mode") != "banner":
+                                raise ValueError("Only the visible maintenance banner mode is supported")
+                            if message.get("enabled") is True:
+                                if privacy_banner is None:
+                                    privacy_banner = PrivacyBanner()
+                                applied = privacy_banner.start()
+                            else:
+                                if privacy_banner:
+                                    privacy_banner.stop()
+                                    privacy_banner = None
+                                applied = True
+                            await ws.send(json.dumps({"type":"privacy_screen_ack","enabled":bool(message.get("enabled")) and bool(applied),"mode":"banner"}))
+                        else:
+                            await asyncio.to_thread(apply_control, message)
                     except Exception as exc:
                         log.warning("Input event rejected: %s", exc)
+                        if message.get("event") == "privacy_screen":
+                            await ws.send(json.dumps({"type":"privacy_screen_ack","enabled":False,"mode":"banner","detail":"Maintenance banner could not be applied"}))
         finally:
             try:
                 release_all_inputs()
@@ -622,6 +659,10 @@ async def run_once(args, stop_event=None):
             if latency_task:
                 latency_task.cancel()
             streaming.clear()
+            if privacy_banner:
+                privacy_banner.stop()
+            if recorder:
+                recorder.stop()
             if stream_task:
                 stream_task.cancel()
             if clipboard_task:
