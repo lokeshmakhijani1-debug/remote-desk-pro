@@ -72,6 +72,9 @@ def test_privacy_banner_starts_and_stops_with_emergency_unlock_binding(monkeypat
         def winfo_screenheight(self): return 720
         def geometry(self, *_args): pass
         def bind_all(self, *_args): pass
+        def update_idletasks(self): pass
+        def winfo_id(self): return 1234
+        def grab_set(self): pass
         def focus_force(self): pass
         def mainloop(self): stopped.wait(2)
         def after(self, _delay, callback): callback()
@@ -87,6 +90,14 @@ def test_privacy_banner_starts_and_stops_with_emergency_unlock_binding(monkeypat
     fake_tk.Frame = FakeWidget
     fake_tk.Label = FakeWidget
     monkeypatch.setattr(privacy_overlay.os, "name", "nt")
+    class FakeUser32:
+        def GetAncestor(self, hwnd, _flags): return hwnd
+        def GetWindowLongW(self, *_args): return 0
+        def SetWindowLongW(self, *_args): return 0
+        def SetWindowPos(self, *_args): return 1
+        def SetWindowDisplayAffinity(self, *_args): return 1
+        def RegisterHotKey(self, *_args): return 0
+    monkeypatch.setattr(privacy_overlay.ctypes, "WinDLL", lambda *_args, **_kwargs: FakeUser32(), raising=False)
     monkeypatch.setitem(sys.modules, "tkinter", fake_tk)
 
     banner = PrivacyBanner()
