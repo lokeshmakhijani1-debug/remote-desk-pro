@@ -237,7 +237,8 @@ def test_clipboard_direct_paste_uses_ctrl_v(fake_pyautogui, monkeypatch):
     monkeypatch.setattr(host_agent, "_focus_target_at_cursor", lambda: True)
     assert host_agent.paste_clipboard("paste this")
     assert copied == ["paste this"]
-    assert fake_pyautogui.calls == [("hotkey", ("ctrl", "v"), {})]
+    assert fake_pyautogui.FAILSAFE is False
+    assert fake_pyautogui.calls == [("hotkey", ("ctrl", "v"), {"_pause": False})]
 
 
 def test_file_transfer_destination_is_downloads_and_never_overwrites(tmp_path, monkeypatch):
