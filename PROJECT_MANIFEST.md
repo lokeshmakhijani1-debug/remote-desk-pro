@@ -606,3 +606,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - `frontend/src/styles.css`: adds fullscreen-only viewer presentation and an opacity-hidden in-viewport Android keyboard textarea; transforms are confined to the phone-side canvas.
 - `agent/host_agent.py`: serializes host input dispatch in a worker thread, uses `pyautogui.write(text, interval=0.01)` with clipboard fallback for Unicode/write failures, and reuses existing host approval when the viewer transport reattaches.
 - Scope: only the remote viewer frontend, its stylesheet, host keyboard dispatch, and this manifest were changed; environment keys and values were not edited.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: c715f6ec0053bed40bc15061815789e54108ac8a.
+- EXE size: 22267090 bytes.
+- EXE SHA-256: 7237DBEF9ADEEA16A0FA5447ACAFAD818B83637E80EA9D99066FE04F1AABA09B.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
