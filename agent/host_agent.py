@@ -494,13 +494,16 @@ async def run_once(args, stop_event=None):
                             recorder = SessionRecorder(args.device_id, viewer_id)
                             recorder.start()
                         except Exception:
-                            log.exception("Session recording could not start; session remains visibly approved")
+                            log.exception("Session recording could not start; refusing remote session")
                             recorder = None
+                            await ws.send(json.dumps({"type":"host_denied","detail":"Local security recording could not start; session was not approved"}))
+                            set_status("Session denied — security recording unavailable")
+                            continue
                         streaming.set()
-                        await ws.send(json.dumps({"type":"host_approved","recording":bool(recorder)}))
+                        await ws.send(json.dumps({"type":"host_approved","recording":True}))
                         stream_task = asyncio.create_task(stream_screen(ws, streaming))
                         clipboard_task = asyncio.create_task(clipboard_watch(ws, streaming))
-                        set_status("Connected (Live)" + (" · REC" if recorder else " · recording unavailable"))
+                        set_status("Connected (Live) · REC")
                     else:
                         await ws.send(json.dumps({"type":"host_denied"}))
                         set_status("Connection denied by host")
