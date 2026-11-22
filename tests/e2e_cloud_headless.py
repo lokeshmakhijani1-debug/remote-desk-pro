@@ -93,8 +93,23 @@ async def main():
         import host_agent
         root = Path(tempfile.mkdtemp(prefix="rdp-cloud-host-"))
         destination = root/"resumable-proof.bin"
-        applied, consents, host_failures, host_status = [], 0, [], []
+        applied, text_inputs, clipboard_pastes = [], [], []
+        consents, host_failures, host_status = 0, [], []
+        recording_events, privacy_events = [], []
         connected = asyncio.Event()
+        class SyntheticRecorder:
+            def __init__(self, device_id, viewer_id):
+                self.device_id, self.viewer_id = device_id, viewer_id
+            def start(self):
+                recording_events.append(("start", self.device_id, self.viewer_id))
+            def stop(self):
+                recording_events.append(("stop", self.device_id, self.viewer_id))
+        class SyntheticPrivacyBanner:
+            def start(self):
+                privacy_events.append("enabled")
+                return True
+            def stop(self):
+                privacy_events.append("disabled")
         stop = threading.Event()
         async def approve(_device, _password):
             nonlocal consents
@@ -102,6 +117,11 @@ async def main():
             return True
         async def no_clipboard(_ws, _running): await asyncio.Event().wait()
         host_agent.set_consent_callback(approve)
+        host_agent.set_file_consent_callback(lambda _name, _size: True)
+        host_agent.SessionRecorder = SyntheticRecorder
+        host_agent.PrivacyBanner = SyntheticPrivacyBanner
+        host_agent.apply_text = lambda item: (text_inputs.append(dict(item)) or True)
+        host_agent.paste_clipboard = lambda value: (clipboard_pastes.append(value) or True)
         def status_hook(status):
             host_status.append(status)
             if status == "Connected to relay. Waiting for a viewer...": connected.set()
@@ -128,7 +148,8 @@ async def main():
                 await event(ws,"viewer_connected")
                 return ws
             viewer = await new_viewer()
-            await event(viewer,"host_approved")
+            approved = await event(viewer,"host_approved")
+            check(approved.get("recording") is True, f"Recording was not acknowledged: {approved}")
             frame = await asyncio.wait_for(viewer.recv(),timeout=15)
             check(isinstance(frame,bytes) and b"RDP-CLOUD-VIRTUAL-FRAME" in frame,"No virtual screen frame")
             result["checks"]["live_websocket_frame_delivery"] = "PASS"
@@ -138,6 +159,27 @@ async def main():
             while time.monotonic()<deadline and not applied: await asyncio.sleep(.05)
             check(any(x.get("event")=="mouse_move" for x in applied),"Input relay not observed by virtual host")
             result["checks"]["input_relay_virtual_host"] = "PASS"
+
+            await viewer.send(json.dumps({"type":"text","text":"Android IME completed text"}))
+            deadline = time.monotonic()+10
+            while time.monotonic()<deadline and not text_inputs: await asyncio.sleep(.05)
+            check(text_inputs and text_inputs[-1].get("text")=="Android IME completed text","Mobile text relay not observed")
+            result["checks"]["mobile_text_relay"] = "PASS"
+
+            await viewer.send(json.dumps({"type":"clipboard_paste","request_id":"cloud-clipboard-1","text":"clipboard paste payload"}))
+            clipboard_ack = await event(viewer,"clipboard_ack")
+            check(clipboard_ack.get("success") is True and clipboard_pastes[-1]=="clipboard paste payload",f"Clipboard paste ACK mismatch: {clipboard_ack}")
+            result["checks"]["clipboard_paste_ack"] = "PASS"
+
+            await viewer.send(json.dumps({"type":"control","event":"privacy_screen","enabled":True,"mode":"banner"}))
+            privacy_on = await event(viewer,"privacy_screen_ack")
+            check(privacy_on.get("enabled") is True, f"Privacy banner did not enable: {privacy_on}")
+            await viewer.send(json.dumps({"type":"control","event":"privacy_screen","enabled":False,"mode":"banner"}))
+            privacy_off = await event(viewer,"privacy_screen_ack")
+            check(privacy_off.get("enabled") is False, f"Privacy banner did not disable: {privacy_off}")
+            await viewer.send(json.dumps({"type":"control","event":"privacy_screen","enabled":True,"mode":"banner"}))
+            await event(viewer,"privacy_screen_ack")
+            result["checks"]["privacy_banner_toggle"] = "PASS"
 
             payload = os.urandom(TOTAL)
             digest = hashlib.sha256(payload).hexdigest()
@@ -155,11 +197,16 @@ async def main():
 
             await viewer.close(code=4001,reason="intentional mid-transfer disconnect")
             viewer = None
-            await asyncio.sleep(1)
+            deadline = time.monotonic()+12
+            while time.monotonic()<deadline and (not recording_events or recording_events[-1][0]!="stop"):
+                await asyncio.sleep(.1)
+            check(recording_events[-1][0]=="stop", "Recording worker was not stopped after viewer disconnect")
+            check(privacy_events[-1]=="disabled", "Privacy banner was not cleaned up after viewer disconnect")
             viewer = await new_viewer()
-            # Same authenticated viewer reclaims the existing approved session.
-            # The host stream and transfer receiver remain live; no second consent
-            # prompt or host_approved event is expected on transport resumption.
+            # A transport disconnect terminates approval and cleans host UI/recording.
+            # The same owner can resume the transfer only after fresh host approval.
+            resumed_approval = await event(viewer,"host_approved")
+            check(resumed_approval.get("recording") is True, "Recording did not restart after fresh approval")
             await viewer.send(json.dumps(manifest))
             resumed = await event(viewer,"transfer_resume_req")
             check(resumed.get("next_offset")==CHUNK,f"Resume did not continue from persisted ACK: {resumed}")
@@ -172,9 +219,11 @@ async def main():
             complete = await event(viewer,"transfer_complete",timeout=30)
             check(complete.get("verified") is True and complete.get("sha256")==digest,f"Checksum result: {complete}")
             check(destination.is_file() and hashlib.sha256(destination.read_bytes()).hexdigest()==digest,"Saved file checksum mismatch")
-            check(consents==1,f"Expected one consent for the original session and none on reconnect; got {consents}")
+            check(consents==2,f"Expected a fresh consent after transport disconnect; got {consents}")
+            check(len([x for x in recording_events if x[0]=="start"])==2,"Expected recording to restart after fresh approval")
             result["checks"]["synthetic_auto_consent_hook"] = "PASS"
-            result["checks"]["same_viewer_resume_without_reconsent"] = "PASS"
+            result["checks"]["same_viewer_resume_with_fresh_consent"] = "PASS"
+            result["checks"]["recording_disconnect_cleanup"] = "PASS"
             result["host_status"] = host_status
             result["checks"]["zstd_2mib_resume_sha256"] = "PASS"
             result["transfer"] = {"bytes":TOTAL,"chunk_size":CHUNK,"chunks":len(chunks),"compression":"zstd",
