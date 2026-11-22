@@ -307,6 +307,8 @@ def validate_text_event(event: dict) -> bool:
 
 def validate_control(event: dict) -> bool:
     kind = event.get("event")
+    if kind == "privacy_screen":
+        return event.get("enabled") in (True, False) and event.get("mode") == "banner"
     if kind == "mouse_move":
         try:
             x, y = float(event.get("x")), float(event.get("y"))
@@ -380,6 +382,8 @@ async def host_socket(ws: WebSocket, device_id: str):
             elif kind == "host_approved":
                 hub.approved.add(device_id)
                 audit(db, "session.host_approved", device.owner_id, device_id)
+                await hub.relay(device_id, ws, raw)
+            elif kind in ("clipboard_ack", "privacy_screen_ack") and hub.is_approved(device_id):
                 await hub.relay(device_id, ws, raw)
             elif kind == "clipboard_paste" and hub.is_approved(device_id):
                 if validate_clipboard(event):
@@ -479,7 +483,7 @@ async def viewer_socket(ws: WebSocket, device_id: str):
         host_socket = hub.hosts.get(device_id)
         if host_socket is not None:
             try:
-                await host_socket.send_json({"type": "viewer_joined"})
+                await host_socket.send_json({"type": "viewer_joined", "viewer_id": str(user_id)})
                 logger.info("viewer_joined delivered to host device=%s", device_id)
             except (WebSocketDisconnect, OSError, RuntimeError):
                 logger.exception("viewer_joined delivery failed device=%s", device_id)
@@ -499,7 +503,19 @@ async def viewer_socket(ws: WebSocket, device_id: str):
             except json.JSONDecodeError:
                 continue
             kind = event.get("type")
-            if kind == "heartbeat":
+            if kind == "viewer_end":
+                hub.approved.discard(device_id)
+                active_host = hub.hosts.get(device_id)
+                if active_host is not None:
+                    try:
+                        await active_host.send_json({"type": "viewer_left"})
+                    except (WebSocketDisconnect, OSError, RuntimeError):
+                        logger.warning("viewer_left delivery failed device=%s", device_id, exc_info=True)
+                await hub.remove_viewer(device_id, ws)
+                registered = False
+                await ws.send_json({"type": "session_ended"})
+                break
+            elif kind == "heartbeat":
                 await ws.send_json({"type":"heartbeat_ack","at":datetime.now(timezone.utc).isoformat(),
                                     "device_online":device_id in hub.hosts})
             elif kind == "control":
