@@ -56,6 +56,8 @@ jobs:
           else:
               raise SystemExit("Render /health did not become ready")
           PY
+      - name: Run synthetic live relay E2E
+        run: python tests/e2e_live_relay.py --base-url https://remote-desk-pro-pj29.onrender.com
       - name: Run live cloud E2E
         env:
           RDP_BASE_URL: https://remote-desk-pro-pj29.onrender.com
