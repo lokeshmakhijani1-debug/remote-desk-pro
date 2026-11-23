@@ -150,7 +150,7 @@ class EndpointFileReceiver:
             for block in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(block)
         if digest.hexdigest() != self.expected_sha256:
-            raise EndpointTransferError("Final SHA-256 mismatch")
+            raise EndpointTransferError(f"Final SHA-256 mismatch (actual={digest.hexdigest()[:12]} expected={self.expected_sha256[:12]})")
         os.replace(self.part, self.destination)
         self.state.unlink(missing_ok=True)
         return self.destination
