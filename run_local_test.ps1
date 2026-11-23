@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param([string]$Python = "python", [string]$Npm = "npm")
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -30,14 +30,14 @@ try {
     New-Item -ItemType Directory -Path $LogPath -Force | Out-Null
     $env:RDP_SERVER = "http://127.0.0.1:8000"
     $env:RDP_LOG_DIR = $LogPath
-    $BackendProcess = Start-Process -FilePath $VenvPython -ArgumentList @("-m","uvicorn","backend.main:app","--host","127.0.0.1","--port","8000","--ws-ping-interval","15","--ws-ping-timeout","45","--ws-max-size","16777216") -WorkingDirectory $Root -PassThru -WindowStyle Minimized
+    $BackendProcess = Start-Process -FilePath $VenvPython -ArgumentList @("-m","uvicorn","backend.main:app","--host","0.0.0.0","--port","8000","--ws-ping-interval","15","--ws-ping-timeout","45","--ws-max-size","16777216") -WorkingDirectory $Root -PassThru -WindowStyle Minimized
     $FrontendPath = Join-Path $Root "frontend"
     if (-not (Test-Path (Join-Path $FrontendPath "node_modules"))) {
         Write-Host "Installing frontend dependencies (first run only)..."
         Push-Location $FrontendPath
         try { & $Npm install; if ($LASTEXITCODE -ne 0) { throw "npm install failed" } } finally { Pop-Location }
     }
-    $FrontendProcess = Start-Process -FilePath $Npm -ArgumentList @("run","dev","--","--host","127.0.0.1") -WorkingDirectory $FrontendPath -PassThru -WindowStyle Minimized
+    $FrontendProcess = Start-Process -FilePath $Npm -ArgumentList @("run","dev","--","--host","0.0.0.0") -WorkingDirectory $FrontendPath -PassThru -WindowStyle Minimized
     $Deadline = (Get-Date).AddSeconds(45)
     $Healthy = $false
     while ((Get-Date) -lt $Deadline) {
@@ -81,3 +81,4 @@ try {
     Stop-ChildProcess $FrontendProcess
     Stop-ChildProcess $BackendProcess
 }
+
