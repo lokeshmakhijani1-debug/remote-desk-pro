@@ -416,7 +416,8 @@ async def host_socket(ws: WebSocket, device_id: str):
                         continue
                     if not 1 <= len(chunk) <= 1024 * 1024:
                         continue
-                    if not isinstance(event.get("offset"), int) or event["offset"] < 0:
+                    offset, index = event.get("offset"), event.get("index")
+                    if not isinstance(offset, int) or not isinstance(index, int) or offset < 0 or offset % (512 * 1024) or index != offset // (512 * 1024):
                         continue
                 elif kind == "transfer_init":
                     try:
@@ -424,7 +425,7 @@ async def host_socket(ws: WebSocket, device_id: str):
                         chunk_size = int(event.get("chunk_size", 0))
                     except (TypeError, ValueError):
                         continue
-                    if not 0 < size <= MAX_FILE_BYTES or not 256 * 1024 <= chunk_size <= 1024 * 1024:
+                    if not 0 < size <= MAX_FILE_BYTES or chunk_size != 512 * 1024:
                         continue
                 await hub.relay(device_id, ws, raw)
     except (WebSocketDisconnect, asyncio.TimeoutError, OSError):
@@ -553,7 +554,8 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                         chunk = base64.b64decode(event.get("data", ""), validate=True)
                     except Exception:
                         continue
-                    if not 1 <= len(chunk) <= 1024 * 1024 or not isinstance(event.get("offset"), int) or event["offset"] < 0:
+                    offset, index = event.get("offset"), event.get("index")
+                    if not 1 <= len(chunk) <= 1024 * 1024 or not isinstance(offset, int) or not isinstance(index, int) or offset < 0 or offset % (512 * 1024) or index != offset // (512 * 1024):
                         continue
                 elif kind == "transfer_init":
                     try:
