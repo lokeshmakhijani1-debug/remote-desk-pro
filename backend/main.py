@@ -563,7 +563,7 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                         chunk_size = int(event.get("chunk_size", 0))
                     except (TypeError, ValueError):
                         continue
-                    if not 0 < size <= MAX_FILE_BYTES or not 256 * 1024 <= chunk_size <= 1024 * 1024:
+                    if not 0 < size <= MAX_FILE_BYTES or chunk_size != 512 * 1024:
                         continue
                     event["name"] = safe_file_name(event.get("name"))
                     raw = json.dumps(event)
