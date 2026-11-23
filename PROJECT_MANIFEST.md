@@ -714,3 +714,15 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+
+## Core stability branch — 2026-11-23
+- Branch: fix/stabilize-core-features, created from main commit f5daa5b39eccb273b5ca5d37240e3e02c5566ee0. No main-branch writes are part of this change.
+- Privacy curtain: agent/privacy_overlay.py runs the fullscreen Windows curtain on a dedicated UI thread, requests WDA_EXCLUDEFROMCAPTURE, and attempts a reversible near-black hardware gamma fallback when capture exclusion is unavailable. Emergency local unlock is Ctrl+Alt+Shift+B; agent WebSocket teardown removes the curtain and restores the saved gamma ramp.
+- File transfer: backend/file_transfer.py and agent/resumable_transfer.py use exactly 512 KiB chunks, sequential chunk indexes, disk-backed partial files, resumable acknowledgements, and final SHA-256 verification. The WebSocket relay validates chunk alignment/index and forwards bounded chunks without buffering whole files in Render memory. Current transfer limit remains 50 MiB.
+- Reconnect: host WebSocket protocol ping/pong is configured at 15 seconds with a 15-second timeout; host reconnect delay grows exponentially to 30 seconds. Dashboard heartbeats run every 15 seconds and close a silent socket after 45 seconds without an acknowledgement; dashboard retries retain bounded exponential backoff.
+- New files: run_local_test.ps1, tests/test_privacy_overlay.py.
+- Modified files: agent/privacy_overlay.py, agent/resumable_transfer.py, agent/host_agent.py, backend/file_transfer.py, backend/main.py, frontend/src/App.tsx, tests/test_file_transfer.py, PROJECT_MANIFEST.md.
+- Local ports: FastAPI 127.0.0.1:8000; Vite dashboard 127.0.0.1:5173; WebSocket paths /ws/host/{device_id} and /ws/viewer/{device_id}.
+- Local run: from repository root execute powershell -ExecutionPolicy Bypass -File .\run_local_test.ps1. The script launches backend, Vite, and host agent, prints a checklist, and stops child processes on Ctrl+C. Backend uses local SQLite unless a local .env supplies another DATABASE_URL.
+- Verification status at authoring: source and regression tests committed on this branch; GitHub Actions results and physical Windows curtain/stream verification must be checked after push. Gamma fallback is driver-dependent and requires a local Windows smoke test.
