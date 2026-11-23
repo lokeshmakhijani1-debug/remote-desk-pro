@@ -145,6 +145,13 @@ def pair(data: PairIn, authorization: str | None = Header(default=None), db: Ses
     audit(db, "device.paired", user.id, device_id)
     return {"device_id":device_id,"agent_secret":secret,"dynamic_password":password,"password_expires_at":expires.isoformat(),"agent_warning":"Agent secret is displayed once. Store it securely."}
 
+class UnattendedPinIn(BaseModel):
+    pin: str = Field(default="", max_length=8)
+
+class AgentUnattendedPinIn(BaseModel):
+    agent_secret: str = Field(min_length=16, max_length=256)
+    pin: str = Field(default="", max_length=8)
+
 @app.post("/api/devices/{device_id}/unattended-pin")
 def set_unattended_pin(device_id: str, data: UnattendedPinIn, authorization: str | None = Header(default=None), db: Session = Depends(db_session)):
     user = current_user(authorization, db)
