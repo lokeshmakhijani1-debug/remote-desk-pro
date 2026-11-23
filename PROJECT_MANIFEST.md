@@ -724,7 +724,7 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - New files: run_local_test.ps1, tests/test_privacy_overlay.py.
 - Modified files: agent/privacy_overlay.py, agent/resumable_transfer.py, agent/host_agent.py, backend/file_transfer.py, backend/main.py, frontend/src/App.tsx, tests/test_file_transfer.py, PROJECT_MANIFEST.md.
 - Local ports: FastAPI 127.0.0.1:8000; Vite dashboard 127.0.0.1:5173; WebSocket paths /ws/host/{device_id} and /ws/viewer/{device_id}.
-- Local run: from repository root execute powershell -ExecutionPolicy Bypass -File .\run_local_test.ps1. The script launches backend, Vite, and host agent, prints a checklist, and stops child processes on Ctrl+C. Backend uses local SQLite unless a local .env supplies another DATABASE_URL.
+- Local run: from repository root execute powershell -ExecutionPolicy Bypass -File .\run_local_test.ps1. The script creates/reuses an ignored .venv, installs Python dependencies only when missing, installs frontend dependencies only when node_modules is absent, launches backend, Vite, and host agent, prints a checklist, and stops child processes on Ctrl+C. Backend uses local SQLite unless a local .env supplies another DATABASE_URL.
 - CI workflow now runs on main and fix/** branch pushes. GitHub Actions results and physical Windows curtain/stream verification remain to be checked after push. Gamma fallback is driver-dependent and requires a local Windows smoke test.
 
 
