@@ -158,6 +158,22 @@ def _consent_dialog(device_id: str, dynamic_password: str) -> bool:
     root.mainloop()
     return decision["approved"]
 
+
+def is_unattended_auto_approve_enabled():
+    env_pin = os.environ.get("RDP_UNATTENDED_PIN", "").strip()
+    if len(env_pin) >= 4 and env_pin.isdigit():
+        return True
+    try:
+        cfg_path = Path(os.environ.get("APPDATA", Path.home())) / "RemoteDeskPro" / "config.json"
+        if cfg_path.exists():
+            data = json.loads(cfg_path.read_text(encoding="utf-8"))
+            pin = str(data.get("unattended_pin", "")).strip()
+            if data.get("unattended_auto_approve") and len(pin) >= 4 and pin.isdigit():
+                return True
+    except Exception:
+        pass
+    return False
+
 async def ask_host_consent(device_id: str, dynamic_password: str) -> bool:
     if _CONSENT_CALLBACK:
         return await _CONSENT_CALLBACK(device_id, dynamic_password)
@@ -492,7 +508,7 @@ async def run_once(args, stop_event=None):
                     if stream_task and not stream_task.done():
                         await ws.send(json.dumps({"type":"host_approved","recording":bool(recorder)}))
                         continue
-                    if await ask_host_consent(args.device_id, args.dynamic_password):
+                    if is_unattended_auto_approve_enabled() or await ask_host_consent(args.device_id, args.dynamic_password):
                         try:
                             recorder = SessionRecorder(args.device_id, viewer_id)
                             recorder.start()

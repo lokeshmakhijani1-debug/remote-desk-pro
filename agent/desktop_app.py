@@ -201,6 +201,15 @@ class DesktopApp:
         status.pack(fill="x", padx=24, pady=8)
         tk.Label(status, text="CONNECTION STATUS", bg="white", fg="#7b8ba1", font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=14, pady=(12, 3))
         tk.Label(status, textvariable=self.status_var, bg="white", fg="#087d65", font=("Segoe UI", 11, "bold"), wraplength=420).pack(anchor="w", padx=14, pady=(0, 12))
+        unattended_card = tk.Frame(self.root, bg="white", highlightbackground="#e0e7ef", highlightthickness=1)
+        unattended_card.pack(fill="x", padx=24, pady=6)
+        self.unattended_var = tk.BooleanVar(value=bool(self.config.get("unattended_auto_approve", False)))
+        self.unattended_pin_var = tk.StringVar(value=str(self.config.get("unattended_pin", "")))
+        tk.Checkbutton(unattended_card, text="Unattended Trusted Auto-Approve (No Popup)", variable=self.unattended_var, command=self._save_unattended, bg="white", fg="#17243a", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=12, pady=(8, 4))
+        pin_row = tk.Frame(unattended_card, bg="white"); pin_row.pack(fill="x", padx=14, pady=(0, 8))
+        tk.Label(pin_row, text="Trusted PIN (4-8 digits):", bg="white", fg="#52637a", font=("Segoe UI", 8)).pack(side="left")
+        tk.Entry(pin_row, textvariable=self.unattended_pin_var, show="*", width=12).pack(side="left", padx=8)
+        tk.Button(pin_row, text="Save PIN", command=self._save_unattended, bg="#087d65", fg="white", relief="flat", padx=10).pack(side="right")
         self.diag = tk.Frame(self.root, bg="#f3f6fa")
         self.diag.pack(fill="x", padx=24, pady=6)
         self.diag_visible = False
@@ -208,6 +217,37 @@ class DesktopApp:
         self.diag_text = tk.Label(self.diag, text=self._diagnostics_text(), bg="#f3f6fa", fg="#718096", justify="left", font=("Consolas", 8))
         tk.Button(self.root, text="Sign out / Re-link account", command=self._show_login, bg="#ffffff", fg="#53637a", relief="solid", bd=1).pack(fill="x", padx=24, pady=(10, 5))
         tk.Label(self.root, text="Remote control requires your approval on this computer. Unattended access is disabled.", bg="#f3f6fa", fg="#718096", wraplength=430, font=("Segoe UI", 8)).pack(pady=12)
+
+    def _sync_unattended_pin_to_server(self, pin_value: str):
+        did = self.config.get("device_id")
+        sec = self.config.get("device_secret")
+        if not did or not sec:
+            return
+        def worker():
+            try:
+                api(self.server, f"/api/devices/{did}/agent-unattended-pin", {"agent_secret": sec, "pin": pin_value})
+            except Exception:
+                logger.warning("Could not sync unattended PIN to server", exc_info=True)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _save_unattended(self):
+        pin = self.unattended_pin_var.get().strip()
+        enabled = bool(self.unattended_var.get())
+        if enabled and (len(pin) < 4 or len(pin) > 8 or not pin.isdigit()):
+            self.unattended_var.set(False)
+            self.status_var.set("Set a 4-8 digit numeric PIN before enabling Unattended Auto-Approve")
+            return
+        self.config["unattended_auto_approve"] = enabled
+        self.config["unattended_pin"] = pin
+        save_config(self.config)
+        if enabled:
+            os.environ["RDP_UNATTENDED_PIN"] = pin
+            self._sync_unattended_pin_to_server(pin)
+            self.status_var.set("Unattended Trusted PIN active and synced (Auto-Approve ON)")
+        else:
+            os.environ.pop("RDP_UNATTENDED_PIN", None)
+            self._sync_unattended_pin_to_server("")
+            self.status_var.set("Unattended Auto-Approve disabled (Manual approval required)")
 
     def _toggle_diag(self):
         self.diag_visible = not self.diag_visible

@@ -145,6 +145,33 @@ def pair(data: PairIn, authorization: str | None = Header(default=None), db: Ses
     audit(db, "device.paired", user.id, device_id)
     return {"device_id":device_id,"agent_secret":secret,"dynamic_password":password,"password_expires_at":expires.isoformat(),"agent_warning":"Agent secret is displayed once. Store it securely."}
 
+@app.post("/api/devices/{device_id}/unattended-pin")
+def set_unattended_pin(device_id: str, data: UnattendedPinIn, authorization: str | None = Header(default=None), db: Session = Depends(db_session)):
+    user = current_user(authorization, db)
+    device = db.scalar(select(Device).where(Device.device_id == device_id))
+    if not device or (user.role != "admin" and device.owner_id != user.id):
+        raise HTTPException(404, "Device not found")
+    pin = data.pin.strip()
+    if pin and (len(pin) < 4 or len(pin) > 8 or not pin.isdigit()):
+        raise HTTPException(400, "Trusted PIN must be 4-8 digits")
+    device.unattended_pin_hash = hash_secret(pin) if pin else None
+    db.commit()
+    audit(db, "device.unattended_pin_updated", user.id, device_id)
+    return {"device_id": device_id, "unattended_enabled": bool(pin)}
+
+@app.post("/api/devices/{device_id}/agent-unattended-pin")
+def agent_set_unattended_pin(device_id: str, data: AgentUnattendedPinIn, db: Session = Depends(db_session)):
+    device = db.scalar(select(Device).where(Device.device_id == device_id))
+    if not device or not verify_secret(device.secret_hash, data.agent_secret):
+        raise HTTPException(401, "Invalid device credentials")
+    pin = data.pin.strip()
+    if pin and (len(pin) < 4 or len(pin) > 8 or not pin.isdigit()):
+        raise HTTPException(400, "Trusted PIN must be 4-8 digits")
+    device.unattended_pin_hash = hash_secret(pin) if pin else None
+    db.commit()
+    audit(db, "device.unattended_pin_synced", device.owner_id, device_id)
+    return {"device_id": device_id, "unattended_enabled": bool(pin)}
+
 @app.post("/api/devices/{device_id}/rotate-password")
 def rotate_password(device_id: str, authorization: str | None = Header(default=None), db: Session = Depends(db_session)):
     user = current_user(authorization, db)
@@ -175,10 +202,12 @@ def connect(data: ConnectIn, request: Request, authorization: str | None = Heade
     device = db.scalar(select(Device).where(Device.device_id == data.device_id))
     if not device:
         raise HTTPException(404, "Device not found")
-    if datetime.now(timezone.utc) > device.password_expires_at.replace(tzinfo=timezone.utc):
-        raise HTTPException(401, "Dynamic password expired; ask the device owner to rotate it")
-    if not verify_secret(device.password_hash, data.password):
-        raise HTTPException(401, "Invalid dynamic password")
+    pin_ok = bool(device.unattended_pin_hash and verify_secret(device.unattended_pin_hash, data.password))
+    if not pin_ok:
+        if datetime.now(timezone.utc) > device.password_expires_at.replace(tzinfo=timezone.utc):
+            raise HTTPException(401, "Dynamic password expired; ask the device owner to rotate it")
+        if not verify_secret(device.password_hash, data.password):
+            raise HTTPException(401, "Invalid dynamic password or Trusted PIN")
     # Sliding idle expiry: a valid connection refreshes the password's 24-hour
     # inactivity window. Rotation or the host agent's next launch still replaces it.
     device.password_expires_at = datetime.now(timezone.utc) + timedelta(seconds=settings.device_password_ttl_seconds)
