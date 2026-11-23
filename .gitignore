@@ -14,7 +14,8 @@ dist/
 playwright-report/
 test-results/
 
-# Local build and live-smoke artifacts
+# Local runtime logs, build and live-smoke artifacts
+logs/
 .venv-*/
 agent/.venv-build/
 agent/build/
