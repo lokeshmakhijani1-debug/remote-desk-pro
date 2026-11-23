@@ -12,6 +12,8 @@ try {
     Set-Location $Root
     if (-not (Get-Command $Python -ErrorAction SilentlyContinue)) { throw "Python 3.11+ was not found." }
     if (-not (Get-Command $Npm -ErrorAction SilentlyContinue)) { throw "Node.js 20+ npm was not found." }
+    & $Python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)"
+    if ($LASTEXITCODE -ne 0) { throw "Python 3.11 or newer is required." }
     $VenvPath = Join-Path $Root ".venv"
     $VenvPython = Join-Path $VenvPath "Scripts\\python.exe"
     if (-not (Test-Path $VenvPython)) { & $Python -m venv $VenvPath; if ($LASTEXITCODE -ne 0) { throw "Could not create the project virtual environment." } }
