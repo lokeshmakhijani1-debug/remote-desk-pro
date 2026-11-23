@@ -158,6 +158,9 @@ class ResumableTransferStore:
         if len(decoded) != expected_length:
             raise TransferError("Chunk length does not match its expected range")
         key = str(offset)
+        next_missing = self.status(transfer_id)["next_missing_offset"]
+        if offset != next_missing and key not in state["acknowledged"]:
+            raise TransferError("Chunk index is not the next sequential index")
         digest = hashlib.sha256(decoded).hexdigest()
         prior = state["acknowledged"].get(key)
         if prior:
