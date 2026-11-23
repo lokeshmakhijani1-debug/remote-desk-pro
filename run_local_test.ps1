@@ -27,7 +27,7 @@ try {
     New-Item -ItemType Directory -Path $LogPath -Force | Out-Null
     $env:RDP_SERVER = "http://127.0.0.1:8000"
     $env:RDP_LOG_DIR = $LogPath
-    $BackendProcess = Start-Process -FilePath $VenvPython -ArgumentList @("-m","uvicorn","backend.main:app","--host","127.0.0.1","--port","8000","--ws-ping-interval","15","--ws-ping-timeout","45") -WorkingDirectory $Root -PassThru -WindowStyle Minimized
+    $BackendProcess = Start-Process -FilePath $VenvPython -ArgumentList @("-m","uvicorn","backend.main:app","--host","127.0.0.1","--port","8000","--ws-ping-interval","15","--ws-ping-timeout","45","--ws-max-size","16777216") -WorkingDirectory $Root -PassThru -WindowStyle Minimized
     $FrontendPath = Join-Path $Root "frontend"
     if (-not (Test-Path (Join-Path $FrontendPath "node_modules"))) {
         Write-Host "Installing frontend dependencies (first run only)..."
