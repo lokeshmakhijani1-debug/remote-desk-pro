@@ -15,7 +15,7 @@ CHUNK_SIZE = 512 * 1024
 MIN_CHUNK = 64 * 1024
 MAX_CHUNK = 1024 * 1024
 MAX_RATIO = 100
-_ID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
+_ID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _SHA = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
