@@ -446,8 +446,8 @@ async def run_once(args, stop_event=None):
     endpoint = endpoint.replace("https://", "wss://").replace("http://", "ws://")
     tls_context = ssl.create_default_context(cafile=certifi.where()) if endpoint.startswith("wss://") else None
     async with websockets.connect(
-        endpoint, ssl=tls_context, max_size=8 * 1024 * 1024, ping_interval=5,
-        ping_timeout=5, close_timeout=10, open_timeout=25, max_queue=16,
+        endpoint, ssl=tls_context, max_size=8 * 1024 * 1024, ping_interval=15,
+        ping_timeout=15, close_timeout=10, open_timeout=25, max_queue=16,
     ) as ws:
         await ws.send(json.dumps({"type":"auth","secret":args.secret}))
         response = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
@@ -570,7 +570,7 @@ async def run_once(args, stop_event=None):
                         transfer_id = str(message.get("transfer_id", ""))
                         name = Path(str(message.get("name", "received-file")).replace("\\", "/")).name[:180]
                         size = int(message["total_size"])
-                        if not transfer_id or not 0 < size <= 50 * 1024 * 1024:
+                        if not transfer_id or not 0 < size <= 50 * 1024 * 1024 or int(message["chunk_size"]) != 512 * 1024:
                             raise ValueError("Invalid transfer ID or file size")
                         destination = downloads_destination(name, transfer_id)
                         receiver = EndpointFileReceiver(
@@ -579,7 +579,8 @@ async def run_once(args, stop_event=None):
                         )
                         incoming_transfers[transfer_id] = receiver
                         await ws.send(json.dumps({"type":"transfer_resume_req","transfer_id":transfer_id,
-                                                  "next_offset":receiver.next_offset}))
+                                                  "next_offset":receiver.next_offset,
+                                                  "next_index":receiver.next_offset // receiver.chunk_size}))
                         log.info("Host accepted %s (%s bytes); saving to %s", name, size, destination)
                     except (KeyError, TypeError, ValueError, OSError) as exc:
                         await ws.send(json.dumps({"type":"transfer_error","transfer_id":str(message.get("transfer_id","")),
@@ -590,9 +591,10 @@ async def run_once(args, stop_event=None):
                     if receiver:
                         try:
                             encoded = base64.b64decode(message.get("data", ""), validate=True)
-                            offset = receiver.append(int(message.get("offset", -1)), encoded)
+                            offset = receiver.append(int(message.get("offset", -1)), encoded, int(message.get("index", -1)))
                             await ws.send(json.dumps({"type":"transfer_ack","transfer_id":transfer_id,
-                                                      "next_offset":offset}))
+                                                      "next_offset":offset,
+                                                      "next_index":offset // receiver.chunk_size}))
                         except (ValueError, TypeError, OSError) as exc:
                             await ws.send(json.dumps({"type":"transfer_error","transfer_id":transfer_id,
                                                       "detail":str(exc)[:200]}))
@@ -686,10 +688,10 @@ async def run_once(args, stop_event=None):
 
 async def run(args, stop_event=None):
     """Keep the host agent alive across transient relay/network interruptions."""
-    retry_delay = 2
     attempt = 0
     while stop_event is None or not stop_event.is_set():
         attempt += 1
+        retry_delay = min(2 ** min(attempt, 5), 30)
         try:
             if attempt > 1:
                 set_status(f"Reconnecting (Attempt {attempt - 1})...")
