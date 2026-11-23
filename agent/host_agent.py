@@ -592,32 +592,35 @@ async def run_once(args, stop_event=None):
                         log.warning("Remote text injection failed: %s", exc)
                 elif message.get("type") == "clipboard_paste" and streaming.is_set():
                     request_id = str(message.get("request_id") or "")
+                    value = message.get("text", "")
                     try:
-                        pasted = await asyncio.to_thread(paste_clipboard, message.get("text", ""))
-                        await ws.send(json.dumps({"type":"clipboard_ack","request_id":request_id,"success":bool(pasted)}))
-                    except Exception as exc:
-                        log.warning("Clipboard paste failed: %s", exc)
+                        if not isinstance(value, str) or len(value) > 65536:
+                            raise ValueError("Clipboard text exceeds 64 KiB")
+                        clipboard_state.begin_remote_write(value)
+                        pasted = await asyncio.to_thread(paste_clipboard, value)
+                        clipboard_state.complete_remote_write(value)
+                        await ws.send(json.dumps({"type":"clipboard_ack","request_id":request_id,"success":bool(pasted),"pasted":bool(pasted)}))
+                    except Exception:
+                        clipboard_state.cancel_remote_write()
+                        log.exception("Clipboard paste failed request_id=%s", request_id)
                         await ws.send(json.dumps({"type":"clipboard_ack","request_id":request_id,"success":False,"detail":"Host clipboard paste failed"}))
-                elif message.get("type") == "clipboard_update" and streaming.is_set():
+                elif message.get("type") in ("clipboard_set", "clipboard_update") and streaming.is_set():
                     value = message.get("text", "")
-                    if isinstance(value, str) and len(value) <= 65536:
-                        try:
-                            current = await asyncio.to_thread(pyperclip.paste)
-                            if current != value:
-                                await asyncio.to_thread(pyperclip.copy, value)
-                        except Exception as exc:
-                            log.warning("Clipboard update failed: %s", exc)
-                elif message.get("type") == "clipboard_update" and streaming.is_set():
-                    value = message.get("text", "")
-                    if isinstance(value, str) and len(value) <= 65536:
-                        try:
-                            await asyncio.to_thread(__import__("pyperclip").copy, value)
-                            if message.get("paste") is True:
-                                await asyncio.to_thread(_focus_target_at_cursor)
-                                import pyautogui
-                                await asyncio.to_thread(pyautogui.hotkey, "ctrl", "v", _pause=False)
-                        except Exception:
-                            log.warning("Incoming clipboard update failed", exc_info=True)
+                    request_id = str(message.get("request_id") or "")
+                    try:
+                        if not isinstance(value, str) or len(value) > 65536:
+                            raise ValueError("Clipboard text exceeds 64 KiB")
+                        clipboard_state.begin_remote_write(value)
+                        await asyncio.to_thread(__import__("pyperclip").copy, value)
+                        clipboard_state.complete_remote_write(value)
+                        if message.get("type") == "clipboard_set":
+                            await ws.send(json.dumps({"type":"clipboard_ack","request_id":request_id,"success":True,"pasted":False}))
+                        log.info("Remote clipboard copied to host characters=%s", len(value))
+                    except Exception:
+                        clipboard_state.cancel_remote_write()
+                        log.exception("Incoming clipboard write failed request_id=%s", request_id)
+                        if message.get("type") == "clipboard_set":
+                            await ws.send(json.dumps({"type":"clipboard_ack","request_id":request_id,"success":False,"detail":"Host clipboard write failed"}))
                 elif message.get("type") == "transfer_init" and streaming.is_set():
                     try:
                         transfer_id = str(message.get("transfer_id", ""))
@@ -645,9 +648,7 @@ async def run_once(args, stop_event=None):
                         try:
                             encoded = base64.b64decode(message.get("data", ""), validate=True)
                             offset = receiver.append(int(message.get("offset", -1)), encoded, int(message.get("index", -1)))
-                            await ws.send(json.dumps({"type":"transfer_ack","transfer_id":transfer_id,
-                                                      "next_offset":offset,
-                                                      "next_index":offset // receiver.chunk_size}))
+                            await send_transfer_ack(ws, transfer_id, offset, receiver.chunk_size)
                         except (ValueError, TypeError, OSError) as exc:
                             await ws.send(json.dumps({"type":"transfer_error","transfer_id":transfer_id,
                                                       "detail":str(exc)[:200]}))
