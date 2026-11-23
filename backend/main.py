@@ -325,6 +325,7 @@ hub = Hub()
 MAX_CLIPBOARD_CHARS = 64 * 1024
 MAX_FILE_BYTES = 50 * 1024 * 1024
 MAX_FILE_CHUNK_BYTES = 192 * 1024
+WEBSOCKET_MAX_SIZE = 16 * 1024 * 1024
 
 def validate_clipboard(event: dict) -> bool:
     value = event.get("text")
@@ -427,9 +428,10 @@ async def host_socket(ws: WebSocket, device_id: str):
                 await hub.relay(device_id, ws, raw)
             elif kind in ("clipboard_ack", "privacy_screen_ack") and hub.is_approved(device_id):
                 await hub.relay(device_id, ws, raw)
-            elif kind == "clipboard_paste" and hub.is_approved(device_id):
+            elif kind in ("clipboard_set", "clipboard_paste") and hub.is_approved(device_id):
                 if validate_clipboard(event):
-                    audit(db, "clipboard.pasted", device.owner_id, device_id, f"characters={len(event['text'])}")
+                    action = "clipboard.set" if kind == "clipboard_set" else "clipboard.pasted"
+                    audit(db, action, device.owner_id, device_id, f"characters={len(event['text'])}")
                     await hub.relay(device_id, ws, raw)
             elif kind == "text" and hub.is_approved(device_id):
                 if validate_text_event(event):
@@ -448,6 +450,7 @@ async def host_socket(ws: WebSocket, device_id: str):
                         import base64
                         chunk = base64.b64decode(event.get("data", ""), validate=True)
                     except Exception:
+                        logger.exception("host relay received invalid transfer chunk device=%s transfer_id=%s", device_id, transfer_id)
                         continue
                     if not 1 <= len(chunk) <= 1024 * 1024:
                         continue
@@ -464,12 +467,17 @@ async def host_socket(ws: WebSocket, device_id: str):
                         continue
                 await hub.relay(device_id, ws, raw)
     except (WebSocketDisconnect, asyncio.TimeoutError, OSError):
-        # Network resets (including Windows WinError 64 on the client) are normal
-        # disconnects; the host agent reconnects with bounded backoff.
-        pass
+        logger.warning("host websocket interrupted device=%s", device_id, exc_info=True)
     except RuntimeError as exc:
         if "disconnect message has been received" not in str(exc):
+            logger.exception("host websocket runtime failure device=%s", device_id)
             raise
+    except Exception:
+        logger.exception("host websocket/file-transfer processing failed device=%s", device_id)
+        try:
+            await ws.close(code=1011, reason="Relay processing failed")
+        except Exception:
+            logger.exception("host websocket close after processing failure failed device=%s", device_id)
     finally:
         # Removal and identity check are atomic under the Hub lock.
         was_current_host = await hub.remove_host(device_id, ws)
@@ -565,11 +573,12 @@ async def viewer_socket(ws: WebSocket, device_id: str):
             elif kind == "control":
                 if user_role != "read_only" and hub.is_approved(device_id) and validate_control(event):
                     await hub.relay(device_id, ws, raw)
-            elif kind == "clipboard_paste" and user_role != "read_only":
+            elif kind in ("clipboard_set", "clipboard_paste") and user_role != "read_only":
                 if not hub.is_approved(device_id):
                     await ws.send_json({"type":"input_pending","operation":"clipboard","detail":"Waiting for host approval"})
                 elif validate_clipboard(event):
-                    audit(db, "clipboard.pasted", user_id, device_id, f"characters={len(event['text'])}")
+                    action = "clipboard.set" if kind == "clipboard_set" else "clipboard.pasted"
+                    audit(db, action, user_id, device_id, f"characters={len(event['text'])}")
                     await hub.relay(device_id, ws, raw)
             elif kind == "text" and user_role != "read_only":
                 if not hub.is_approved(device_id):
@@ -589,6 +598,7 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                         import base64
                         chunk = base64.b64decode(event.get("data", ""), validate=True)
                     except Exception:
+                        logger.exception("viewer relay received invalid transfer chunk device=%s transfer_id=%s", device_id, transfer_id)
                         continue
                     offset, index = event.get("offset"), event.get("index")
                     if not 1 <= len(chunk) <= 1024 * 1024 or not isinstance(offset, int) or not isinstance(index, int) or offset < 0 or offset % (512 * 1024) or index != offset // (512 * 1024):
@@ -605,14 +615,20 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                     raw = json.dumps(event)
                 await hub.relay(device_id, ws, raw)
     except (WebSocketDisconnect, OSError):
-        pass
+        logger.warning("viewer websocket disconnected device=%s user_id=%s", device_id, user_id, exc_info=True)
     except RuntimeError as exc:
         if "disconnect message has been received" not in str(exc):
+            logger.exception("viewer websocket runtime failure device=%s user_id=%s", device_id, user_id)
             raise
     except asyncio.TimeoutError:
+        logger.warning("viewer websocket handshake timeout device=%s user_id=%s", device_id, user_id, exc_info=True)
         await ws.close(code=4408)
     except Exception:
-        await ws.close(code=4401)
+        logger.exception("viewer websocket/file-transfer processing failed device=%s user_id=%s", device_id, user_id)
+        try:
+            await ws.close(code=1011, reason="Relay processing failed")
+        except Exception:
+            logger.exception("viewer websocket close after processing failure failed device=%s", device_id)
     finally:
         if registered:
             # Keep the owner reservation for same-user reconnect, but terminate the
