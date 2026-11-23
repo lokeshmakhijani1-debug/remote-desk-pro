@@ -24,6 +24,7 @@ class PrivacyBanner:
     def __init__(self) -> None:
         self._thread = None
         self._root = None
+        self._hwnd = None
         self._ready = threading.Event()
         self._stopped = threading.Event()
         self._error = None
@@ -126,6 +127,7 @@ class PrivacyBanner:
             user32.GetAncestor.restype = wintypes.HWND
             hwnd = wintypes.HWND(root.winfo_id())
             hwnd = user32.GetAncestor(hwnd, 2) or hwnd
+            self._hwnd = hwnd
             long_ptr = ctypes.c_ssize_t
             get_style = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
             set_style = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
@@ -163,6 +165,7 @@ class PrivacyBanner:
             self._hotkey_stop.set()
             self._restore_gamma_fallback()
             self._root = None
+            self._hwnd = None
             self._stopped.set()
 
     def _start_emergency_hotkey(self) -> None:
@@ -189,15 +192,16 @@ class PrivacyBanner:
         """Hide only the local curtain; it never owns or closes a relay socket."""
         self._hotkey_stop.set()
         log.info("Privacy curtain stop requested; remote session remains connected")
-        root = self._root
-        if root is not None:
+        hwnd = self._hwnd
+        if hwnd and os.name == "nt":
             try:
-                if threading.current_thread() is self._thread:
-                    root.destroy()
-                else:
-                    root.after(0, root.destroy)
+                user32 = ctypes.WinDLL("user32", use_last_error=True)
+                user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+                user32.PostMessageW.restype = wintypes.BOOL
+                if not user32.PostMessageW(hwnd, 0x0010, 0, 0):  # WM_CLOSE
+                    log.debug("Could not post WM_CLOSE to privacy curtain: %s", ctypes.get_last_error())
             except Exception:
-                log.debug("Privacy window already closed", exc_info=True)
+                log.exception("Could not close privacy curtain window")
         self._restore_gamma_fallback()
         if threading.current_thread() is not self._thread:
             self._stopped.wait(3)
