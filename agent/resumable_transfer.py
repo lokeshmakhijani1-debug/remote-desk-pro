@@ -95,8 +95,10 @@ class EndpointFileReceiver:
         if not isinstance(offset, int) or offset < 0 or offset >= self.total_size:
             raise EndpointTransferError("Invalid chunk offset")
         expected_index = offset // self.chunk_size
+        if chunk_index < 0:
+            chunk_index = expected_index
         if chunk_index != expected_index or offset != expected_index * self.chunk_size:
-            raise EndpointTransferError("Chunk index is not the next sequential index")
+            raise EndpointTransferError(f"Chunk index is not the next sequential index (got={chunk_index}, expected={expected_index}, offset={offset}, chunk_size={self.chunk_size})")
         limit = min(self.chunk_size, self.total_size - offset)
         if self.compression == "zstd":
             try:

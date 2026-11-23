@@ -649,7 +649,7 @@ async def run_once(args, stop_event=None):
                     if receiver:
                         try:
                             encoded = base64.b64decode(message.get("data", ""), validate=True)
-                            offset = receiver.append(int(message.get("offset", -1)), encoded, int(message.get("index", -1)))
+                            raw_idx = message.get("index"); idx = int(raw_idx) if raw_idx is not None else -1; offset = receiver.append(int(message.get("offset", -1)), encoded, idx)
                             await send_transfer_ack(ws, transfer_id, offset, receiver.chunk_size)
                         except Exception as exc:
                             log.exception("File transfer chunk failed transfer_id=%s offset=%s", transfer_id, message.get("offset"))
