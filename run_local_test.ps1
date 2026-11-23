@@ -23,8 +23,11 @@ try {
         & $VenvPython -m pip install -r (Join-Path $Root "requirements.txt") -r (Join-Path $Root "agent\requirements.txt")
         if ($LASTEXITCODE -ne 0) { throw "Python dependency installation failed." }
     }
+    $LogPath = Join-Path $Root "logs"
+    New-Item -ItemType Directory -Path $LogPath -Force | Out-Null
     $env:RDP_SERVER = "http://127.0.0.1:8000"
-    $BackendProcess = Start-Process -FilePath $VenvPython -ArgumentList @("-m","uvicorn","backend.main:app","--host","127.0.0.1","--port","8000") -WorkingDirectory $Root -PassThru -WindowStyle Minimized
+    $env:RDP_LOG_DIR = $LogPath
+    $BackendProcess = Start-Process -FilePath $VenvPython -ArgumentList @("-m","uvicorn","backend.main:app","--host","127.0.0.1","--port","8000","--ws-ping-interval","15","--ws-ping-timeout","45") -WorkingDirectory $Root -PassThru -WindowStyle Minimized
     $FrontendPath = Join-Path $Root "frontend"
     if (-not (Test-Path (Join-Path $FrontendPath "node_modules"))) {
         Write-Host "Installing frontend dependencies (first run only)..."
@@ -48,12 +51,16 @@ try {
     Write-Host "Dashboard: http://127.0.0.1:5173"
     Write-Host "Backend:   http://127.0.0.1:8000"
     Write-Host "Health:    http://127.0.0.1:8000/api/health"
+    Write-Host "Log tail:  http://127.0.0.1:8000/api/logs/tail?lines=100"
+    Write-Host "Backend log: $LogPath\backend.log"
+    Write-Host "Agent log:   $LogPath\agent.log"
     Write-Host ""
     Write-Host "Quick verification checklist:"
     Write-Host "1. Pair/sign in the agent, connect from the dashboard, and enable Black Curtain."
     Write-Host "   Confirm the local display is black, remote frames remain live, and Ctrl+Alt+Shift+B restores the display."
     Write-Host "2. Transfer a file larger than 1 MB; confirm 512 KB chunk progress and SHA-256 verification."
     Write-Host "3. Leave the session idle for 60 seconds, briefly interrupt network access, and confirm heartbeat detection and automatic reconnect."
+    Write-Host "4. Inspect logs: Get-Content .\logs\backend.log -Tail 100; Get-Content .\logs\agent.log -Tail 100"
     Write-Host ""
     Write-Host "Press Ctrl+C here to stop all processes started by this script."
     while ($true) { Start-Sleep -Seconds 1 }
