@@ -726,3 +726,10 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Local ports: FastAPI 127.0.0.1:8000; Vite dashboard 127.0.0.1:5173; WebSocket paths /ws/host/{device_id} and /ws/viewer/{device_id}.
 - Local run: from repository root execute powershell -ExecutionPolicy Bypass -File .\run_local_test.ps1. The script launches backend, Vite, and host agent, prints a checklist, and stops child processes on Ctrl+C. Backend uses local SQLite unless a local .env supplies another DATABASE_URL.
 - CI workflow now runs on main and fix/** branch pushes. GitHub Actions results and physical Windows curtain/stream verification remain to be checked after push. Gamma fallback is driver-dependent and requires a local Windows smoke test.
+
+
+## Branch CI checkpoint — 2026-11-23
+- GitHub Actions run 45138871126: PASS on branch fix/stabilize-core-features (commit 03d2d9d6198889e9d07b31ab2817e124cd8755b2). Backend Python compilation and pytest completed successfully; frontend npm install and production build completed successfully.
+- The source/test changes in this run include the 512 KiB transfer protocol, sequential-index validation, privacy curtain changes, 15-second heartbeat/reconnect logic, and regression tests. The subsequent manifest-only update does not change runtime code.
+- A stale IndexedDB transfer created with the former 256 KiB protocol is discarded with a visible restart message rather than being resumed with incompatible offsets.
+- The branch remains isolated from main. Render deployment and physical Windows display/capture verification are intentionally not performed by this branch-only task.
