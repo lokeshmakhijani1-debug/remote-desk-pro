@@ -645,18 +645,17 @@ async def run_once(args, stop_event=None):
                 elif message.get("type") == "control" and streaming.is_set():
                     try:
                         if message.get("event") == "privacy_screen":
-                            if message.get("mode") != "banner":
-                                raise ValueError("Only the visible maintenance banner mode is supported")
+                            mode = message.get("mode") if message.get("mode") in ("black", "banner") else "black"
                             if message.get("enabled") is True:
                                 if privacy_banner is None:
                                     privacy_banner = PrivacyBanner()
-                                applied = privacy_banner.start()
+                                applied = privacy_banner.start(mode=mode)
                             else:
                                 if privacy_banner:
                                     privacy_banner.stop()
                                     privacy_banner = None
                                 applied = True
-                            await ws.send(json.dumps({"type":"privacy_screen_ack","enabled":bool(message.get("enabled")) and bool(applied),"mode":"banner"}))
+                            await ws.send(json.dumps({"type":"privacy_screen_ack","enabled":bool(message.get("enabled")) and bool(applied),"mode":mode}))
                         else:
                             await asyncio.to_thread(apply_control, message)
                     except Exception as exc:

@@ -310,7 +310,7 @@ def validate_text_event(event: dict) -> bool:
 def validate_control(event: dict) -> bool:
     kind = event.get("event")
     if kind == "privacy_screen":
-        return event.get("enabled") in (True, False) and event.get("mode") == "banner"
+        return event.get("enabled") in (True, False) and event.get("mode") in ("black", "banner")
     if kind == "mouse_move":
         try:
             x, y = float(event.get("x")), float(event.get("y"))
