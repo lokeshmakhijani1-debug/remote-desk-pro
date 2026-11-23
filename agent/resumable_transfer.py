@@ -105,13 +105,23 @@ class EndpointFileReceiver:
                 try:
                     import zstandard
                     decoder = zstandard.ZstdDecompressor()
-                    decoded = decoder.decompress(encoded, max_output_size=limit)
+                    try:
+                        decoded = decoder.decompress(encoded, max_output_size=limit)
+                    except Exception:
+                        with decoder.stream_reader(BytesIO(encoded), read_size=64 * 1024) as reader:
+                            decoded = reader.read(limit + 1)
+                            if len(decoded) > limit or reader.read(1):
+                                raise EndpointTransferError("Zstandard output exceeds chunk bounds")
+                except EndpointTransferError:
+                    raise
                 except Exception as exc:
                     raise EndpointTransferError("Invalid or oversized Zstandard frame") from exc
                 if len(decoded) > max(1, len(encoded)) * MAX_RATIO:
                     raise EndpointTransferError("Compression expansion ratio exceeded")
-            else:
+            elif len(encoded) <= limit:
                 decoded = encoded
+            else:
+                raise EndpointTransferError("Invalid or oversized Zstandard frame")
         else:
             decoded = encoded
         if not decoded or len(decoded) > limit or offset + len(decoded) > self.total_size:
