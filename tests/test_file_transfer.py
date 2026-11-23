@@ -97,3 +97,27 @@ def test_chunk_index_must_match_sequential_offset(tmp_path: Path) -> None:
     store.append(transfer_id, 0, payload[:MIN_CHUNK_SIZE], "none", 0)
     with pytest.raises(TransferError, match="sequential"):
         store.append(transfer_id, MIN_CHUNK_SIZE, payload[MIN_CHUNK_SIZE:], "none", 0)
+
+
+def test_backend_store_rejects_a_gap_even_with_the_matching_later_index(tmp_path: Path) -> None:
+    payload = b"G" * (MIN_CHUNK_SIZE * 2)
+    transfer_id = "12345678-1234-5678-1234-567812345684"
+    store = ResumableTransferStore(tmp_path)
+    store.begin(TransferManifest(
+        transfer_id, "gap.bin", len(payload), hashlib.sha256(payload).hexdigest(),
+        MIN_CHUNK_SIZE, "none",
+    ))
+    with pytest.raises(TransferError, match="sequential"):
+        store.append(transfer_id, MIN_CHUNK_SIZE, payload[MIN_CHUNK_SIZE:], "none", 1)
+
+
+def test_endpoint_receiver_rejects_nonsequential_chunk_index(tmp_path: Path) -> None:
+    from agent.resumable_transfer import EndpointFileReceiver, EndpointTransferError
+
+    payload = b"E" * (MIN_CHUNK_SIZE + 1)
+    receiver = EndpointFileReceiver(
+        tmp_path / "endpoint-gap.bin", "12345678-1234-5678-1234-567812345685",
+        len(payload), hashlib.sha256(payload).hexdigest(), MIN_CHUNK_SIZE, "none",
+    )
+    with pytest.raises(EndpointTransferError, match="sequential"):
+        receiver.append(0, payload[:MIN_CHUNK_SIZE], 1)
