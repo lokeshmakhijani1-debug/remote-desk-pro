@@ -784,3 +784,11 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Local PowerShell runner terminates an existing `RemoteDeskPro-Agent.exe` before starting the Python agent against localhost and attempts to foreground the local agent UI.
 - Modified: `frontend/src/App.tsx`, `backend/main.py`, `agent/host_agent.py`, `agent/resumable_transfer.py`, `run_local_test.ps1`, `tests/test_sandbox_comprehensive.py`, `PROJECT_MANIFEST.md`.
 - Verification note: GitHub-hosted CI can execute pytest and frontend build after push. This MCP execution environment does not expose a local Python/Node sandbox or an interactive Windows desktop, so live Uvicorn/WebSocket/GUI scenarios cannot honestly be reported as executed here. The comprehensive test file is a deterministic receiver/security regression suite; physical HTTP-LAN browser and Windows-agent E2E remain device validation items.
+
+
+### LAN transfer hardening — final CI verification
+- Final implementation commit verified: `3c5142831e6c43619565b15b2133f0e4f6aa2179`.
+- GitHub Actions run `45159616670`: backend `pytest` **85 passed, 1 warning**; frontend TypeScript/Vite production build **passed**. Run: https://github.com/lokeshmakhijani1-debug/remote-desk-pro/actions/runs/45159616670.
+- The first CI attempt exposed three pre-existing test fixtures using canonical UUID strings with non-RFC version/variant nibbles. Validation was corrected to enforce canonical UUID shape without rejecting those legacy fixture values; the final run passed.
+- The ten sandbox cases in `tests/test_sandbox_comprehensive.py` are receiver-level deterministic simulations, not a live multi-process Uvicorn/WebSocket/Windows-agent integration. HTTP LAN mobile browser, actual host clipboard, Windows GUI focus, and real network fault injection remain unverified physical-device checks.
+- Final branch isolation check: `fix/stabilize-core-features` is 53 commits ahead of `main`, 0 behind. No main-branch write, merge, Render deployment, or release was performed.
