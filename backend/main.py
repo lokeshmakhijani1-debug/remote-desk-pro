@@ -384,6 +384,7 @@ async def host_socket(ws: WebSocket, device_id: str):
         if not device or auth.get("type") != "auth" or not verify_secret(device.secret_hash, str(auth.get("secret",""))):
             await ws.close(code=4401)
             return
+        logger.info("host websocket authenticated device=%s", device_id)
         previous_host = await hub.register_host(device_id, ws)
         if previous_host is not None and previous_host is not ws:
             try:
@@ -480,6 +481,7 @@ async def host_socket(ws: WebSocket, device_id: str):
             db.commit()
             db.add(AuditEvent(user_id=device.owner_id,device_id=device_id,action="host.disconnected"))
             db.commit()
+        logger.info("host websocket closed device=%s explicit_disconnect=%s", device_id, explicit_disconnect)
         db.close()
 
 @app.websocket("/ws/viewer/{device_id}")
