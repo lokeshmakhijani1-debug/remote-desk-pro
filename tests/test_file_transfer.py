@@ -121,3 +121,50 @@ def test_endpoint_receiver_rejects_nonsequential_chunk_index(tmp_path: Path) -> 
     )
     with pytest.raises(EndpointTransferError, match="sequential"):
         receiver.append(0, payload[:MIN_CHUNK_SIZE], 1)
+
+
+def test_agent_chunk_ack_yields_twenty_milliseconds(monkeypatch):
+    import asyncio
+    import json
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
+    import host_agent
+    sent, delays = [], []
+    class FakeSocket:
+        async def send(self, value):
+            sent.append(json.loads(value))
+    async def fake_sleep(delay):
+        delays.append(delay)
+    monkeypatch.setattr(host_agent.asyncio, "sleep", fake_sleep)
+    asyncio.run(host_agent.send_transfer_ack(FakeSocket(), "12345678-1234-5678-1234-567812345678", MIN_CHUNK_SIZE, MIN_CHUNK_SIZE))
+    assert sent == [{"type":"transfer_ack", "transfer_id":"12345678-1234-5678-1234-567812345678",
+                    "next_offset":MIN_CHUNK_SIZE, "next_index":1}]
+    assert delays == [0.02]
+
+
+def test_remote_clipboard_writes_do_not_echo_and_local_copies_publish_once():
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
+    import host_agent
+    state = host_agent.ClipboardSyncState()
+    state.last_seen = "initial host clipboard"
+    state.begin_remote_write("text from dashboard")
+    assert state.should_publish("initial host clipboard") is False
+    assert state.should_publish("text from dashboard") is False
+    assert state.should_publish("text from dashboard") is False
+    assert state.should_publish("new Windows copy") is True
+    assert state.should_publish("new Windows copy") is False
+
+
+def test_websocket_frame_size_and_frontend_ack_pacing_are_configured():
+    root = Path(__file__).resolve().parents[1]
+    backend = (root / "backend" / "main.py").read_text(encoding="utf-8")
+    local_runner = (root / "run_local_test.ps1").read_text(encoding="utf-8")
+    dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
+    frontend = (root / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "WEBSOCKET_MAX_SIZE = 16 * 1024 * 1024" in backend
+    assert "--ws-max-size" in local_runner and "16777216" in local_runner
+    assert "--ws-max-size" in dockerfile and "16777216" in dockerfile
+    assert "transferInFlight.current!==null" in frontend
+    assert "setTimeout(resolve,20)" in frontend
+    assert 'type:"clipboard_set"' in frontend
