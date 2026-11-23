@@ -643,7 +643,7 @@ async def viewer_socket(ws: WebSocket, device_id: str):
             # approved control session so host overlays/recorders are always cleaned up.
             detached = await hub.detach_viewer(device_id, ws)
             if detached:
-                hub.approved.discard(device_id)
+                pass  # keep approval across brief reconnects
                 active_host = hub.hosts.get(device_id)
                 if active_host is not None:
                     try:
