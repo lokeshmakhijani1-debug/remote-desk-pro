@@ -747,3 +747,29 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - WebSocket lifecycle logs: backend records host authentication, host close (including explicit disconnect state), viewer open/auth/register/reclaim/close; agent records connection/reconnect, curtain enable/disable, status, and failures.
 - Local smoke commands: `Get-Content .\logs\backend.log -Tail 100`; `Get-Content .\logs\agent.log -Tail 100`; `Invoke-RestMethod http://127.0.0.1:8000/api/logs/tail?lines=100`.
 - Verification boundary: GitHub Actions is the cloud verification path. Actual click-through behavior, gamma hardware fallback, and mobile touch feel still require a physical Windows/mobile smoke test. No Render deployment or local machine execution was performed.
+
+
+## File-transfer reliability and two-way clipboard synchronization (2026-11-23)
+- Branch: `fix/stabilize-core-features`; all changes in this section are branch-only. `main` was not modified.
+- WebSocket frame capacity: `backend/main.py` defines `WEBSOCKET_MAX_SIZE = 16 * 1024 * 1024`; `run_local_test.ps1` and the production `Dockerfile` pass Uvicorn `--ws-max-size 16777216`; the Windows agent WebSocket client also accepts 16 MiB frames. Ping/pong remains 15s/45s.
+- Chunk pacing: the dashboard permits one outstanding 512 KiB chunk, sends the next chunk only after the matching transfer ID and advancing receiver ACK, rejects stale/duplicate ACKs, and yields 20ms before sending. The host sends the durable chunk ACK and yields 20ms before processing the next chunk.
+- File-transfer diagnostics: backend WebSocket handler failures and invalid transfer frame decoding now emit full tracebacks through `logger.exception`/`exc_info` to `logs/backend.log`. Agent transfer initialization, chunk append, finalization, and clipboard errors use `log.exception` in `logs/agent.log`.
+- Clipboard host-to-dashboard: while an approved viewer session is active, the agent polls `pyperclip.paste()` every 1 second and sends changed values as `clipboard_update`. The dashboard updates its clipboard text fields and attempts `navigator.clipboard.writeText()`; browser permission restrictions may prevent the OS clipboard write, but the dashboard fields still update.
+- Clipboard dashboard-to-host: typing or pasting into the clipboard box debounces a `clipboard_set` message (250ms); the agent writes it with `pyperclip.copy()` and ACKs. **Send Clipboard** copies only; **Paste to Host** uses `clipboard_paste` and invokes Ctrl+V. Existing `clipboard_paste` clients remain supported.
+- Clipboard loop prevention: host agent tracks the last observed clipboard and suppresses the pending remote write (including a polling race) so a dashboard-originated update is not echoed back as a new host copy.
+- Modified files: `agent/host_agent.py`, `backend/main.py`, `frontend/src/App.tsx`, `run_local_test.ps1`, `Dockerfile`, `tests/test_file_transfer.py`, `PROJECT_MANIFEST.md`.
+- Persistent logs: local backend `logs/backend.log`, local agent `logs/agent.log`; packaged Windows agent uses `%APPDATA%\RemoteDeskPro\logs\agent.log`.
+- Local update and start:
+  ```powershell
+  git fetch origin
+  git switch fix/stabilize-core-features
+  git pull --ff-only origin fix/stabilize-core-features
+  powershell -ExecutionPolicy Bypass -File .\run_local_test.ps1
+  ```
+- After testing:
+  ```powershell
+  Get-Content .\logs\backend.log -Tail 150
+  Get-Content .\logs\agent.log -Tail 150
+  Invoke-RestMethod "http://127.0.0.1:8000/api/logs/tail?lines=100"
+  ```
+- Verification boundary: automated CI covers the Python regression suite and frontend production build. Physical transfer of a large file and Windows/mobile clipboard behavior still require local device validation; no Render deployment or local Windows execution is included.
