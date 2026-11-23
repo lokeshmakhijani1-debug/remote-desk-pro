@@ -167,4 +167,4 @@ def test_websocket_frame_size_and_frontend_ack_pacing_are_configured():
     assert "--ws-max-size" in dockerfile and "16777216" in dockerfile
     assert "transferInFlight.current!==null" in frontend
     assert "setTimeout(resolve,20)" in frontend
-    assert 'type:"clipboard_set"' in frontend
+    assert "clipboard_set" in frontend and "clipboard_paste" in frontend
