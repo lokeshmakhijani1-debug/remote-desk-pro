@@ -50,15 +50,21 @@ class EndpointFileReceiver:
                 saved = json.loads(self.state.read_text(encoding="utf-8"))
             except (OSError, ValueError, TypeError):
                 saved = None
-        compatible = bool(saved and saved.get("transfer_id") == transfer_id
+        compatible = bool(isinstance(saved, dict) and saved.get("transfer_id") == transfer_id
                           and saved.get("sha256") == self.expected_sha256
                           and saved.get("total_size") == total_size
                           and saved.get("chunk_size") == chunk_size
                           and saved.get("compression", "none") == compression
                           and self.part.exists())
         if compatible:
-            self.acknowledged = dict(saved.get("acknowledged", {}))
-            if any(not str(k).isdigit() or not isinstance(v, str) or not _SHA.fullmatch(v)
+            try:
+                acknowledged = saved.get("acknowledged", {})
+                if not isinstance(acknowledged, dict):
+                    raise ValueError("Invalid acknowledgement map")
+                self.acknowledged = dict(acknowledged)
+            except (TypeError, ValueError):
+                compatible = False
+            if compatible and any(not str(k).isdigit() or not isinstance(v, str) or not _SHA.fullmatch(v)
                    for k, v in self.acknowledged.items()):
                 compatible = False
         if not compatible:
