@@ -773,3 +773,5 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
   Invoke-RestMethod "http://127.0.0.1:8000/api/logs/tail?lines=100"
   ```
 - Verification boundary: automated CI covers the Python regression suite and frontend production build. Physical transfer of a large file and Windows/mobile clipboard behavior still require local device validation; no Render deployment or local Windows execution is included.
+- CI verification: GitHub Actions run `45151608567` passed on commit `765bb33893ce177857c8079b4cf3cd1d9efc65c0`; backend `pytest` reported 72 passed (1 warning), and frontend `npm run build` passed. Run URL: https://github.com/lokeshmakhijani1-debug/remote-desk-pro/actions/runs/45151608567.
+- Regression coverage added to `tests/test_file_transfer.py`: agent ACK pacing/yield, remote clipboard echo suppression and local clipboard change deduplication, 16 MiB Uvicorn launch settings, and frontend single-flight ACK pacing assertions.
