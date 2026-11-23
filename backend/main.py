@@ -551,7 +551,11 @@ async def viewer_socket(ws: WebSocket, device_id: str):
             if raw is None:
                 continue
             if isinstance(raw, bytes):
-                # Viewer binary uploads are not accepted; screen frames flow host -> viewer.
+                # Pure binary file transfer frame: 4B magic "RDPF" + 36B transfer_id + 8B offset + 4B index + 32B chunk_sha256 + payload
+                if len(raw) >= 85 and len(raw) <= 84 + MAX_FILE_CHUNK_BYTES and raw[:4] == b"RDPF" and hub.is_approved(device_id):
+                    tid_bytes = raw[4:40]
+                    if all(b in b"0123456789abcdefABCDEF-" for b in tid_bytes):
+                        await hub.relay(device_id, ws, raw)
                 continue
             try:
                 event = json.loads(raw)
