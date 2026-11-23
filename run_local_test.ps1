@@ -12,8 +12,17 @@ try {
     Set-Location $Root
     if (-not (Get-Command $Python -ErrorAction SilentlyContinue)) { throw "Python 3.11+ was not found." }
     if (-not (Get-Command $Npm -ErrorAction SilentlyContinue)) { throw "Node.js 20+ npm was not found." }
+    $VenvPath = Join-Path $Root ".venv"
+    $VenvPython = Join-Path $VenvPath "Scripts\\python.exe"
+    if (-not (Test-Path $VenvPython)) { & $Python -m venv $VenvPath; if ($LASTEXITCODE -ne 0) { throw "Could not create the project virtual environment." } }
+    & $VenvPython -c "import fastapi,uvicorn,websockets,mss,PIL,pyautogui,pyperclip,certifi,zstandard,imageio_ffmpeg" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Installing backend and Windows-agent Python dependencies (first run or dependency update)..."
+        & $VenvPython -m pip install -r (Join-Path $Root "requirements.txt") -r (Join-Path $Root "agent\\requirements.txt")
+        if ($LASTEXITCODE -ne 0) { throw "Python dependency installation failed." }
+    }
     $env:RDP_SERVER = "http://127.0.0.1:8000"
-    $BackendProcess = Start-Process -FilePath $Python -ArgumentList @("-m","uvicorn","backend.main:app","--host","127.0.0.1","--port","8000") -WorkingDirectory $Root -PassThru -WindowStyle Minimized
+    $BackendProcess = Start-Process -FilePath $VenvPython -ArgumentList @("-m","uvicorn","backend.main:app","--host","127.0.0.1","--port","8000") -WorkingDirectory $Root -PassThru -WindowStyle Minimized
     $FrontendPath = Join-Path $Root "frontend"
     if (-not (Test-Path (Join-Path $FrontendPath "node_modules"))) {
         Write-Host "Installing frontend dependencies (first run only)..."
@@ -32,7 +41,7 @@ try {
         $AgentArgs += @("--device-id",$env:RDP_DEVICE_ID,"--secret",$env:RDP_AGENT_SECRET)
         if ($env:RDP_DYNAMIC_PASSWORD) { $AgentArgs += @("--dynamic-password",$env:RDP_DYNAMIC_PASSWORD) }
     } else { Write-Host "Agent will open its desktop sign-in/pairing UI against the local backend." }
-    $AgentProcess = Start-Process -FilePath $Python -ArgumentList $AgentArgs -WorkingDirectory $Root -PassThru
+    $AgentProcess = Start-Process -FilePath $VenvPython -ArgumentList $AgentArgs -WorkingDirectory $Root -PassThru
     Write-Host ""
     Write-Host "Dashboard: http://127.0.0.1:5173"
     Write-Host "Backend:   http://127.0.0.1:8000"
