@@ -23,11 +23,20 @@ from io import BytesIO
 
 APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "RemoteDeskPro")
 os.makedirs(APP_DIR, exist_ok=True)
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+LOG_DIR = Path(os.getenv("RDP_LOG_DIR", str(PROJECT_ROOT / "logs")))
+try:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    LOG_DIR = Path(APP_DIR) / "logs"
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
 log = logging.getLogger("remote-desk-agent")
 log.setLevel(logging.INFO)
-if not log.handlers:
-    _handler = RotatingFileHandler(os.path.join(APP_DIR, "agent.log"), maxBytes=2_000_000, backupCount=4, encoding="utf-8")
-    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+if not any(isinstance(handler, RotatingFileHandler) and
+           Path(getattr(handler, "baseFilename", "")).resolve() == (LOG_DIR / "agent.log").resolve()
+           for handler in log.handlers):
+    _handler = RotatingFileHandler(LOG_DIR / "agent.log", maxBytes=2_000_000, backupCount=4, encoding="utf-8")
+    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
     log.addHandler(_handler)
 _STATUS_CALLBACK = None
 _CONSENT_CALLBACK = None
@@ -447,7 +456,7 @@ async def run_once(args, stop_event=None):
     tls_context = ssl.create_default_context(cafile=certifi.where()) if endpoint.startswith("wss://") else None
     async with websockets.connect(
         endpoint, ssl=tls_context, max_size=8 * 1024 * 1024, ping_interval=15,
-        ping_timeout=15, close_timeout=10, open_timeout=25, max_queue=16,
+        ping_timeout=45, close_timeout=10, open_timeout=25, max_queue=32,
     ) as ws:
         await ws.send(json.dumps({"type":"auth","secret":args.secret}))
         response = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
@@ -455,6 +464,7 @@ async def run_once(args, stop_event=None):
             set_status("Invalid device credential — sign in and re-link this computer")
             raise RuntimeError("Server rejected the device credential.")
         set_status("Connected to relay. Waiting for a viewer...")
+        log.info("WebSocket connected device_id=%s ping_interval=15 ping_timeout=45", args.device_id)
         stream_task = None
         clipboard_task = None
         incoming_file = None
@@ -650,11 +660,13 @@ async def run_once(args, stop_event=None):
                                 if privacy_banner is None:
                                     privacy_banner = PrivacyBanner()
                                 applied = privacy_banner.start(mode)
+                                log.info("Privacy curtain enabled mode=%s; relay socket retained", mode)
                             else:
                                 if privacy_banner:
                                     privacy_banner.stop()
                                     privacy_banner = None
                                 applied = True
+                                log.info("Privacy curtain disabled; relay socket retained")
                             await ws.send(json.dumps({"type":"privacy_screen_ack","enabled":bool(message.get("enabled")) and bool(applied),"mode":mode}))
                         else:
                             await asyncio.to_thread(apply_control, message)
