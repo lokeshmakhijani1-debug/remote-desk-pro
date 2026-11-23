@@ -106,11 +106,11 @@ class EndpointFileReceiver:
                 import zstandard
                 decoder = zstandard.ZstdDecompressor()
                 try:
-                    decoded = decoder.decompress(encoded, max_output_size=limit)
+                    decoded = decoder.decompress(encoded, max_output_size=MAX_CHUNK)
                 except Exception:
                     with decoder.stream_reader(BytesIO(encoded), read_size=64 * 1024) as reader:
-                        decoded = reader.read(limit + 1)
-                        if len(decoded) > limit or reader.read(1):
+                        decoded = reader.read(MAX_CHUNK + 1)
+                        if len(decoded) > MAX_CHUNK:
                             decoded = None
             except Exception:
                 decoded = None
