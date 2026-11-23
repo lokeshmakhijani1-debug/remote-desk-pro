@@ -15,12 +15,12 @@ try {
     & $Python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)"
     if ($LASTEXITCODE -ne 0) { throw "Python 3.11 or newer is required." }
     $VenvPath = Join-Path $Root ".venv"
-    $VenvPython = Join-Path $VenvPath "Scripts\\python.exe"
+    $VenvPython = Join-Path $VenvPath "Scripts\python.exe"
     if (-not (Test-Path $VenvPython)) { & $Python -m venv $VenvPath; if ($LASTEXITCODE -ne 0) { throw "Could not create the project virtual environment." } }
     & $VenvPython -c "import fastapi,uvicorn,websockets,mss,PIL,pyautogui,pyperclip,certifi,zstandard,imageio_ffmpeg" 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Installing backend and Windows-agent Python dependencies (first run or dependency update)..."
-        & $VenvPython -m pip install -r (Join-Path $Root "requirements.txt") -r (Join-Path $Root "agent\\requirements.txt")
+        & $VenvPython -m pip install -r (Join-Path $Root "requirements.txt") -r (Join-Path $Root "agent\requirements.txt")
         if ($LASTEXITCODE -ne 0) { throw "Python dependency installation failed." }
     }
     $env:RDP_SERVER = "http://127.0.0.1:8000"
