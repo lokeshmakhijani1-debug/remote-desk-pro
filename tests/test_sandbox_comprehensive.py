@@ -144,3 +144,17 @@ def test_10_reconnect_state_is_resumable_after_receiver_recreation(tmp_path: Pat
     second = _receiver(tmp_path, payload, transfer_id=transfer_id)
     assert second.next_offset == first.chunk_size
     assert _transfer(second, payload).read_bytes() == payload
+
+
+def test_zstd_headerless_raw_fallback_never_regresses(tmp_path: Path) -> None:
+    import hashlib, uuid
+    from agent.resumable_transfer import EndpointFileReceiver
+    payload = b"PDF-RAW-CONTENT-" * 2048
+    sha = hashlib.sha256(payload).hexdigest()
+    tid = str(uuid.uuid4())
+    dest = tmp_path / "fallback.pdf"
+    rx = EndpointFileReceiver(dest, tid, len(payload), sha, 64 * 1024, "zstd")
+    nxt = rx.append(0, payload, 0)
+    assert nxt == len(payload)
+    assert rx.finalize() == dest
+    assert dest.read_bytes() == payload

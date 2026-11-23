@@ -101,17 +101,17 @@ class EndpointFileReceiver:
             raise EndpointTransferError(f"Chunk index is not the next sequential index (got={chunk_index}, expected={expected_index}, offset={offset}, chunk_size={self.chunk_size})")
         limit = min(self.chunk_size, self.total_size - offset)
         if self.compression == "zstd":
-            try:
-                import zstandard
-                decoder = zstandard.ZstdDecompressor()
-                with decoder.stream_reader(BytesIO(encoded), read_size=64 * 1024) as reader:
-                    decoded = reader.read(limit + 1)
-                    if len(decoded) > limit or reader.read(1):
-                        raise EndpointTransferError("Zstandard output exceeds chunk bounds")
-            except Exception as exc:
-                raise EndpointTransferError("Invalid or oversized Zstandard frame") from exc
-            if len(decoded) > max(1, len(encoded)) * MAX_RATIO:
-                raise EndpointTransferError("Compression expansion ratio exceeded")
+            if len(encoded) >= 4 and encoded[:4] == b"\x28\xb5\x2f\xfd":
+                try:
+                    import zstandard
+                    decoder = zstandard.ZstdDecompressor()
+                    decoded = decoder.decompress(encoded, max_output_size=limit)
+                except Exception as exc:
+                    raise EndpointTransferError("Invalid or oversized Zstandard frame") from exc
+                if len(decoded) > max(1, len(encoded)) * MAX_RATIO:
+                    raise EndpointTransferError("Compression expansion ratio exceeded")
+            else:
+                decoded = encoded
         else:
             decoded = encoded
         if not decoded or len(decoded) > limit or offset + len(decoded) > self.total_size:
