@@ -46,6 +46,43 @@ _LAST_ERROR = "None"
 _INSTANCE_MUTEX = None
 _PRESSED_KEYS = set()
 _PRESSED_MOUSE_BUTTONS = set()
+
+class ClipboardSyncState:
+    """Suppress remote clipboard echoes while still forwarding new host copies."""
+    def __init__(self):
+        self.last_seen = None
+        self.pending_remote_value = None
+    def begin_remote_write(self, value):
+        self.pending_remote_value = value
+    def complete_remote_write(self, value):
+        self.last_seen = value
+        self.pending_remote_value = None
+    def cancel_remote_write(self):
+        self.pending_remote_value = None
+    def should_publish(self, value):
+        if not isinstance(value, str) or len(value) > 65536:
+            return False
+        if self.pending_remote_value is not None:
+            if value == self.pending_remote_value:
+                self.last_seen = value
+                self.pending_remote_value = None
+            return False
+        if value == self.last_seen:
+            return False
+        self.last_seen = value
+        return True
+
+CHUNK_ACK_PACE_SECONDS = 0.02
+
+async def send_transfer_ack(ws, transfer_id, next_offset, chunk_size):
+    """Acknowledge the persisted chunk, then yield to the WebSocket event loop."""
+    await ws.send(json.dumps({
+        "type": "transfer_ack",
+        "transfer_id": transfer_id,
+        "next_offset": next_offset,
+        "next_index": next_offset // chunk_size,
+    }))
+    await asyncio.sleep(CHUNK_ACK_PACE_SECONDS)
 _PRIMARY_CAPTURE_SIZE = None
 _INPUT_LOCK = threading.RLock()
 
@@ -248,18 +285,23 @@ def paste_clipboard(text: str):
     return True
 
 
-async def clipboard_watch(ws, running: asyncio.Event):
+async def clipboard_watch(ws, running: asyncio.Event, state=None):
     import pyperclip
-    previous = None
+    sync_state = state or ClipboardSyncState()
+    try:
+        sync_state.last_seen = await asyncio.to_thread(pyperclip.paste)
+    except Exception:
+        log.debug("Initial host clipboard read unavailable", exc_info=True)
     while running.is_set():
         try:
             value = await asyncio.to_thread(pyperclip.paste)
-            if isinstance(value, str) and value != previous and len(value) <= 65536:
-                previous = value
+            if sync_state.should_publish(value):
                 await ws.send(json.dumps({"type":"clipboard_update","text":value}))
-        except Exception as exc:
-            log.debug("Clipboard read unavailable: %s", exc)
-        await asyncio.sleep(0.8)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Host clipboard watcher failed")
+        await asyncio.sleep(1.0)
 
 def choose_save_path(name: str) -> str:
     import tkinter as tk
@@ -455,7 +497,7 @@ async def run_once(args, stop_event=None):
     endpoint = endpoint.replace("https://", "wss://").replace("http://", "ws://")
     tls_context = ssl.create_default_context(cafile=certifi.where()) if endpoint.startswith("wss://") else None
     async with websockets.connect(
-        endpoint, ssl=tls_context, max_size=8 * 1024 * 1024, ping_interval=15,
+        endpoint, ssl=tls_context, max_size=16 * 1024 * 1024, ping_interval=15,
         ping_timeout=45, close_timeout=10, open_timeout=25, max_queue=32,
     ) as ws:
         await ws.send(json.dumps({"type":"auth","secret":args.secret}))
@@ -469,6 +511,7 @@ async def run_once(args, stop_event=None):
         clipboard_task = None
         incoming_file = None
         incoming_transfers: dict[str, EndpointFileReceiver] = {}
+        clipboard_state = ClipboardSyncState()
         streaming = asyncio.Event()
         viewer_id = "unknown"
         recorder = None
@@ -515,7 +558,7 @@ async def run_once(args, stop_event=None):
                         streaming.set()
                         await ws.send(json.dumps({"type":"host_approved","recording":True}))
                         stream_task = asyncio.create_task(stream_screen(ws, streaming))
-                        clipboard_task = asyncio.create_task(clipboard_watch(ws, streaming))
+                        clipboard_task = asyncio.create_task(clipboard_watch(ws, streaming, clipboard_state))
                         set_status("Connected (Live) · REC")
                     else:
                         await ws.send(json.dumps({"type":"host_denied"}))
