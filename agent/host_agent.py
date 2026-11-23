@@ -24,7 +24,7 @@ from io import BytesIO
 APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "RemoteDeskPro")
 os.makedirs(APP_DIR, exist_ok=True)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-LOG_DIR = Path(os.getenv("RDP_LOG_DIR", str(PROJECT_ROOT / "logs")))
+LOG_DIR = Path(os.getenv("RDP_LOG_DIR", str(Path(APP_DIR) / "logs" if getattr(sys, "frozen", False) else PROJECT_ROOT / "logs")))
 try:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 except OSError:
