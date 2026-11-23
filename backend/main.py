@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-import asyncio, json, logging, secrets, time, math
+import asyncio, json, logging, secrets, time, math, ipaddress
 from collections import defaultdict
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, Header, Request
@@ -15,7 +16,20 @@ from .config import settings
 from .database import SessionLocal, init_db, User, Device, AuditEvent, verify_database_connection, DATABASE_KIND
 from .security import hash_secret, verify_secret, issue_token, read_token, new_device_id, new_dynamic_password
 
+LOG_DIR = Path(__file__).resolve().parents[1] / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+BACKEND_LOG = LOG_DIR / "backend.log"
+_file_handler = RotatingFileHandler(BACKEND_LOG, maxBytes=5_000_000, backupCount=5, encoding="utf-8")
+_file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+for _logger_name in ("uvicorn.error", "uvicorn.access", "remote-desk-pro"):
+    _target_logger = logging.getLogger(_logger_name)
+    _target_logger.setLevel(logging.INFO)
+    if not any(isinstance(handler, RotatingFileHandler) and
+               Path(getattr(handler, "baseFilename", "")).resolve() == BACKEND_LOG.resolve()
+               for handler in _target_logger.handlers):
+        _target_logger.addHandler(_file_handler)
 logger = logging.getLogger("uvicorn.error")
+logger.info("Backend logging initialized path=%s environment=%s", BACKEND_LOG, settings.app_env)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -91,6 +105,26 @@ def health():
     except Exception:
         raise HTTPException(503, "Database connection unavailable")
     return {"status":"ok","service":"remote-desk-pro","version":"0.1.0","transport":["websocket","webrtc-signaling"],"database":database,"capacity_target":settings.max_concurrent_sessions}
+
+@app.get("/api/logs/tail")
+def tail_local_logs(request: Request, lines: int = 100):
+    """Expose recent backend log lines only to loopback clients in local/dev mode."""
+    if settings.app_env.lower() not in {"development", "dev", "local", "test"}:
+        raise HTTPException(404, "Not found")
+    client_host = request.client.host if request.client else ""
+    try:
+        if not ipaddress.ip_address(client_host).is_loopback:
+            raise HTTPException(404, "Not found")
+    except ValueError:
+        raise HTTPException(404, "Not found")
+    if not 1 <= lines <= 1000:
+        raise HTTPException(422, "lines must be between 1 and 1000")
+    try:
+        with BACKEND_LOG.open("r", encoding="utf-8", errors="replace") as handle:
+            tail = handle.readlines()[-lines:]
+    except FileNotFoundError:
+        tail = []
+    return {"path":"logs/backend.log","lines":tail,"count":len(tail)}
 
 @app.get("/api/manifest")
 def manifest():
