@@ -65,7 +65,7 @@ export default function App(){
     if(m.type==="heartbeat_ack"){lastHeartbeatAck.current=Date.now();if(heartbeatSentAt.current)setLatency(Date.now()-heartbeatSentAt.current);heartbeatSentAt.current=0;if(resumeProbeTimer.current)window.clearTimeout(resumeProbeTimer.current);resumeProbeTimer.current=undefined;setStatus(current=>m.device_online===false?"Host offline":m.device_online===true&&current==="Host offline"?"Waiting for host approval...":current);}
     if(m.type==="clipboard_update"){const value=String(m.text||"");setRemoteClipboard(value);setClipboardText(value);if(navigator.clipboard?.writeText)void navigator.clipboard.writeText(value).catch(()=>{});}
     if(m.type==="input_pending")setTransferStatus(String(m.detail||"Waiting for host approval"));
-    if(m.type==="clipboard_ack")setTransferStatus(m.success?"Clipboard pasted successfully on host":String(m.detail||"Host clipboard paste failed"));
+    if(m.type==="clipboard_ack")setTransferStatus(m.success?(m.pasted===false?"Clipboard copied to host clipboard":"Clipboard pasted successfully on host"):String(m.detail||"Host clipboard operation failed"));
     if(m.type==="privacy_screen_ack"){setPrivacyEnabled(Boolean(m.enabled));setToast(m.enabled?(m.mode==="black"?"Black privacy curtain enabled on host":"Technician working banner enabled on host"):"Privacy screen disabled on host");}
     if(m.type==="file_accept")void uploadPendingFile(transferOffset.current);
     if(m.type==="file_reject"){pendingFile.current=null;setTransferStatus("Host declined the file");}
