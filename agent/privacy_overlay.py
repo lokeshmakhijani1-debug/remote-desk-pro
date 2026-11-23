@@ -8,6 +8,11 @@ from ctypes import wintypes
 
 log = logging.getLogger("remote-desk-agent.privacy")
 WDA_EXCLUDEFROMCAPTURE = 0x00000011
+WS_EX_TRANSPARENT = 0x00000020
+WS_EX_LAYERED = 0x00080000
+WS_EX_TOOLWINDOW = 0x00000080
+WS_EX_NOACTIVATE = 0x08000000
+LWA_ALPHA = 0x00000002
 EMERGENCY_HOTKEY_ID = 0x5244
 EMERGENCY_HOTKEY_MODIFIERS = 0x0002 | 0x0001 | 0x0004
 EMERGENCY_HOTKEY_VK = ord("B")
@@ -114,8 +119,7 @@ class PrivacyBanner:
                          fg="#d4dbe7", bg=background, font=("Segoe UI", 16)).pack(pady=10)
             tk.Label(root, text="Emergency local unlock: Ctrl + Alt + Shift + B",
                      fg="#8ee6c2", bg=background, font=("Segoe UI", 10)).place(relx=0.5, rely=0.97, anchor="center")
-            root.bind_all("<Control-Alt-Shift-b>", lambda _event: self.stop())
-            root.bind_all("<Control-Alt-Shift-B>", lambda _event: self.stop())
+            # The emergency hotkey is registered globally; never grab desktop focus.
             root.update_idletasks()
             user32 = ctypes.WinDLL("user32", use_last_error=True)
             user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
@@ -129,18 +133,25 @@ class PrivacyBanner:
             get_style.restype = long_ptr
             set_style.argtypes = [wintypes.HWND, ctypes.c_int, long_ptr]
             set_style.restype = long_ptr
-            set_style(hwnd, -20, get_style(hwnd, -20) | 0x00000008 | 0x00000080)
+            ex_style = get_style(hwnd, -20)
+            ex_style |= WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
+            set_style(hwnd, -20, ex_style)
+            user32.SetLayeredWindowAttributes.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_ubyte, wintypes.DWORD]
+            user32.SetLayeredWindowAttributes.restype = wintypes.BOOL
+            if not user32.SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA):
+                raise ctypes.WinError(ctypes.get_last_error())
             user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
             user32.SetWindowPos.restype = wintypes.BOOL
             user32.SetWindowDisplayAffinity.argtypes = [wintypes.HWND, wintypes.DWORD]
             user32.SetWindowDisplayAffinity.restype = wintypes.BOOL
-            user32.SetWindowPos(hwnd, wintypes.HWND(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0020)
+            user32.SetWindowPos(hwnd, wintypes.HWND(-1), 0, 0, 0, 0,
+                                0x0001 | 0x0002 | 0x0010 | 0x0020)
             if not user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE):
+                log.warning("Display affinity unavailable; switching to gamma curtain fallback")
                 self._apply_gamma_fallback()
                 root.withdraw()
             else:
-                root.grab_set()
-                root.focus_force()
+                log.info("Privacy curtain active; input remains click-through")
             self._ready.set()
             self._start_emergency_hotkey()
             root.mainloop()
@@ -175,7 +186,9 @@ class PrivacyBanner:
         self._hotkey_thread.start()
 
     def stop(self) -> None:
+        """Hide only the local curtain; it never owns or closes a relay socket."""
         self._hotkey_stop.set()
+        log.info("Privacy curtain stop requested; remote session remains connected")
         root = self._root
         if root is not None:
             try:
