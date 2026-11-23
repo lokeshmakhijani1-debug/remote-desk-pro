@@ -6,13 +6,14 @@ import json
 import os
 import re
 import zlib
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 MAX_FILE_SIZE = 50 * 1024 * 1024
 CHUNK_SIZE = 512 * 1024
-MIN_CHUNK = CHUNK_SIZE
-MAX_CHUNK = CHUNK_SIZE
+MIN_CHUNK = 64 * 1024
+MAX_CHUNK = 1024 * 1024
 MAX_RATIO = 100
 _ID = re.compile(r"^[0-9a-fA-F-]{16,64}$")
 _SHA = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -34,6 +35,7 @@ class EndpointFileReceiver:
         if compression not in {"none", "zstd"}:
             raise EndpointTransferError("Unsupported compression")
         self.destination = destination.resolve()
+        self.destination.parent.mkdir(parents=True, exist_ok=True)
         self.part = self.destination.with_name(self.destination.name + "." + transfer_id + ".part")
         self.state = self.part.with_suffix(self.part.suffix + ".json")
         self.transfer_id = transfer_id
@@ -42,15 +44,28 @@ class EndpointFileReceiver:
         self.chunk_size = chunk_size
         self.compression = compression
         self.acknowledged: dict[str, str] = {}
+        saved = None
         if self.state.exists():
-            saved = json.loads(self.state.read_text(encoding="utf-8"))
-            if saved.get("transfer_id") != transfer_id or saved.get("sha256") != self.expected_sha256:
-                raise EndpointTransferError("Resume state does not match transfer")
+            try:
+                saved = json.loads(self.state.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                saved = None
+        compatible = bool(saved and saved.get("transfer_id") == transfer_id
+                          and saved.get("sha256") == self.expected_sha256
+                          and saved.get("total_size") == total_size
+                          and saved.get("chunk_size") == chunk_size
+                          and saved.get("compression", "none") == compression
+                          and self.part.exists())
+        if compatible:
             self.acknowledged = dict(saved.get("acknowledged", {}))
-            if not self.part.exists():
-                raise EndpointTransferError("Partial file is missing")
-        else:
-            with self.part.open("xb") as stream:
+            if any(not str(k).isdigit() or not isinstance(v, str) or not _SHA.fullmatch(v)
+                   for k, v in self.acknowledged.items()):
+                compatible = False
+        if not compatible:
+            self.part.unlink(missing_ok=True)
+            self.state.unlink(missing_ok=True)
+            self.acknowledged = {}
+            with self.part.open("wb") as stream:
                 stream.truncate(total_size)
                 stream.flush()
                 os.fsync(stream.fileno())
@@ -59,7 +74,8 @@ class EndpointFileReceiver:
     def _save(self) -> None:
         temporary = self.state.with_suffix(self.state.suffix + ".tmp")
         temporary.write_text(json.dumps({"transfer_id": self.transfer_id, "sha256": self.expected_sha256,
-                                         "acknowledged": self.acknowledged}), encoding="utf-8")
+                                         "acknowledged": self.acknowledged, "total_size": self.total_size,
+                                         "chunk_size": self.chunk_size, "compression": self.compression}), encoding="utf-8")
         os.replace(temporary, self.state)
 
     @property
@@ -80,7 +96,10 @@ class EndpointFileReceiver:
             try:
                 import zstandard
                 decoder = zstandard.ZstdDecompressor()
-                decoded = decoder.decompress(encoded, max_output_size=limit)
+                with decoder.stream_reader(BytesIO(encoded), read_size=64 * 1024) as reader:
+                    decoded = reader.read(limit + 1)
+                    if len(decoded) > limit or reader.read(1):
+                        raise EndpointTransferError("Zstandard output exceeds chunk bounds")
             except Exception as exc:
                 raise EndpointTransferError("Invalid or oversized Zstandard frame") from exc
             if len(decoded) > max(1, len(encoded)) * MAX_RATIO:

@@ -626,12 +626,13 @@ async def run_once(args, stop_event=None):
                         transfer_id = str(message.get("transfer_id", ""))
                         name = Path(str(message.get("name", "received-file")).replace("\\", "/")).name[:180]
                         size = int(message["total_size"])
-                        if not transfer_id or not 0 < size <= 50 * 1024 * 1024 or int(message["chunk_size"]) != 512 * 1024:
+                        chunk_size = int(message["chunk_size"])
+                        if not transfer_id or not 0 < size <= 50 * 1024 * 1024 or not 64 * 1024 <= chunk_size <= 1024 * 1024:
                             raise ValueError("Invalid transfer ID or file size")
                         destination = downloads_destination(name, transfer_id)
                         receiver = EndpointFileReceiver(
                             destination, transfer_id, size, str(message["sha256"]),
-                            int(message["chunk_size"]), str(message.get("compression", "none")),
+                            chunk_size, str(message.get("compression", "none")),
                         )
                         incoming_transfers[transfer_id] = receiver
                         await ws.send(json.dumps({"type":"transfer_resume_req","transfer_id":transfer_id,

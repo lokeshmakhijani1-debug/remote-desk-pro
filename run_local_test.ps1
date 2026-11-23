@@ -23,6 +23,9 @@ try {
         & $VenvPython -m pip install -r (Join-Path $Root "requirements.txt") -r (Join-Path $Root "agent\requirements.txt")
         if ($LASTEXITCODE -ne 0) { throw "Python dependency installation failed." }
     }
+    # Prevent a previously installed EXE (often configured for Render) from competing with this local Python agent.
+    Get-CimInstance Win32_Process -Filter "name = 'RemoteDeskPro-Agent.exe'" -ErrorAction SilentlyContinue |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     $LogPath = Join-Path $Root "logs"
     New-Item -ItemType Directory -Path $LogPath -Force | Out-Null
     $env:RDP_SERVER = "http://127.0.0.1:8000"
@@ -46,7 +49,16 @@ try {
         $AgentArgs += @("--device-id",$env:RDP_DEVICE_ID,"--secret",$env:RDP_AGENT_SECRET)
         if ($env:RDP_DYNAMIC_PASSWORD) { $AgentArgs += @("--dynamic-password",$env:RDP_DYNAMIC_PASSWORD) }
     } else { Write-Host "Agent will open its desktop sign-in/pairing UI against the local backend." }
-    $AgentProcess = Start-Process -FilePath $VenvPython -ArgumentList $AgentArgs -WorkingDirectory $Root -PassThru
+    $AgentProcess = Start-Process -FilePath $VenvPython -ArgumentList $AgentArgs -WorkingDirectory $Root -PassThru -WindowStyle Normal
+    Start-Sleep -Seconds 2
+    if ($AgentProcess -and -not $AgentProcess.HasExited) {
+        $AgentProcess.Refresh()
+        if ($AgentProcess.MainWindowHandle -ne 0) {
+            Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class RdpWindowFocus { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd); }' -ErrorAction SilentlyContinue
+            [RdpWindowFocus]::ShowWindow($AgentProcess.MainWindowHandle, 9) | Out-Null
+            [RdpWindowFocus]::SetForegroundWindow($AgentProcess.MainWindowHandle) | Out-Null
+        }
+    }
     Write-Host ""
     Write-Host "Dashboard: http://127.0.0.1:5173"
     Write-Host "Backend:   http://127.0.0.1:8000"

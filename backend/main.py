@@ -324,7 +324,9 @@ class Hub:
 hub = Hub()
 MAX_CLIPBOARD_CHARS = 64 * 1024
 MAX_FILE_BYTES = 50 * 1024 * 1024
-MAX_FILE_CHUNK_BYTES = 192 * 1024
+MIN_FILE_CHUNK_BYTES = 64 * 1024
+MAX_FILE_CHUNK_BYTES = 1024 * 1024
+DEFAULT_FILE_CHUNK_BYTES = 512 * 1024
 WEBSOCKET_MAX_SIZE = 16 * 1024 * 1024
 
 def validate_clipboard(event: dict) -> bool:
@@ -452,10 +454,11 @@ async def host_socket(ws: WebSocket, device_id: str):
                     except Exception:
                         logger.exception("host relay received invalid transfer chunk device=%s transfer_id=%s", device_id, transfer_id)
                         continue
-                    if not 1 <= len(chunk) <= 1024 * 1024:
+                    chunk_size = event.get("chunk_size", DEFAULT_FILE_CHUNK_BYTES)
+                    if not isinstance(chunk_size, int) or not MIN_FILE_CHUNK_BYTES <= chunk_size <= MAX_FILE_CHUNK_BYTES:
                         continue
                     offset, index = event.get("offset"), event.get("index")
-                    if not isinstance(offset, int) or not isinstance(index, int) or offset < 0 or offset % (512 * 1024) or index != offset // (512 * 1024):
+                    if not 1 <= len(chunk) <= MAX_FILE_CHUNK_BYTES or not isinstance(offset, int) or not isinstance(index, int) or offset < 0 or offset % chunk_size or index != offset // chunk_size:
                         continue
                 elif kind == "transfer_init":
                     try:
@@ -463,7 +466,7 @@ async def host_socket(ws: WebSocket, device_id: str):
                         chunk_size = int(event.get("chunk_size", 0))
                     except (TypeError, ValueError):
                         continue
-                    if not 0 < size <= MAX_FILE_BYTES or chunk_size != 512 * 1024:
+                    if not 0 < size <= MAX_FILE_BYTES or not MIN_FILE_CHUNK_BYTES <= chunk_size <= MAX_FILE_CHUNK_BYTES:
                         continue
                 await hub.relay(device_id, ws, raw)
     except (WebSocketDisconnect, asyncio.TimeoutError, OSError):
@@ -601,7 +604,8 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                         logger.exception("viewer relay received invalid transfer chunk device=%s transfer_id=%s", device_id, transfer_id)
                         continue
                     offset, index = event.get("offset"), event.get("index")
-                    if not 1 <= len(chunk) <= 1024 * 1024 or not isinstance(offset, int) or not isinstance(index, int) or offset < 0 or offset % (512 * 1024) or index != offset // (512 * 1024):
+                    chunk_size = event.get("chunk_size", DEFAULT_FILE_CHUNK_BYTES)
+                    if not isinstance(chunk_size, int) or not MIN_FILE_CHUNK_BYTES <= chunk_size <= MAX_FILE_CHUNK_BYTES or not 1 <= len(chunk) <= MAX_FILE_CHUNK_BYTES or not isinstance(offset, int) or not isinstance(index, int) or offset < 0 or offset % chunk_size or index != offset // chunk_size:
                         continue
                 elif kind == "transfer_init":
                     try:
@@ -609,7 +613,7 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                         chunk_size = int(event.get("chunk_size", 0))
                     except (TypeError, ValueError):
                         continue
-                    if not 0 < size <= MAX_FILE_BYTES or chunk_size != 512 * 1024:
+                    if not 0 < size <= MAX_FILE_BYTES or not MIN_FILE_CHUNK_BYTES <= chunk_size <= MAX_FILE_CHUNK_BYTES:
                         continue
                     event["name"] = safe_file_name(event.get("name"))
                     raw = json.dumps(event)
