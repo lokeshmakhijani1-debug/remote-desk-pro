@@ -638,7 +638,8 @@ async def run_once(args, stop_event=None):
                                                   "next_offset":receiver.next_offset,
                                                   "next_index":receiver.next_offset // receiver.chunk_size}))
                         log.info("Host accepted %s (%s bytes); saving to %s", name, size, destination)
-                    except (KeyError, TypeError, ValueError, OSError) as exc:
+                    except Exception as exc:
+                        log.exception("File transfer initialization failed transfer_id=%s", message.get("transfer_id"))
                         await ws.send(json.dumps({"type":"transfer_error","transfer_id":str(message.get("transfer_id","")),
                                                   "detail":str(exc)[:200]}))
                 elif message.get("type") == "transfer_chunk" and streaming.is_set():
@@ -649,7 +650,8 @@ async def run_once(args, stop_event=None):
                             encoded = base64.b64decode(message.get("data", ""), validate=True)
                             offset = receiver.append(int(message.get("offset", -1)), encoded, int(message.get("index", -1)))
                             await send_transfer_ack(ws, transfer_id, offset, receiver.chunk_size)
-                        except (ValueError, TypeError, OSError) as exc:
+                        except Exception as exc:
+                            log.exception("File transfer chunk failed transfer_id=%s offset=%s", transfer_id, message.get("offset"))
                             await ws.send(json.dumps({"type":"transfer_error","transfer_id":transfer_id,
                                                       "detail":str(exc)[:200]}))
                 elif message.get("type") == "transfer_complete" and streaming.is_set():
@@ -662,7 +664,8 @@ async def run_once(args, stop_event=None):
                             await ws.send(json.dumps({"type":"transfer_complete","transfer_id":transfer_id,
                                                       "sha256":receiver.expected_sha256,"verified":True}))
                             log.info("Verified file transfer complete: %s", destination.name)
-                        except (ValueError, OSError) as exc:
+                        except Exception as exc:
+                            log.exception("File transfer finalization failed transfer_id=%s", transfer_id)
                             await ws.send(json.dumps({"type":"transfer_error","transfer_id":transfer_id,
                                                       "detail":str(exc)[:200]}))
                 elif message.get("type") == "file_offer" and streaming.is_set():
