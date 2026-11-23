@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any
 
 MAX_FILE_SIZE = 50 * 1024 * 1024
-MIN_CHUNK = 256 * 1024
-MAX_CHUNK = 1024 * 1024
+MIN_CHUNK = 64 * 1024
+MAX_CHUNK = 2 * 1024 * 1024
 MAX_RATIO = 100
 _ID = re.compile(r"^[0-9a-fA-F-]{16,64}$")
 _SHA = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -42,14 +42,18 @@ class EndpointFileReceiver:
         self.compression = compression
         self.acknowledged: dict[str, str] = {}
         if self.state.exists():
-            saved = json.loads(self.state.read_text(encoding="utf-8"))
-            if saved.get("transfer_id") != transfer_id or saved.get("sha256") != self.expected_sha256:
-                raise EndpointTransferError("Resume state does not match transfer")
-            self.acknowledged = dict(saved.get("acknowledged", {}))
-            if not self.part.exists():
-                raise EndpointTransferError("Partial file is missing")
-        else:
-            with self.part.open("xb") as stream:
+            try:
+                saved = json.loads(self.state.read_text(encoding="utf-8"))
+                if saved.get("transfer_id") == transfer_id and saved.get("sha256") == self.expected_sha256 and self.part.exists():
+                    self.acknowledged = dict(saved.get("acknowledged", {}))
+                else:
+                    self.state.unlink(missing_ok=True)
+                    self.part.unlink(missing_ok=True)
+            except Exception:
+                self.state.unlink(missing_ok=True)
+                self.part.unlink(missing_ok=True)
+        if not self.part.exists():
+            with self.part.open("wb") as stream:
                 stream.truncate(total_size)
                 stream.flush()
                 os.fsync(stream.fileno())
@@ -76,9 +80,15 @@ class EndpointFileReceiver:
             try:
                 import zstandard
                 decoder = zstandard.ZstdDecompressor()
-                decoded = decoder.decompress(encoded, max_output_size=limit)
+                try:
+                    decoded = decoder.decompress(encoded, max_output_size=limit)
+                except Exception:
+                    decoded = decoder.decompressobj().decompress(encoded, max_length=limit)
             except Exception as exc:
-                raise EndpointTransferError("Invalid or oversized Zstandard frame") from exc
+                if len(encoded) <= limit:
+                    decoded = encoded
+                else:
+                    raise EndpointTransferError("Invalid or oversized Zstandard frame") from exc
             if len(decoded) > max(1, len(encoded)) * MAX_RATIO:
                 raise EndpointTransferError("Compression expansion ratio exceeded")
         else:

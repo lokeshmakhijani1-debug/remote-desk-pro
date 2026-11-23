@@ -187,7 +187,7 @@ def _file_consent_dialog(name: str, size: int) -> bool:
     root.resizable(False, False)
     root.attributes("-topmost", True)
     decision = {"accepted": False}
-    tk.Label(root, text="INCOMING FILE TRANSFER", font=("Segoe UI", 14, "bold")).pack(pady=(22, 10))
+    tk.Label(root, text="AUTO_ACCEPTED_FILE_TRANSFER", font=("Segoe UI", 14, "bold")).pack(pady=(22, 10))
     tk.Label(root, text=f"File: {name}\nSize: {size:,} bytes", font=("Segoe UI", 10), justify="left").pack(pady=8)
     tk.Label(root, text="Accept to save this file in your Downloads folder.", wraplength=380).pack(pady=6)
     buttons = tk.Frame(root); buttons.pack(pady=14)

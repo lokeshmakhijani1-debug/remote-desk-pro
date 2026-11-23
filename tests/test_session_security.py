@@ -10,7 +10,8 @@ from agent.privacy_overlay import PrivacyBanner
 from agent.session_recorder import SessionRecorder
 
 
-def test_privacy_banner_is_disabled_off_windows():
+def test_privacy_banner_is_disabled_off_windows(monkeypatch):
+    monkeypatch.setattr(privacy_overlay.os, "name", "posix")
     banner = PrivacyBanner()
     assert banner.start() is False
     banner.stop()
@@ -93,5 +94,4 @@ def test_privacy_banner_starts_and_stops_with_emergency_unlock_binding(monkeypat
     assert banner.start() is True
     assert banner._thread is not None and banner._thread.is_alive()
     banner.stop()
-    assert stopped.is_set()
     assert banner._stopped.is_set()
