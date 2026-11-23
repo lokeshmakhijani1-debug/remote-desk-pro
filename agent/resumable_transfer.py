@@ -10,8 +10,9 @@ from pathlib import Path
 from typing import Any
 
 MAX_FILE_SIZE = 50 * 1024 * 1024
-MIN_CHUNK = 256 * 1024
-MAX_CHUNK = 1024 * 1024
+CHUNK_SIZE = 512 * 1024
+MIN_CHUNK = CHUNK_SIZE
+MAX_CHUNK = CHUNK_SIZE
 MAX_RATIO = 100
 _ID = re.compile(r"^[0-9a-fA-F-]{16,64}$")
 _SHA = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -68,9 +69,12 @@ class EndpointFileReceiver:
             offset += min(self.chunk_size, self.total_size - offset)
         return offset
 
-    def append(self, offset: int, encoded: bytes) -> int:
+    def append(self, offset: int, encoded: bytes, chunk_index: int) -> int:
         if not isinstance(offset, int) or offset < 0 or offset >= self.total_size:
             raise EndpointTransferError("Invalid chunk offset")
+        expected_index = offset // self.chunk_size
+        if chunk_index != expected_index or offset != expected_index * self.chunk_size:
+            raise EndpointTransferError("Chunk index is not the next sequential index")
         limit = min(self.chunk_size, self.total_size - offset)
         if self.compression == "zstd":
             try:
