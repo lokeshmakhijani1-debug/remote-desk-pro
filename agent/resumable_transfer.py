@@ -101,7 +101,7 @@ class EndpointFileReceiver:
             raise EndpointTransferError(f"Chunk index is not the next sequential index (got={chunk_index}, expected={expected_index}, offset={offset}, chunk_size={self.chunk_size})")
         limit = min(self.chunk_size, self.total_size - offset)
         if self.compression == "zstd":
-            decoded = None
+            decoded = encoded if len(encoded) == limit else None
             try:
                 import zstandard
                 decoder = zstandard.ZstdDecompressor()
