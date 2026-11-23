@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import random
 import uuid
 from pathlib import Path
 
@@ -57,7 +58,7 @@ def test_03_corrupt_or_mismatched_partial_state_restarts_cleanly(tmp_path: Path)
 
 def test_04_raw_and_headerless_streaming_zstd_are_bounded(tmp_path: Path):
     zstandard = pytest.importorskip("zstandard")
-    payload = b"zstd-stream-payload-" * 10000
+    payload = random.Random(42).randbytes(200000)
     raw = _receiver(tmp_path / "raw", payload, compression="none")
     assert _transfer(raw, payload).read_bytes() == payload
     compressor = zstandard.ZstdCompressor(write_content_size=False)
