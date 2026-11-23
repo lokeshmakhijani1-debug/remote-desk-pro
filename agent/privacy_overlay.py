@@ -1,26 +1,34 @@
-"""Visible, reversible Windows privacy curtain for an approved remote session."""
+"""Visible Windows privacy curtain with capture exclusion and safe display fallback."""
 from __future__ import annotations
-
 import ctypes
+import logging
 import os
 import threading
 from ctypes import wintypes
 
+log = logging.getLogger("remote-desk-agent.privacy")
+WDA_EXCLUDEFROMCAPTURE = 0x00000011
+EMERGENCY_HOTKEY_ID = 0x5244
+EMERGENCY_HOTKEY_MODIFIERS = 0x0002 | 0x0001 | 0x0004
+EMERGENCY_HOTKEY_VK = ord("B")
+
 
 class PrivacyBanner:
-    """Topmost local privacy overlay excluded from supported Windows capture APIs."""
+    """Fullscreen curtain on a dedicated UI thread; restore display state on exit."""
 
     def __init__(self) -> None:
-        self._thread: threading.Thread | None = None
+        self._thread = None
         self._root = None
         self._ready = threading.Event()
         self._stopped = threading.Event()
-        self._error: BaseException | None = None
-        self._mode = "banner"
-        self._hotkey_thread: threading.Thread | None = None
+        self._error = None
+        self._mode = "black"
+        self._hotkey_thread = None
         self._hotkey_stop = threading.Event()
+        self._gamma_dc = None
+        self._gamma_original = None
 
-    def start(self, mode: str = "banner") -> bool:
+    def start(self, mode: str = "black") -> bool:
         if os.name != "nt":
             return False
         if mode not in {"black", "banner"}:
@@ -42,6 +50,45 @@ class PrivacyBanner:
         if self._error:
             raise RuntimeError("Privacy screen failed") from self._error
         return True
+
+    def _apply_gamma_fallback(self) -> None:
+        """Dim physical output while leaving the composed desktop available to capture."""
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
+        user32.GetDC.argtypes = [wintypes.HWND]
+        user32.GetDC.restype = wintypes.HDC
+        dc = user32.GetDC(None)
+        if not dc:
+            raise ctypes.WinError(ctypes.get_last_error())
+        ramp_type = ctypes.c_ushort * (3 * 256)
+        original = ramp_type()
+        if not gdi32.GetDeviceGammaRamp(dc, ctypes.byref(original)):
+            user32.ReleaseDC(None, dc)
+            raise ctypes.WinError(ctypes.get_last_error())
+        dimmed = ramp_type()
+        for channel in range(3):
+            for index in range(256):
+                dimmed[channel * 256 + index] = index
+        if not gdi32.SetDeviceGammaRamp(dc, ctypes.byref(dimmed)):
+            user32.ReleaseDC(None, dc)
+            raise ctypes.WinError(ctypes.get_last_error())
+        self._gamma_dc = dc
+        self._gamma_original = original
+        log.warning("Capture affinity unavailable; using near-black hardware gamma fallback")
+
+    def _restore_gamma_fallback(self) -> None:
+        if not self._gamma_dc or self._gamma_original is None:
+            return
+        try:
+            gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            gdi32.SetDeviceGammaRamp(self._gamma_dc, ctypes.byref(self._gamma_original))
+            user32.ReleaseDC(None, self._gamma_dc)
+        except Exception:
+            log.exception("Could not restore the original display gamma ramp")
+        finally:
+            self._gamma_dc = None
+            self._gamma_original = None
 
     def _run(self) -> None:
         try:
@@ -65,10 +112,10 @@ class PrivacyBanner:
                          wraplength=max(500, width - 160)).pack(pady=8)
                 tk.Label(panel, text="Please do not touch mouse or keyboard",
                          fg="#d4dbe7", bg=background, font=("Segoe UI", 16)).pack(pady=10)
-                tk.Label(panel, text="Emergency local unlock: Ctrl + Alt + Shift + U",
-                         fg="#8ee6c2", bg=background, font=("Segoe UI", 11)).pack(pady=(22, 0))
-            root.bind_all("<Control-Alt-Shift-u>", lambda _event: self.stop())
-            root.bind_all("<Control-Alt-Shift-U>", lambda _event: self.stop())
+            tk.Label(root, text="Emergency local unlock: Ctrl + Alt + Shift + B",
+                     fg="#8ee6c2", bg=background, font=("Segoe UI", 10)).place(relx=0.5, rely=0.97, anchor="center")
+            root.bind_all("<Control-Alt-Shift-b>", lambda _event: self.stop())
+            root.bind_all("<Control-Alt-Shift-B>", lambda _event: self.stop())
             root.update_idletasks()
             user32 = ctypes.WinDLL("user32", use_last_error=True)
             hwnd = int(root.winfo_id())
@@ -78,36 +125,42 @@ class PrivacyBanner:
             set_style.restype = ctypes.c_long
             set_style(hwnd, -20, get_style(hwnd, -20) | 0x00000008 | 0x00000080)
             user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0020)
-            if not user32.SetWindowDisplayAffinity(hwnd, 0x00000011):
-                raise ctypes.WinError(ctypes.get_last_error())
-            root.grab_set()
-            root.focus_force()
+            if not user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE):
+                self._apply_gamma_fallback()
+                root.withdraw()
+            else:
+                root.grab_set()
+                root.focus_force()
             self._ready.set()
             self._start_emergency_hotkey()
             root.mainloop()
         except BaseException as exc:
             self._error = exc
             self._ready.set()
+            log.exception("Privacy curtain initialization failed")
         finally:
             self._hotkey_stop.set()
+            self._restore_gamma_fallback()
             self._root = None
             self._stopped.set()
 
     def _start_emergency_hotkey(self) -> None:
         def listen() -> None:
             user32 = ctypes.WinDLL("user32", use_last_error=True)
-            if not user32.RegisterHotKey(None, 0x5244, 0x0002 | 0x0001 | 0x0004, ord("U")):
+            if not user32.RegisterHotKey(None, EMERGENCY_HOTKEY_ID,
+                                         EMERGENCY_HOTKEY_MODIFIERS, EMERGENCY_HOTKEY_VK):
+                log.warning("Emergency privacy hotkey could not be registered")
                 return
             try:
                 message = wintypes.MSG()
                 while not self._hotkey_stop.is_set():
                     while user32.PeekMessageW(ctypes.byref(message), None, 0, 0, 1):
-                        if message.message == 0x0312 and message.wParam == 0x5244:
+                        if message.message == 0x0312 and message.wParam == EMERGENCY_HOTKEY_ID:
                             self.stop()
                             return
-                    threading.Event().wait(0.05)
+                    self._hotkey_stop.wait(0.05)
             finally:
-                user32.UnregisterHotKey(None, 0x5244)
+                user32.UnregisterHotKey(None, EMERGENCY_HOTKEY_ID)
         self._hotkey_thread = threading.Thread(target=listen, name="rdp-privacy-emergency-unlock", daemon=True)
         self._hotkey_thread.start()
 
@@ -121,6 +174,7 @@ class PrivacyBanner:
                 else:
                     root.after(0, root.destroy)
             except Exception:
-                pass
+                log.debug("Privacy window already closed", exc_info=True)
+        self._restore_gamma_fallback()
         if threading.current_thread() is not self._thread:
             self._stopped.wait(3)
