@@ -10,8 +10,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-MIN_CHUNK_SIZE = 256 * 1024
-MAX_CHUNK_SIZE = 1024 * 1024
+CHUNK_SIZE = 512 * 1024
+MIN_CHUNK_SIZE = CHUNK_SIZE
+MAX_CHUNK_SIZE = CHUNK_SIZE
 MAX_FILE_SIZE = 50 * 1024 * 1024
 MAX_EXPANSION_RATIO = 100
 _TRANSFER_ID = re.compile(r"^[a-fA-F0-9-]{16,64}$")
@@ -140,7 +141,7 @@ class ResumableTransferStore:
             raise TransferError("Chunk exceeds decompressed size or ratio limits")
         return decoded
 
-    def append(self, transfer_id: str, offset: int, payload: bytes, compression: str) -> dict[str, Any]:
+    def append(self, transfer_id: str, offset: int, payload: bytes, compression: str, chunk_index: int) -> dict[str, Any]:
         part, state_path = self._paths(transfer_id)
         state = self._load(state_path)
         manifest = state["manifest"]
@@ -150,6 +151,8 @@ class ResumableTransferStore:
             raise TransferError("Invalid chunk offset")
         if offset % manifest["chunk_size"]:
             raise TransferError("Chunk offset is not aligned")
+        if chunk_index != offset // manifest["chunk_size"]:
+            raise TransferError("Chunk index is not the next sequential index")
         decoded = self._decode(payload, compression, manifest["chunk_size"])
         expected_length = min(manifest["chunk_size"], manifest["total_size"] - offset)
         if len(decoded) != expected_length:
