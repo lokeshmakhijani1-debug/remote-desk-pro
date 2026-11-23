@@ -145,6 +145,14 @@ def pair(data: PairIn, authorization: str | None = Header(default=None), db: Ses
     audit(db, "device.paired", user.id, device_id)
     return {"device_id":device_id,"agent_secret":secret,"dynamic_password":password,"password_expires_at":expires.isoformat(),"agent_warning":"Agent secret is displayed once. Store it securely."}
 
+def _get_unattended_pin_hash(db: Session, device_id: str) -> str | None:
+    row = db.scalar(select(AuditEvent).where(AuditEvent.device_id == device_id, AuditEvent.action == "device.unattended_pin_hash").order_by(AuditEvent.id.desc()))
+    return row.detail if (row and row.detail) else None
+
+def _set_unattended_pin_hash(db: Session, user_id: int | None, device_id: str, pin_hash: str) -> None:
+    db.add(AuditEvent(user_id=user_id, device_id=device_id, action="device.unattended_pin_hash", detail=pin_hash))
+    db.commit()
+
 class UnattendedPinIn(BaseModel):
     pin: str = Field(default="", max_length=8)
 
@@ -161,8 +169,7 @@ def set_unattended_pin(device_id: str, data: UnattendedPinIn, authorization: str
     pin = data.pin.strip()
     if pin and (len(pin) < 4 or len(pin) > 8 or not pin.isdigit()):
         raise HTTPException(400, "Trusted PIN must be 4-8 digits")
-    device.unattended_pin_hash = hash_secret(pin) if pin else None
-    db.commit()
+    _set_unattended_pin_hash(db, user.id, device_id, hash_secret(pin) if pin else "")
     audit(db, "device.unattended_pin_updated", user.id, device_id)
     return {"device_id": device_id, "unattended_enabled": bool(pin)}
 
@@ -174,8 +181,7 @@ def agent_set_unattended_pin(device_id: str, data: AgentUnattendedPinIn, db: Ses
     pin = data.pin.strip()
     if pin and (len(pin) < 4 or len(pin) > 8 or not pin.isdigit()):
         raise HTTPException(400, "Trusted PIN must be 4-8 digits")
-    device.unattended_pin_hash = hash_secret(pin) if pin else None
-    db.commit()
+    _set_unattended_pin_hash(db, device.owner_id, device_id, hash_secret(pin) if pin else "")
     audit(db, "device.unattended_pin_synced", device.owner_id, device_id)
     return {"device_id": device_id, "unattended_enabled": bool(pin)}
 
@@ -209,7 +215,8 @@ def connect(data: ConnectIn, request: Request, authorization: str | None = Heade
     device = db.scalar(select(Device).where(Device.device_id == data.device_id))
     if not device:
         raise HTTPException(404, "Device not found")
-    pin_ok = bool(device.unattended_pin_hash and verify_secret(device.unattended_pin_hash, data.password))
+    saved_pin_hash = _get_unattended_pin_hash(db, device.device_id)
+    pin_ok = bool(saved_pin_hash and verify_secret(saved_pin_hash, data.password))
     if not pin_ok:
         if datetime.now(timezone.utc) > device.password_expires_at.replace(tzinfo=timezone.utc):
             raise HTTPException(401, "Dynamic password expired; ask the device owner to rotate it")

@@ -38,8 +38,6 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
-    unattended_pin_hash: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
-    unattended_pin_hash: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
     role: Mapped[str] = mapped_column(String(20), default="technician")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -75,17 +73,5 @@ def init_db():
     # create_all is scoped to the three rdp_* models above; unrelated tables are never altered.
     verify_database_connection()
     Base.metadata.create_all(bind=engine)
-    with engine.begin() as conn:
-        if DATABASE_KIND == "postgresql":
-            conn.execute(text("ALTER TABLE rdp_devices ADD COLUMN IF NOT EXISTS unattended_pin_hash VARCHAR(255)"))
-        elif DATABASE_KIND == "sqlite":
-            cols = [r[1] for r in conn.execute(text("PRAGMA table_info(rdp_devices)")).fetchall()]
-            if "unattended_pin_hash" not in cols:
-                conn.execute(text("ALTER TABLE rdp_devices ADD COLUMN unattended_pin_hash VARCHAR(255)"))
-    with engine.begin() as conn:
-        if DATABASE_KIND == "postgresql":
-            conn.execute(text("ALTER TABLE rdp_devices ADD COLUMN IF NOT EXISTS unattended_pin_hash VARCHAR(255)"))
-        elif DATABASE_KIND == "sqlite":
-            cols = [r[1] for r in conn.execute(text("PRAGMA table_info(rdp_devices)")).fetchall()]
-            if "unattended_pin_hash" not in cols:
-                conn.execute(text("ALTER TABLE rdp_devices ADD COLUMN unattended_pin_hash VARCHAR(255)"))
+
+
