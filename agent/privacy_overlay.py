@@ -118,13 +118,23 @@ class PrivacyBanner:
             root.bind_all("<Control-Alt-Shift-B>", lambda _event: self.stop())
             root.update_idletasks()
             user32 = ctypes.WinDLL("user32", use_last_error=True)
-            hwnd = int(root.winfo_id())
-            hwnd = int(user32.GetAncestor(hwnd, 2) or hwnd)
-            get_style, set_style = user32.GetWindowLongW, user32.SetWindowLongW
-            get_style.restype = ctypes.c_long
-            set_style.restype = ctypes.c_long
+            user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+            user32.GetAncestor.restype = wintypes.HWND
+            hwnd = wintypes.HWND(root.winfo_id())
+            hwnd = user32.GetAncestor(hwnd, 2) or hwnd
+            long_ptr = ctypes.c_ssize_t
+            get_style = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
+            set_style = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
+            get_style.argtypes = [wintypes.HWND, ctypes.c_int]
+            get_style.restype = long_ptr
+            set_style.argtypes = [wintypes.HWND, ctypes.c_int, long_ptr]
+            set_style.restype = long_ptr
             set_style(hwnd, -20, get_style(hwnd, -20) | 0x00000008 | 0x00000080)
-            user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0020)
+            user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+            user32.SetWindowPos.restype = wintypes.BOOL
+            user32.SetWindowDisplayAffinity.argtypes = [wintypes.HWND, wintypes.DWORD]
+            user32.SetWindowDisplayAffinity.restype = wintypes.BOOL
+            user32.SetWindowPos(hwnd, wintypes.HWND(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0020)
             if not user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE):
                 self._apply_gamma_fallback()
                 root.withdraw()
