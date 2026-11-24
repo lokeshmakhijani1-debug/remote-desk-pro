@@ -1,0 +1,182 @@
+[
+  {
+    "id": 1,
+    "cat": "ARCH",
+    "status": "PASS",
+    "detail": "backend/main.py present"
+  },
+  {
+    "id": 2,
+    "cat": "ARCH",
+    "status": "PASS",
+    "detail": "agent/host_agent.py present"
+  },
+  {
+    "id": 3,
+    "cat": "ARCH",
+    "status": "PASS",
+    "detail": "agent/privacy_overlay.py present"
+  },
+  {
+    "id": 4,
+    "cat": "ARCH",
+    "status": "PASS",
+    "detail": "agent/session_recorder.py present"
+  },
+  {
+    "id": 5,
+    "cat": "ARCH",
+    "status": "PASS",
+    "detail": "agent/resumable_transfer.py present"
+  },
+  {
+    "id": 6,
+    "cat": "API",
+    "status": "PASS",
+    "detail": "/api/health -> 200"
+  },
+  {
+    "id": 7,
+    "cat": "API",
+    "status": "FAIL",
+    "detail": "WebSocket binary relay enabled"
+  },
+  {
+    "id": 8,
+    "cat": "API",
+    "status": "FAIL",
+    "detail": "Chunked file transfer API enabled"
+  },
+  {
+    "id": 9,
+    "cat": "API",
+    "status": "FAIL",
+    "detail": "Clipboard sync API enabled"
+  },
+  {
+    "id": 10,
+    "cat": "API",
+    "status": "FAIL",
+    "detail": "Session recording feature enabled"
+  },
+  {
+    "id": 11,
+    "cat": "SEC",
+    "status": "PASS",
+    "detail": "Unauth /api/devices blocked (401)"
+  },
+  {
+    "id": 12,
+    "cat": "SEC",
+    "status": "PASS",
+    "detail": "Backend allows black screen mode"
+  },
+  {
+    "id": 13,
+    "cat": "CTRL",
+    "status": "PASS",
+    "detail": "Mouse move validation"
+  },
+  {
+    "id": 14,
+    "cat": "CTRL",
+    "status": "PASS",
+    "detail": "Mouse click validation"
+  },
+  {
+    "id": 15,
+    "cat": "CTRL",
+    "status": "PASS",
+    "detail": "Mouse scroll validation"
+  },
+  {
+    "id": 16,
+    "cat": "CTRL",
+    "status": "PASS",
+    "detail": "Keyboard key_down validation"
+  },
+  {
+    "id": 17,
+    "cat": "CTRL",
+    "status": "PASS",
+    "detail": "Out-of-bounds mouse rejected"
+  },
+  {
+    "id": 18,
+    "cat": "CTRL",
+    "status": "PASS",
+    "detail": "Clipboard payload validation"
+  },
+  {
+    "id": 19,
+    "cat": "AGENT",
+    "status": "PASS",
+    "detail": "Black screen WDA_EXCLUDEFROMCAPTURE present"
+  },
+  {
+    "id": 20,
+    "cat": "AGENT",
+    "status": "PASS",
+    "detail": "No WS_EX_LAYERED capture-leak bug in overlay"
+  },
+  {
+    "id": 21,
+    "cat": "AGENT",
+    "status": "PASS",
+    "detail": "Background MP4 session recording wired"
+  },
+  {
+    "id": 22,
+    "cat": "AGENT",
+    "status": "PASS",
+    "detail": "SHA-256 resumable chunk receiver wired"
+  },
+  {
+    "id": 23,
+    "cat": "AGENT",
+    "status": "FAIL",
+    "detail": "AI Workflow Action Recorder / Replay engine"
+  },
+  {
+    "id": 24,
+    "cat": "AGENT",
+    "status": "FAIL",
+    "detail": "Multi-Monitor switcher support"
+  },
+  {
+    "id": 25,
+    "cat": "UI",
+    "status": "PASS",
+    "detail": "Collapsible left sidebar slide toggle"
+  },
+  {
+    "id": 26,
+    "cat": "UI",
+    "status": "PASS",
+    "detail": "Collapsible Computers & History dropdown"
+  },
+  {
+    "id": 27,
+    "cat": "UI",
+    "status": "PASS",
+    "detail": "Black Screen + Mobile Keyboard + Zstd Transfer UI"
+  },
+  {
+    "id": 28,
+    "cat": "UI",
+    "status": "FAIL",
+    "detail": "Live Session Chat & System Audio streaming"
+  },
+  {
+    "id": 29,
+    "cat": "CLOUD",
+    "status": "PASS",
+    "detail": "Render Live Health 200 OK (699 ms)"
+  },
+  {
+    "id": 30,
+    "cat": "TEST",
+    "status": "FAIL",
+    "detail": "2 failed, 57 passed, 1 warning in 19.74s"
+  }
+]
