@@ -442,6 +442,21 @@ async def host_socket(ws: WebSocket, device_id: str):
             elif kind == "text" and hub.is_approved(device_id):
                 if validate_text_event(event):
                     await hub.relay(device_id, ws, raw)
+            elif kind == "telemetry" and hub.is_approved(device_id):
+                try:
+                    fps = float(event.get("fps", 0))
+                    ping = event.get("ping_ms")
+                    ping_ms = None if ping is None else float(ping)
+                    upload = float(event.get("upload_kbps", 0))
+                    download = float(event.get("download_kbps", 0))
+                    if not (0 <= fps <= 120 and 0 <= upload <= 10000000 and 0 <= download <= 10000000):
+                        continue
+                    if ping_ms is not None and not (0 <= ping_ms <= 60000):
+                        continue
+                except (TypeError, ValueError):
+                    continue
+                payload = {"type":"telemetry","fps":fps,"ping_ms":ping_ms,"upload_kbps":upload,"download_kbps":download}
+                await hub.relay(device_id, ws, json.dumps(payload))
             elif kind == "clipboard_update" and hub.is_approved(device_id):
                 if validate_clipboard(event):
                     audit(db, "clipboard.relayed", device.owner_id, device_id, f"characters={len(event['text'])}")

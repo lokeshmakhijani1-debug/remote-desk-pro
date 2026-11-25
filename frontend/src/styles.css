@@ -18,3 +18,5 @@
 .sidebar-toggle{width:34px;height:34px;border-radius:8px;border:1px solid #dfe6ef;background:#f8fafc;color:#18243a;display:grid;place-items:center;font-size:15px;font-weight:700;flex-shrink:0}
 .sidebar-toggle:hover{background:#e7f8f1;color:#087d65;border-color:#b9dfd1}
 @media(max-width:680px){.sidebar{position:fixed;top:0;bottom:0;left:0;z-index:50;width:230px;padding:20px 14px}.brand span,.workspace>div:nth-child(2),.workspace>svg,.nav-caption,.nav{font-size:12px}.brand span{font-size:16px}.workspace{justify-content:flex-start;padding:11px}.nav{justify-content:flex-start;padding:10px}.profile>div:nth-child(2){display:grid}.profile{justify-content:flex-start}}
+
+.telemetry-hud{position:absolute;top:10px;left:10px;z-index:3;max-width:calc(100% - 20px);padding:7px 10px;border:1px solid #ffffff30;border-radius:8px;background:#0b1428d9;color:#e7f5f1;font:10px/1.4 ui-monospace,monospace;pointer-events:none;backdrop-filter:blur(8px)}

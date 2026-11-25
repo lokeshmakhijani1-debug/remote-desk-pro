@@ -573,8 +573,10 @@ async def run_once(args, stop_event=None):
                 telemetry.set_ping(ping_ms)
                 if _DIAGNOSTICS_CALLBACK:
                     _DIAGNOSTICS_CALLBACK(_LAST_ERROR, ping_ms)
+                metrics = telemetry.snapshot()
                 if _TELEMETRY_CALLBACK:
-                    _TELEMETRY_CALLBACK(telemetry.snapshot())
+                    _TELEMETRY_CALLBACK(metrics)
+                await ws.send(json.dumps({"type":"telemetry", **metrics}))
         latency_task = asyncio.create_task(report_latency())
         async def send_outgoing_chunk(transfer_id: str, offset: int):
             state = outgoing_transfers.get(transfer_id)
