@@ -7,6 +7,7 @@ import type {PointerEvent as ReactPointerEvent} from "react";
 const SESSION_STORAGE_KEY = "remote-desk-pro-session";
 const SUPPORT_EMAIL = (import.meta.env.VITE_CONTACT_EMAIL || "").trim();
 interface PersistedSession { sessionId: string; deviceId: string; viewerToken: string; }
+interface IncomingTransfer { transfer_id: string; name: string; total_size: number; sha256: string; chunk_size: number; offset: number; chunks: Uint8Array[]; }
 type Auth={access_token:string;user:User};type Pair={device_id:string;agent_secret:string;dynamic_password:string;password_expires_at:string};type Session={session_token:string;device_id:string;ice_servers:{urls:string}[]};
 const menu=[[ "Remote Control",Monitor],[ "Remote Management",Activity],[ "Meetings / Screen Share",Video],[ "Computers & Contacts",Computer],[ "Chat",MessageSquare],[ "File Transfer",Folder]] as const;
 
@@ -30,6 +31,7 @@ export default function App(){
  const [session,setSession]=useState<Session|null>(null),[status,setStatus]=useState("Ready to connect"),[error,setError]=useState(""),[active,setActive]=useState("Remote Control"),[control,setControl]=useState(false),[chatOpen,setChatOpen]=useState(false);
  const [diagnosticsOpen,setDiagnosticsOpen]=useState(false),[lastError,setLastError]=useState("None"),[latency,setLatency]=useState<number|null>(null),[toast,setToast]=useState("");
  const socket=useRef<WebSocket|null>(null),canvas=useRef<HTMLCanvasElement>(null),fileInput=useRef<HTMLInputElement>(null),pendingFile=useRef<File|null>(null);
+ const incomingTransfer=useRef<IncomingTransfer|null>(null);
  const pressedKeys=useRef<Set<string>>(new Set()),manualDisconnect=useRef(false),retryTimer=useRef<number|undefined>(undefined),heartbeatTimer=useRef<number|undefined>(undefined),resumeProbeTimer=useRef<number|undefined>(undefined),attemptRef=useRef(0),heartbeatSentAt=useRef(0);
  const [clipboardText,setClipboardText]=useState(""),[remoteClipboard,setRemoteClipboard]=useState(""),[transferStatus,setTransferStatus]=useState("");const [transferProgress,setTransferProgress]=useState(0),[transferPaused,setTransferPaused]=useState(false),[useZstd,setUseZstd]=useState(false),[transferVerified,setTransferVerified]=useState(false);const transferOffset=useRef(0),activeTransfer=useRef<ActiveTransfer|null>(null);
  const [keyboardOpen,setKeyboardOpen]=useState(false),[keyboardBuffer,setKeyboardBuffer]=useState(""),[zoom,setZoom]=useState(1),[panX,setPanX]=useState(0),[panY,setPanY]=useState(0);
@@ -59,9 +61,43 @@ export default function App(){
     if(m.type==="host_offline"){setStatus("Host offline");setLastError("Host relay disconnected.");}
     if(m.type==="host_disconnected"){setStatus("Disconnected by host");setLastError("The host closed the Remote Desk Pro agent.");manualDisconnect.current=true;sessionStorage.removeItem(SESSION_STORAGE_KEY);setSession(null);socket.current?.close(1000,"Host disconnected");}
     if(m.type==="host_approved"){setStatus("Connected (Live)");setRecordingActive(Boolean(m.recording));setToast("Remote session connected.");if(autoPrivacy)ws.send(JSON.stringify({type:"control",event:"privacy_screen",enabled:true,mode:"black"}));if(activeTransfer.current)ws.send(JSON.stringify({type:"transfer_init",transfer_id:activeTransfer.current.transfer_id,name:activeTransfer.current.name,total_size:activeTransfer.current.total_size,sha256:activeTransfer.current.sha256,chunk_size:activeTransfer.current.chunk_size,compression:activeTransfer.current.compression}));}
+    if(m.type==="transfer_init"){
+     const transferId=String(m.transfer_id||""),size=Number(m.total_size||0),existing=incomingTransfer.current;
+     if(!transferId||size<=0||size>50*1024*1024){ws.send(JSON.stringify({type:"transfer_error",transfer_id:transferId,detail:"Invalid incoming file metadata"}));}
+     else if(existing?.transfer_id===transferId){ws.send(JSON.stringify({type:"transfer_resume_req",transfer_id:transferId,next_offset:existing.offset}));}
+     else if(window.confirm("Receive "+String(m.name||"file")+" ("+size+" bytes) from the connected host?")){
+      const safeName=String(m.name||"received-file").replace(/[\\/:*?"<>|]/g,"_").slice(0,180);
+      incomingTransfer.current={transfer_id:transferId,name:safeName,total_size:size,sha256:String(m.sha256||"").toLowerCase(),chunk_size:Number(m.chunk_size)||256*1024,offset:0,chunks:[]};
+      ws.send(JSON.stringify({type:"transfer_resume_req",transfer_id:transferId,next_offset:0}));
+      setTransferStatus("Receiving host file: "+safeName);
+     }else{ws.send(JSON.stringify({type:"transfer_error",transfer_id:transferId,detail:"Viewer declined the incoming file"}));}
+    }
+    if(m.type==="transfer_chunk"&&incomingTransfer.current?.transfer_id===String(m.transfer_id||"")){
+     const transfer=incomingTransfer.current,offset=Number(m.offset);
+     try{
+      const binary=atob(String(m.data||"")),chunk=Uint8Array.from(binary,c=>c.charCodeAt(0));
+      if(offset!==transfer.offset||transfer.offset+chunk.length>transfer.total_size)throw new Error("Unexpected chunk offset or size");
+      transfer.chunks.push(chunk);transfer.offset+=chunk.length;
+      ws.send(JSON.stringify({type:"transfer_ack",transfer_id:transfer.transfer_id,next_offset:transfer.offset}));
+      setTransferStatus("Receiving host file: "+Math.floor(transfer.offset/transfer.total_size*100)+"%");
+     }catch(error){ws.send(JSON.stringify({type:"transfer_error",transfer_id:transfer.transfer_id,detail:error instanceof Error?error.message:"Invalid incoming chunk"}));incomingTransfer.current=null;}
+    }
     if(m.type==="transfer_resume_req"){transferOffset.current=Number(m.next_offset)||0;void uploadPendingFile(transferOffset.current);}
     if(m.type==="transfer_ack"){transferOffset.current=Number(m.next_offset)||0;setTransferProgress(Math.min(100,Math.floor(transferOffset.current/Math.max(1,activeTransfer.current?.total_size||1)*100)));if(activeTransfer.current)void saveTransfer({...activeTransfer.current,ackedOffset:transferOffset.current});void uploadPendingFile(transferOffset.current);}
-    if(m.type==="transfer_complete"){setTransferVerified(Boolean(m.verified));setTransferStatus(m.verified?"File received and SHA-256 verified":"Receiver checksum verification failed");if(m.verified&&activeTransfer.current){void deleteTransfer(activeTransfer.current.transfer_id);activeTransfer.current=null;pendingFile.current=null;}}
+    if(m.type==="transfer_complete"&&incomingTransfer.current?.transfer_id===String(m.transfer_id||"")){
+     const incoming=incomingTransfer.current;
+     void (async()=>{
+      try{
+       const blob=new Blob(incoming.chunks),digest=await crypto.subtle.digest("SHA-256",await blob.arrayBuffer());
+       const actual=Array.from(new Uint8Array(digest)).map(v=>v.toString(16).padStart(2,"0")).join("");
+       const verified=actual===incoming.sha256;
+       if(verified){const url=URL.createObjectURL(blob),anchor=document.createElement("a");anchor.href=url;anchor.download=incoming.name;document.body.appendChild(anchor);anchor.click();anchor.remove();window.setTimeout(()=>URL.revokeObjectURL(url),1500);}
+       ws.send(JSON.stringify({type:"transfer_complete",transfer_id:incoming.transfer_id,sha256:actual,verified}));
+       setTransferStatus(verified?"Host file received; SHA-256 verified":"Host file failed SHA-256 verification");
+      }catch(error){ws.send(JSON.stringify({type:"transfer_error",transfer_id:incoming.transfer_id,detail:error instanceof Error?error.message:"File verification failed"}));setTransferStatus("Incoming host file verification failed");}
+      finally{incomingTransfer.current=null;}
+     })();
+    }else if(m.type==="transfer_complete"){setTransferVerified(Boolean(m.verified));setTransferStatus(m.verified?"File received and SHA-256 verified":"Receiver checksum verification failed");if(m.verified&&activeTransfer.current){void deleteTransfer(activeTransfer.current.transfer_id);activeTransfer.current=null;pendingFile.current=null;}}
     if(m.type==="transfer_error")setTransferStatus(String(m.detail||"Transfer failed"));
     if(m.type==="host_denied"){setStatus("Host denied this session");setLastError("The host denied the connection request.");}
     if(m.type==="heartbeat_ack"){if(heartbeatSentAt.current)setLatency(Date.now()-heartbeatSentAt.current);heartbeatSentAt.current=0;if(resumeProbeTimer.current)window.clearTimeout(resumeProbeTimer.current);resumeProbeTimer.current=undefined;setStatus(current=>m.device_online===false?"Host offline":m.device_online===true&&current==="Host offline"?"Waiting for host approval...":current);}

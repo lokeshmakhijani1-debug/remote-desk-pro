@@ -192,7 +192,8 @@ class DesktopApp:
     def _build(self):
         tk.Label(self.root, text="REMOTE DESK PRO", bg="#f3f6fa", fg="#087d65", font=("Segoe UI", 10, "bold")).pack(pady=(22, 2))
         tk.Label(self.root, text="Your computer, ready for secure remote support", bg="#f3f6fa", fg="#25364d", font=("Segoe UI", 16, "bold")).pack(pady=(0, 8))
-        tk.Button(self.root, text="Open Viewer / Take Control", command=self._open_viewer, bg="#087d65", fg="white", relief="flat", padx=12, pady=7).pack(pady=(0, 8))
+        tk.Button(self.root, text="Open Viewer / Take Control", command=self._open_viewer, bg="#087d65", fg="white", relief="flat", padx=12, pady=7).pack(pady=(0, 4))
+        tk.Button(self.root, text="Send File to Connected Viewer", command=self._send_file_to_viewer, bg="#ffffff", fg="#087d65", relief="solid", bd=1, padx=10, pady=5).pack(pady=(0, 8))
         card = tk.Frame(self.root, bg="white", highlightbackground="#e0e7ef", highlightthickness=1)
         card.pack(fill="x", padx=24, pady=8)
         tk.Label(card, text="YOUR ID", bg="white", fg="#7b8ba1", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(18, 4))
@@ -272,6 +273,21 @@ class DesktopApp:
             subprocess.Popen(command, close_fds=True)
         except Exception as exc:
             messagebox.showerror("Viewer could not start", str(exc))
+
+    def _send_file_to_viewer(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(parent=self.root, title="Choose a file to send to the viewer")
+        if not path:
+            return
+        try:
+            try:
+                import host_agent
+            except ModuleNotFoundError:
+                from agent import host_agent
+            host_agent.enqueue_file_send(path)
+            self.status_var.set("File queued; it will be offered to the next approved viewer session.")
+        except Exception as exc:
+            messagebox.showerror("File could not be queued", str(exc))
 
     def _set_workflow_recording(self):
         enabled = bool(self.workflow_record_var.get())

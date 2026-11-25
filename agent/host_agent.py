@@ -10,6 +10,9 @@ import logging
 import os
 import sys
 import threading
+import queue
+import hashlib
+import uuid
 from pathlib import Path
 from resumable_transfer import EndpointFileReceiver, EndpointTransferError
 try:
@@ -48,6 +51,28 @@ _INSTANCE_MUTEX = None
 _PRESSED_KEYS = set()
 _PRESSED_MOUSE_BUTTONS = set()
 _PRIMARY_CAPTURE_SIZE = None
+_FILE_SEND_QUEUE = queue.Queue()
+_OUTGOING_TRANSFER_STATE = Path(APP_DIR) / "outgoing-transfer.json"
+
+def enqueue_file_send(path: str) -> None:
+    candidate = Path(path).expanduser().resolve()
+    if not candidate.is_file():
+        raise FileNotFoundError("Selected file does not exist.")
+    if candidate.stat().st_size <= 0 or candidate.stat().st_size > 50 * 1024 * 1024:
+        raise ValueError("Choose a file between 1 byte and 50 MB.")
+    _FILE_SEND_QUEUE.put(str(candidate))
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+def _save_outgoing_transfer(state: dict) -> None:
+    temporary = _OUTGOING_TRANSFER_STATE.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
+    os.replace(temporary, _OUTGOING_TRANSFER_STATE)
 _INPUT_LOCK = threading.RLock()
 
 
@@ -519,6 +544,19 @@ async def run_once(args, stop_event=None):
         clipboard_task = None
         incoming_file = None
         incoming_transfers: dict[str, EndpointFileReceiver] = {}
+        outgoing_transfers: dict[str, dict] = {}
+        try:
+            saved = json.loads(_OUTGOING_TRANSFER_STATE.read_text(encoding="utf-8"))
+            saved_path = Path(saved["path"])
+            if saved_path.is_file() and saved_path.stat().st_size == int(saved["total_size"]) and _sha256_file(saved_path) == saved["sha256"]:
+                outgoing_transfers[str(saved["transfer_id"])] = saved
+            else:
+                _OUTGOING_TRANSFER_STATE.unlink(missing_ok=True)
+        except FileNotFoundError:
+            pass
+        except Exception:
+            _OUTGOING_TRANSFER_STATE.unlink(missing_ok=True)
+            log.warning("Discarded invalid outgoing transfer checkpoint", exc_info=True)
         streaming = asyncio.Event()
         viewer_id = "unknown"
         recorder = None
@@ -526,6 +564,7 @@ async def run_once(args, stop_event=None):
         telemetry = TelemetryTracker()
         stop_task = None
         latency_task = None
+        file_sender_task = None
         async def report_latency():
             while True:
                 await asyncio.sleep(5)
@@ -537,6 +576,54 @@ async def run_once(args, stop_event=None):
                 if _TELEMETRY_CALLBACK:
                     _TELEMETRY_CALLBACK(telemetry.snapshot())
         latency_task = asyncio.create_task(report_latency())
+        async def send_outgoing_chunk(transfer_id: str, offset: int):
+            state = outgoing_transfers.get(transfer_id)
+            if not state:
+                return
+            size = int(state["total_size"]); chunk_size = int(state["chunk_size"])
+            if offset < 0 or offset > size:
+                await ws.send(json.dumps({"type":"transfer_error","transfer_id":transfer_id,"detail":"Invalid resume offset"}))
+                return
+            state["offset"] = offset
+            _save_outgoing_transfer(state)
+            if offset >= size:
+                await ws.send(json.dumps({"type":"transfer_complete","transfer_id":transfer_id,"sha256":state["sha256"]}))
+                return
+            def read_chunk():
+                with Path(state["path"]).open("rb") as stream:
+                    stream.seek(offset)
+                    return stream.read(min(chunk_size, size-offset))
+            chunk = await asyncio.to_thread(read_chunk)
+            if not chunk:
+                await ws.send(json.dumps({"type":"transfer_error","transfer_id":transfer_id,"detail":"Source file became unreadable"}))
+                return
+            await ws.send(json.dumps({"type":"transfer_chunk","transfer_id":transfer_id,"offset":offset,"data":base64.b64encode(chunk).decode("ascii")}))
+            telemetry.transfer_sent(len(chunk))
+        async def send_queued_files():
+            while True:
+                if not streaming.is_set() or outgoing_transfers:
+                    await asyncio.sleep(0.4)
+                    continue
+                try:
+                    path = Path(await asyncio.to_thread(_FILE_SEND_QUEUE.get, True, 1))
+                except queue.Empty:
+                    continue
+                try:
+                    size = path.stat().st_size
+                    if not 0 < size <= 50 * 1024 * 1024:
+                        set_status("Outgoing file rejected: maximum size is 50 MB")
+                        continue
+                    digest = await asyncio.to_thread(_sha256_file, path)
+                    transfer_id = uuid.uuid4().hex
+                    state = {"transfer_id":transfer_id,"path":str(path),"name":path.name[:180],"total_size":size,"sha256":digest,"chunk_size":256*1024,"compression":"none","offset":0}
+                    outgoing_transfers[transfer_id] = state
+                    _save_outgoing_transfer(state)
+                    await ws.send(json.dumps({"type":"transfer_init","transfer_id":transfer_id,"name":state["name"],"total_size":size,"sha256":digest,"chunk_size":state["chunk_size"],"compression":"none"}))
+                    set_status("Waiting for viewer to accept outgoing file…")
+                except Exception as exc:
+                    log.warning("Could not initialize outgoing file transfer: %s", exc)
+                    set_status("Outgoing file transfer could not start")
+        file_sender_task = asyncio.create_task(send_queued_files())
         if stop_event is not None:
             async def close_on_stop():
                 await asyncio.to_thread(stop_event.wait)
@@ -556,6 +643,8 @@ async def run_once(args, stop_event=None):
                     set_status("Waiting for host approval...")
                     if stream_task and not stream_task.done():
                         await ws.send(json.dumps({"type":"host_approved","recording":bool(recorder)}))
+                        for state in outgoing_transfers.values():
+                            await ws.send(json.dumps({"type":"transfer_init","transfer_id":state["transfer_id"],"name":state["name"],"total_size":state["total_size"],"sha256":state["sha256"],"chunk_size":state["chunk_size"],"compression":"none"}))
                         continue
                     if is_unattended_auto_approve_enabled() or await ask_host_consent(args.device_id, args.dynamic_password):
                         try:
@@ -571,6 +660,8 @@ async def run_once(args, stop_event=None):
                         await ws.send(json.dumps({"type":"host_approved","recording":True}))
                         stream_task = asyncio.create_task(stream_screen(ws, streaming, telemetry))
                         clipboard_task = asyncio.create_task(clipboard_watch(ws, streaming))
+                        for state in outgoing_transfers.values():
+                            await ws.send(json.dumps({"type":"transfer_init","transfer_id":state["transfer_id"],"name":state["name"],"total_size":state["total_size"],"sha256":state["sha256"],"chunk_size":state["chunk_size"],"compression":"none"}))
                         set_status("Connected (Live) · REC")
                     else:
                         await ws.send(json.dumps({"type":"host_denied"}))
@@ -631,6 +722,14 @@ async def run_once(args, stop_event=None):
                                 await asyncio.to_thread(pyautogui.hotkey, "ctrl", "v", _pause=False)
                         except Exception:
                             log.warning("Incoming clipboard update failed", exc_info=True)
+                elif message.get("type") == "transfer_resume_req" and streaming.is_set():
+                    transfer_id = str(message.get("transfer_id", ""))
+                    if transfer_id in outgoing_transfers:
+                        await send_outgoing_chunk(transfer_id, int(message.get("next_offset", 0)))
+                elif message.get("type") == "transfer_ack" and streaming.is_set():
+                    transfer_id = str(message.get("transfer_id", ""))
+                    if transfer_id in outgoing_transfers:
+                        await send_outgoing_chunk(transfer_id, int(message.get("next_offset", 0)))
                 elif message.get("type") == "transfer_init" and streaming.is_set():
                     try:
                         transfer_id = str(message.get("transfer_id", ""))
@@ -669,6 +768,13 @@ async def run_once(args, stop_event=None):
                                                       "detail":str(exc)[:200]}))
                 elif message.get("type") == "transfer_complete" and streaming.is_set():
                     transfer_id = str(message.get("transfer_id", ""))
+                    outgoing = outgoing_transfers.get(transfer_id)
+                    if outgoing:
+                        verified = bool(message.get("verified")) and str(message.get("sha256", "")).lower() == outgoing["sha256"]
+                        outgoing_transfers.pop(transfer_id, None)
+                        _OUTGOING_TRANSFER_STATE.unlink(missing_ok=True)
+                        set_status("Outgoing file delivered and SHA-256 verified" if verified else "Viewer did not verify the outgoing file")
+                        continue
                     receiver = incoming_transfers.get(transfer_id)
                     if receiver:
                         try:
@@ -680,6 +786,12 @@ async def run_once(args, stop_event=None):
                         except (ValueError, OSError) as exc:
                             await ws.send(json.dumps({"type":"transfer_error","transfer_id":transfer_id,
                                                       "detail":str(exc)[:200]}))
+                elif message.get("type") == "transfer_error" and streaming.is_set():
+                    transfer_id = str(message.get("transfer_id", ""))
+                    if transfer_id in outgoing_transfers:
+                        outgoing_transfers.pop(transfer_id, None)
+                        _OUTGOING_TRANSFER_STATE.unlink(missing_ok=True)
+                        set_status("Viewer rejected or could not receive the outgoing file")
                 elif message.get("type") == "file_offer" and streaming.is_set():
                     name = str(message.get("name", "received-file"))[:180]
                     size = int(message.get("size", 0))
@@ -739,6 +851,8 @@ async def run_once(args, stop_event=None):
                 stop_task.cancel()
             if latency_task:
                 latency_task.cancel()
+            if file_sender_task:
+                file_sender_task.cancel()
             streaming.clear()
             _set_privacy_screen_active(False)
             if privacy_banner:

@@ -32,7 +32,7 @@
 - Local development supports SQLite WAL; the deployed Render service uses Supabase-managed PostgreSQL, confirmed by a live `SELECT 1` health check.
 - Maximum concurrent viewer sockets is configured to 50, but not load-tested or certified.
 - Login and connection attempts have in-memory IP-based throttling; distributed rate limiting is not implemented.
-- Clipboard sync is bidirectional after host approval (64 KiB cap). File transfer is viewer-to-host only (50 MiB cap) with host-selected save path; chat delivery, audio, recording, multi-monitor switching, WOL, unattended access and user-invitation administration are not implemented.
+- Clipboard sync is bidirectional after host approval (64 KiB cap). V1 viewer-to-host transfer remains supported; V2 adds host-to-viewer SHA-256-verified chunked transfer with resume offsets and viewer acceptance (50 MiB cap); chat delivery, audio, recording, multi-monitor switching, WOL, unattended access and user-invitation administration are not implemented.
 - No paid Render plan or external paid TURN service is part of the plan.
 
 ## Phase checkpoints
@@ -688,3 +688,6 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - `test_instructions.json`: non-interactive dependency, regression, E2E, stress, security and fault-injection runner commands.
 - Runtime endpoints and contact data are environment-provided (`RDP_SERVER`, `RDP_BASE_URL`, `CORS_ORIGINS`, `PUBLIC_BASE_URL`, `SUPPORT_EMAIL`, `VITE_CONTACT_EMAIL`). Production `APP_SECRET_KEY` must be unique and at least 32 characters.
 - User-generated workflow JSON is ignored by `.gitignore` and must not be committed.
+
+- V2 host-to-viewer file transfer: `agent/host_agent.py` queues a local file, persists its source path/hash/acknowledged offset in the host profile, sends 256 KiB chunks, resumes from viewer-acknowledged offsets after relay reconnect, and only clears the checkpoint after viewer SHA-256 verification.
+- V2 viewer-side incoming transfer: `frontend/src/App.tsx` asks the viewer to accept, buffers chunks, acknowledges each offset, verifies SHA-256, then triggers a browser download. The current receiver resumes across WebSocket reconnects while the viewer page remains open; a full page reload restarts that incoming transfer from offset zero.

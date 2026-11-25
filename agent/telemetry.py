@@ -9,6 +9,8 @@ class TelemetryTracker:
         with self._lock:self._frames+=1;self._upload+=max(0,int(n))
     def transfer_received(self,n:int)->None:
         with self._lock:self._download+=max(0,int(n))
+    def transfer_sent(self,n:int)->None:
+        with self._lock:self._upload+=max(0,int(n))
     def set_ping(self,ms:float|None)->None:
         with self._lock:self._ping=max(0.0,float(ms)) if ms is not None else None
     def snapshot(self)->dict:
