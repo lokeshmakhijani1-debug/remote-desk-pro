@@ -5,51 +5,76 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+
 permissions:
   contents: read
+
 concurrency:
   group: v2-ci-${{ github.ref }}
   cancel-in-progress: false
+
 jobs:
   tests:
-    runs-on: windows-latest
+    name: Python regression and frontend build
+    runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
-        with: {fetch-depth: 0}
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
-        with: {python-version: "3.12", cache: pip, cache-dependency-path: agent/requirements.txt}
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-dev.txt
+            agent/requirements.txt
       - uses: actions/setup-node@v4
-        with: {node-version: "24"}
-      - name: Install dependencies
-        shell: pwsh
+        with:
+          node-version: "24"
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements-dev.txt -r agent/requirements.txt pyinstaller
-          npm --prefix frontend install
-      - run: python -m compileall -q agent backend tests
-      - run: python -m pytest -q tests/test_*.py
-      - run: npm --prefix frontend run build
+          python -m pip install -r requirements-dev.txt -r agent/requirements.txt
+      - name: Install frontend dependencies
+        run: npm --prefix frontend install --no-audit --no-fund
+      - name: Compile Python sources
+        run: python -m compileall -q agent backend tests
+      - name: Run regression and unit tests
+        run: python -m pytest -q tests/test_*.py
+      - name: Build frontend
+        run: npm --prefix frontend run build
+
   security:
+    name: Full Git history secret scan
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-        with: {fetch-depth: 0}
+        with:
+          fetch-depth: 0
       - name: Gitleaks full-history scan
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   windows-exe:
-    needs: [tests,security]
+    name: Windows V2 executable
+    needs: [tests, security]
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-        with: {ref: feature/v2-bidirectional-automation}
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
       - uses: actions/setup-python@v5
-        with: {python-version: "3.12", cache: pip, cache-dependency-path: agent/requirements.txt}
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: agent/requirements.txt
       - name: Install packager dependencies
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r agent/requirements.txt pyinstaller
