@@ -693,3 +693,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 
 - V2 host-to-viewer file transfer: `agent/host_agent.py` queues a local file, persists its source path/hash/acknowledged offset in the host profile, sends 256 KiB chunks, resumes from viewer-acknowledged offsets after relay reconnect, and only clears the checkpoint after viewer SHA-256 verification.
 - V2 viewer-side incoming transfer: `frontend/src/App.tsx` asks the viewer to accept, buffers chunks, acknowledges each offset, verifies SHA-256, then triggers a browser download. The current receiver resumes across WebSocket reconnects while the viewer page remains open; a full page reload restarts that incoming transfer from offset zero.
+
+ 
+## V2 CI and security audit checkpoint — 2026-11-25
+- Feature branch: `feature/v2-bidirectional-automation`; all V2 CI edits remain isolated from `main`.
+- V2 validation now runs on `ubuntu-latest`; the `windows-latest` job is reserved for the PyInstaller executable build and SHA-256 artifact verification. `workflow_dispatch` remains enabled.
+- Gitleaks runs on Ubuntu with full checkout history (`fetch-depth: 0`) to scan Git history; this scan has not yet completed because the repository's hosted jobs are failing before runner allocation.
+- Issue #2 records six runs failing with `runner_id: 0`, no runner name, no steps and no job logs. Runner labels are valid standard labels. Billing/minutes quota is a plausible cause but is not confirmed by available API evidence.
+- A targeted current-branch source/config/log scan found no high-severity credential-pattern matches in 55 inspected text files. This is not a complete all-commits/all-branches audit and is not public-release clearance.
+- Public visibility gate: **NO — keep the repository private** until full-history Gitleaks results and branch-history review are clean, and any exposed credential is rotated/revoked.
