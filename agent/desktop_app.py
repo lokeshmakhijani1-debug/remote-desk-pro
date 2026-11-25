@@ -231,7 +231,7 @@ class DesktopApp:
         tk.Button(self.diag, text="Connection Diagnostics  ▾", command=self._toggle_diag, relief="flat", bg="#f3f6fa", fg="#53637a").pack(anchor="w")
         self.diag_text = tk.Label(self.diag, text=self._diagnostics_text(), bg="#f3f6fa", fg="#718096", justify="left", font=("Consolas", 8))
         tk.Button(self.root, text="Sign out / Re-link account", command=self._show_login, bg="#ffffff", fg="#53637a", relief="solid", bd=1).pack(fill="x", padx=24, pady=(10, 5))
-        tk.Label(self.root, text="Remote control requires your approval on this computer. Unattended access is disabled.", bg="#f3f6fa", fg="#718096", wraplength=430, font=("Segoe UI", 8)).pack(pady=12)
+        tk.Label(self.root, text="Manual approval is the default. Trusted unattended mode requires the owner's saved PIN.", bg="#f3f6fa", fg="#718096", wraplength=430, font=("Segoe UI", 8)).pack(pady=12)
 
     def _sync_unattended_pin_to_server(self, pin_value: str):
         did = self.config.get("device_id")

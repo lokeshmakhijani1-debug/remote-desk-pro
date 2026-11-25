@@ -73,7 +73,7 @@ export default function App(){
      }else{ws.send(JSON.stringify({type:"transfer_error",transfer_id:transferId,detail:"Viewer declined the incoming file"}));}
     }
     if(m.type==="transfer_chunk"&&incomingTransfer.current?.transfer_id===String(m.transfer_id||"")){
-     const transfer=incomingTransfer.current,offset=Number(m.offset);
+     const transfer=incomingTransfer.current!,offset=Number(m.offset);
      try{
       const binary=atob(String(m.data||"")),chunk=Uint8Array.from(binary,c=>c.charCodeAt(0));
       if(offset!==transfer.offset||transfer.offset+chunk.length>transfer.total_size)throw new Error("Unexpected chunk offset or size");
@@ -85,10 +85,10 @@ export default function App(){
     if(m.type==="transfer_resume_req"){transferOffset.current=Number(m.next_offset)||0;void uploadPendingFile(transferOffset.current);}
     if(m.type==="transfer_ack"){transferOffset.current=Number(m.next_offset)||0;setTransferProgress(Math.min(100,Math.floor(transferOffset.current/Math.max(1,activeTransfer.current?.total_size||1)*100)));if(activeTransfer.current)void saveTransfer({...activeTransfer.current,ackedOffset:transferOffset.current});void uploadPendingFile(transferOffset.current);}
     if(m.type==="transfer_complete"&&incomingTransfer.current?.transfer_id===String(m.transfer_id||"")){
-     const incoming=incomingTransfer.current;
+     const incoming=incomingTransfer.current!;
      void (async()=>{
       try{
-       const blob=new Blob(incoming.chunks),digest=await crypto.subtle.digest("SHA-256",await blob.arrayBuffer());
+       const blob=new Blob(incoming.chunks as BlobPart[]),digest=await crypto.subtle.digest("SHA-256",await blob.arrayBuffer());
        const actual=Array.from(new Uint8Array(digest)).map(v=>v.toString(16).padStart(2,"0")).join("");
        const verified=actual===incoming.sha256;
        if(verified){const url=URL.createObjectURL(blob),anchor=document.createElement("a");anchor.href=url;anchor.download=incoming.name;document.body.appendChild(anchor);anchor.click();anchor.remove();window.setTimeout(()=>URL.revokeObjectURL(url),1500);}

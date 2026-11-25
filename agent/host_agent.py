@@ -1,4 +1,4 @@
-"""Visible-consent host bridge. Streaming starts only after explicit local approval."""
+"""Consent-gated host bridge with optional owner-authorized unattended sessions."""
 import argparse
 import asyncio
 import ctypes
@@ -869,7 +869,7 @@ async def run_once(args, stop_event=None):
             if incoming_file:
                 incoming_file["handle"].close()
 
-async def calculate_backoff(attempt: int, base: int = 2, cap: int = 30) -> int:
+def calculate_backoff(attempt: int, base: int = 2, cap: int = 30) -> int:
     """Bounded exponential reconnect delay; first retry waits two seconds."""
     exponent = max(0, min(10, int(attempt) - 1))
     return min(max(1, int(cap)), max(1, int(base)) * (2 ** exponent))
