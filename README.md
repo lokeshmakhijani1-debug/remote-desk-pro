@@ -7,7 +7,7 @@ Self-hosted remote access MVP built with React, FastAPI, authenticated WebSocket
 - First account is admin; subsequent accounts are technicians.
 - Nine-digit device IDs, one-time agent secrets and expiring six-digit passwords.
 - Authenticated WebSocket signaling and binary JPEG frame relay.
-- Host agent requires explicit local ALLOW approval before screen capture and remote input.
+- Manual local ALLOW approval is the default; an owner may explicitly enable trusted unattended access using the saved device PIN.
 - SQLite WAL locally; SQLAlchemy URL support for PostgreSQL.
 - React dashboard and Render Free Docker deployment files.
 
@@ -24,7 +24,7 @@ Run RemoteDeskPro-Agent.exe by double-clicking it. On first launch, sign in to a
 - Device identity and the agent secret are stored in %APPDATA%\RemoteDeskPro\config.json; secrets are protected with Windows DPAPI.
 - Rotating logs are stored in %APPDATA%\RemoteDeskPro\agent.log.
 - The password expires after 24 hours of inactivity; a successful viewer connection refreshes the idle window. It is rotated on agent restart or when the user selects Rotate Password.
-- Every remote session requires explicit local approval. The host can disconnect at any time.
+- Manual approval is the default. Trusted unattended access bypasses the popup only when the owner enables it and sets a valid saved PIN. The host can disconnect at any time.
 - CLI/headless mode remains available with --server, --device-id, --secret, and --dynamic-password.
 - Set RDP_SERVER in the local environment or deployment dashboard; no production endpoint is embedded in tracked source.
 

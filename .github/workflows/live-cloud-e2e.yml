@@ -7,15 +7,6 @@ on:
         description: 'RDP_BASE_URL for the private live environment'
         required: true
         type: string
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/live-cloud-e2e.yml'
-      - 'tests/e2e_cloud_headless.py'
-      - 'agent/host_agent.py'
-      - 'agent/resumable_transfer.py'
-      - 'backend/main.py'
-      - 'backend/file_transfer.py'
 
 permissions:
   contents: read
@@ -63,7 +54,7 @@ jobs:
           PY
       - name: Run live cloud E2E
         env:
-          RDP_BASE_URL: https://remote-desk-pro-pj29.onrender.com
+          RDP_BASE_URL: ${{ inputs.base_url }}
           PYTHONUNBUFFERED: "1"
         run: python tests/e2e_cloud_headless.py
       - name: Upload exact JSON report
