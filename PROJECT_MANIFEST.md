@@ -684,6 +684,7 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - `agent/host_agent.py`: exponential reconnect backoff, telemetry integration, privacy-screen-gated workflow recording, and `--viewer` embedded-client mode.
 - `agent/desktop_app.py`: unified host console with embedded web viewer launch, workflow recording toggle and local replay control.
 - `agent/requirements.txt`: adds `psutil`, Windows process/window metadata support, and `pywebview` for the embedded viewer.
+- `Dockerfile` passes `VITE_CONTACT_EMAIL` into the Vite build; Render config exposes it as a manually supplied environment variable.
 - `.github/workflows/test-and-build-v2.yml`: Windows regression/unit/stress/fault-injection tests, full-history Gitleaks scan, frontend build, and one-file Windows executable artifact.
 - `test_instructions.json`: non-interactive dependency, regression, E2E, stress, security and fault-injection runner commands.
 - Runtime endpoints and contact data are environment-provided (`RDP_SERVER`, `RDP_BASE_URL`, `CORS_ORIGINS`, `PUBLIC_BASE_URL`, `SUPPORT_EMAIL`, `VITE_CONTACT_EMAIL`). Production `APP_SECRET_KEY` must be unique and at least 32 characters.

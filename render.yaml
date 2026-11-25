@@ -24,6 +24,8 @@ services:
         sync: false
       - key: SUPPORT_EMAIL
         sync: false
+      - key: VITE_CONTACT_EMAIL
+        sync: false
       - key: STUN_URL
         value: stun:stun.l.google.com:19302
       - key: FEATURES_UNLOCKED
