@@ -1,3 +1,4 @@
+import agent.workflow_engine as workflow_engine
 from agent.workflow_engine import WorkflowRecorder,WorkflowReplayEngine
 
 def test_recorder_stores_normalized_actions_but_not_typed_text(tmp_path):
@@ -23,3 +24,14 @@ def test_recorder_caps_workflow_size(tmp_path):
     for _ in range(10050):r.record_control({"event":"key_down","key":"a"})
     r.set_enabled(False)
     assert len(json.loads(r.last_saved.read_text())["steps"])<=10000
+
+
+def test_recorder_emits_context_checkpoints(tmp_path, monkeypatch):
+    contexts=[{"window_title":"Editor","process_name":"editor.exe","application":"editor","window_bounds":[0,0,1000,800]}, {"window_title":"Browser","process_name":"browser.exe","application":"browser","window_bounds":[0,0,1200,900]}]
+    monkeypatch.setattr(workflow_engine,"_active_context",lambda:contexts.pop(0) if contexts else {"window_title":"Browser","process_name":"browser.exe","application":"browser","window_bounds":[0,0,1200,900]})
+    r=WorkflowRecorder(tmp_path);r.set_enabled(True)
+    r.record_control({"event":"key_down","key":"ctrl"})
+    r.record_control({"event":"key_down","key":"l"})
+    p=r.set_enabled(False)
+    data=__import__("json").loads(p.read_text())
+    assert any(step["action"]=="checkpoint" for step in data["steps"])

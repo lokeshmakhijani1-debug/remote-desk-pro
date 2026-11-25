@@ -157,8 +157,8 @@ class DesktopApp:
     def __init__(self, server=None):
         self.root = tk.Tk()
         self.root.title("Remote Desk Pro")
-        self.root.geometry("500x570")
-        self.root.minsize(460, 520)
+        self.root.geometry("500x740")
+        self.root.minsize(460, 680)
         self.root.configure(bg="#f3f6fa")
         self._set_system_awake(True)
         self.root.protocol("WM_DELETE_WINDOW", self.close)

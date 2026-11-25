@@ -14,14 +14,15 @@ def workflow_directory()->Path:
     base=(Path(os.getenv("APPDATA",str(Path.home())))/"RemoteDeskPro") if getattr(sys,"frozen",False) else Path(__file__).resolve().parents[1]
     return base/"project_memory"/"workflows"
 
-def _active_context()->dict[str,str]:
-    context={"window_title":"","process_name":"","application":""}
+def _active_context()->dict[str,Any]:
+    context={"window_title":"","process_name":"","application":"","window_bounds":None}
     if os.name!="nt": return context
     try:
         import win32gui,win32process,psutil
         hwnd=win32gui.GetForegroundWindow(); title=win32gui.GetWindowText(hwnd) or ""
         _,pid=win32process.GetWindowThreadProcessId(hwnd); name=psutil.Process(pid).name()
-        context.update({"window_title":_EMAIL.sub("[redacted-email]",title[:180]),"process_name":name[:100],"application":Path(name).stem[:80]})
+        bounds=win32gui.GetWindowRect(hwnd)
+        context.update({"window_title":_EMAIL.sub("[redacted-email]",title[:180]),"process_name":name[:100],"application":Path(name).stem[:80],"window_bounds":[int(v) for v in bounds]})
     except Exception: pass
     return context
 
@@ -51,12 +52,22 @@ class WorkflowRecorder:
         with self._lock:
             if not self._enabled or len(self._steps)>=MAX_STEPS: return
             now=time.monotonic()
-            step={"action":event,"delay_ms":min(30000,max(0,round((now-self._last)*1000))),"context":_active_context()}
+            context=_active_context()
+            if self._steps and self._steps[-1].get("context")!=context and len(self._steps)<MAX_STEPS:
+                self._steps.append({"action":"checkpoint","delay_ms":0,"context":context})
+            step={"action":event,"delay_ms":min(30000,max(0,round((now-self._last)*1000))),"context":context}
             self._last=now
             if event=="mouse_down":
                 x,y=message.get("x"),message.get("y")
                 if not isinstance(x,(int,float)) or not isinstance(y,(int,float)) or not(0<=float(x)<=1 and 0<=float(y)<=1): return
-                step.update({"x":round(float(x),6),"y":round(float(y),6),"button":{0:"left",1:"middle",2:"right"}.get(message.get("button"),"left")})
+                mode="screen"
+                bounds=context.get("window_bounds")
+                if isinstance(bounds,list) and len(bounds)==4 and self._screen["width"]>0 and self._screen["height"]>0:
+                    left,top,right,bottom=bounds
+                    px=float(x)*self._screen["width"]; py=float(y)*self._screen["height"]
+                    if right>left and bottom>top and left<=px<=right and top<=py<=bottom:
+                        x=(px-left)/(right-left); y=(py-top)/(bottom-top); mode="window"
+                step.update({"x":round(float(x),6),"y":round(float(y),6),"coordinate_mode":mode,"button":{0:"left",1:"middle",2:"right"}.get(message.get("button"),"left")})
             elif event in {"key_down","key_up"}:
                 key=str(message.get("key",""))[:32]
                 if not key:return
@@ -82,8 +93,8 @@ class WorkflowReplayEngine:
         files=sorted(self.root.glob("workflow_*.json"),key=lambda p:p.stat().st_mtime,reverse=True)
         return files[0] if files else None
     @staticmethod
-    def _focus_process(name:str)->bool:
-        if os.name!="nt" or not name:return True
+    def _focus_process(name:str):
+        if os.name!="nt" or not name:return None
         try:
             import psutil,win32gui,win32process,win32con
             matches=[]
@@ -96,9 +107,9 @@ class WorkflowReplayEngine:
                 return True
             win32gui.EnumWindows(visit,None)
             if matches:
-                win32gui.ShowWindow(matches[0],win32con.SW_RESTORE);win32gui.SetForegroundWindow(matches[0]);return True
+                win32gui.ShowWindow(matches[0],win32con.SW_RESTORE);win32gui.SetForegroundWindow(matches[0]);return tuple(win32gui.GetWindowRect(matches[0]))
         except Exception:pass
-        return False
+        return None
     def replay(self,path:Path|None=None,*,dry_run:bool=False)->dict[str,Any]:
         target=Path(path) if path else self.latest()
         if target is None or not target.is_file():raise FileNotFoundError("No saved workflow was found.")
@@ -114,19 +125,33 @@ class WorkflowReplayEngine:
             time.sleep(max(0,min(30000,int(step.get("delay_ms",0))))/1000)
             context=step.get("context") if isinstance(step.get("context"),dict) else {}
             process=str(context.get("process_name",""))[:100]
-            if process and not self._focus_process(process):
+            bounds=self._focus_process(process) if process else None
+            if process and bounds is None:
                 warning=f"Target application not found: {process}"
                 if warning not in warnings:warnings.append(warning)
             action=step.get("action")
+            if action=="checkpoint":
+                executed+=1
+                continue
             if action=="mouse_down":
                 x=max(0.0,min(1.0,float(step.get("x",0))));y=max(0.0,min(1.0,float(step.get("y",0))))
-                pyautogui.click(round(x*max(0,width-1)),round(y*max(0,height-1)),button=step.get("button","left"))
+                if step.get("coordinate_mode")=="window" and bounds:
+                    left,top,right,bottom=bounds; px=left+x*max(1,right-left); py=top+y*max(1,bottom-top)
+                else:
+                    px=x*max(0,width-1); py=y*max(0,height-1)
+                pyautogui.click(round(px),round(py),button=step.get("button","left"))
             elif action in {"key_down","key_up"}:
                 key=str(step.get("key",""))[:32];allowed=set(getattr(pyautogui,"KEYBOARD_KEYS",()))
                 if key and (len(key)==1 or key in allowed):(pyautogui.keyDown if action=="key_down" else pyautogui.keyUp)(key)
             elif action=="mouse_scroll":
                 dx=float(step.get("delta_x",0));dy=float(step.get("delta_y",0))
-                if "x" in step and "y" in step:pyautogui.moveTo(round(float(step["x"])*(width-1)),round(float(step["y"])*(height-1)))
+                if "x" in step and "y" in step:
+                    x=float(step["x"]); y=float(step["y"])
+                    if step.get("coordinate_mode")=="window" and bounds:
+                        left,top,right,bottom=bounds; px=left+x*max(1,right-left); py=top+y*max(1,bottom-top)
+                    else:
+                        px=x*(width-1); py=y*(height-1)
+                    pyautogui.moveTo(round(px),round(py))
                 if dy:pyautogui.scroll(int(dy/120))
                 if dx and os.name=="nt":
                     import ctypes
