@@ -20,6 +20,12 @@ except ModuleNotFoundError:
     from agent.session_recorder import SessionRecorder
 from logging.handlers import RotatingFileHandler
 from io import BytesIO
+try:
+    from workflow_engine import WorkflowRecorder
+    from telemetry import TelemetryTracker
+except ModuleNotFoundError:
+    from agent.workflow_engine import WorkflowRecorder
+    from agent.telemetry import TelemetryTracker
 
 APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "RemoteDeskPro")
 os.makedirs(APP_DIR, exist_ok=True)
@@ -33,6 +39,10 @@ _STATUS_CALLBACK = None
 _CONSENT_CALLBACK = None
 _FILE_CONSENT_CALLBACK = None
 _DIAGNOSTICS_CALLBACK = None
+_TELEMETRY_CALLBACK = None
+_WORKFLOW_RECORDER = None
+_WORKFLOW_RECORD_REQUESTED = False
+_PRIVACY_SCREEN_ACTIVE = False
 _LAST_ERROR = "None"
 _INSTANCE_MUTEX = None
 _PRESSED_KEYS = set()
@@ -117,6 +127,32 @@ def set_file_consent_callback(callback):
 def set_diagnostics_callback(callback):
     global _DIAGNOSTICS_CALLBACK
     _DIAGNOSTICS_CALLBACK = callback
+
+def set_telemetry_callback(callback):
+    global _TELEMETRY_CALLBACK
+    _TELEMETRY_CALLBACK = callback
+
+def set_workflow_recorder(recorder):
+    global _WORKFLOW_RECORDER
+    _WORKFLOW_RECORDER = recorder
+    _sync_workflow_recording_state()
+
+def set_workflow_recording_requested(enabled: bool):
+    global _WORKFLOW_RECORD_REQUESTED
+    _WORKFLOW_RECORD_REQUESTED = bool(enabled)
+    _sync_workflow_recording_state()
+
+def _sync_workflow_recording_state():
+    if _WORKFLOW_RECORDER is not None:
+        try:
+            _WORKFLOW_RECORDER.set_enabled(bool(_WORKFLOW_RECORD_REQUESTED and _PRIVACY_SCREEN_ACTIVE))
+        except Exception:
+            log.exception("Semantic workflow recorder state update failed")
+
+def _set_privacy_screen_active(enabled: bool):
+    global _PRIVACY_SCREEN_ACTIVE
+    _PRIVACY_SCREEN_ACTIVE = bool(enabled)
+    _sync_workflow_recording_state()
 
 def set_status(message: str):
     global _LAST_ERROR
@@ -288,9 +324,12 @@ def encode_screen() -> bytes:
         image.save(buffer, format="JPEG", quality=65, optimize=True)
         return buffer.getvalue()
 
-async def stream_screen(ws, running: asyncio.Event):
+async def stream_screen(ws, running: asyncio.Event, telemetry=None):
     while running.is_set():
-        await ws.send(encode_screen())
+        frame = encode_screen()
+        await ws.send(frame)
+        if telemetry is not None:
+            telemetry.frame_sent(len(frame))
         await asyncio.sleep(0.25)
 
 def _wheel_delta_units(delta: float) -> int:
@@ -428,6 +467,11 @@ def _apply_control_unlocked(message: dict):
             )
     else:
         return False
+    if _WORKFLOW_RECORDER is not None:
+        try:
+            _WORKFLOW_RECORDER.record_control(message)
+        except Exception:
+            log.exception("Semantic action recording failed")
     return True
 
 def apply_control(message: dict):
@@ -479,14 +523,19 @@ async def run_once(args, stop_event=None):
         viewer_id = "unknown"
         recorder = None
         privacy_banner = None
+        telemetry = TelemetryTracker()
         stop_task = None
         latency_task = None
         async def report_latency():
             while True:
                 await asyncio.sleep(5)
                 latency_seconds = getattr(ws, "latency", None)
+                ping_ms = round(latency_seconds * 1000) if latency_seconds is not None else None
+                telemetry.set_ping(ping_ms)
                 if _DIAGNOSTICS_CALLBACK:
-                    _DIAGNOSTICS_CALLBACK(_LAST_ERROR, round(latency_seconds * 1000) if latency_seconds is not None else None)
+                    _DIAGNOSTICS_CALLBACK(_LAST_ERROR, ping_ms)
+                if _TELEMETRY_CALLBACK:
+                    _TELEMETRY_CALLBACK(telemetry.snapshot())
         latency_task = asyncio.create_task(report_latency())
         if stop_event is not None:
             async def close_on_stop():
@@ -520,13 +569,14 @@ async def run_once(args, stop_event=None):
                             continue
                         streaming.set()
                         await ws.send(json.dumps({"type":"host_approved","recording":True}))
-                        stream_task = asyncio.create_task(stream_screen(ws, streaming))
+                        stream_task = asyncio.create_task(stream_screen(ws, streaming, telemetry))
                         clipboard_task = asyncio.create_task(clipboard_watch(ws, streaming))
                         set_status("Connected (Live) · REC")
                     else:
                         await ws.send(json.dumps({"type":"host_denied"}))
                         set_status("Connection denied by host")
                 elif message.get("type") == "viewer_left":
+                    _set_privacy_screen_active(False)
                     release_all_inputs()
                     streaming.clear()
                     if privacy_banner:
@@ -610,6 +660,7 @@ async def run_once(args, stop_event=None):
                     if receiver:
                         try:
                             encoded = base64.b64decode(message.get("data", ""), validate=True)
+                            telemetry.transfer_received(len(encoded))
                             offset = receiver.append(int(message.get("offset", -1)), encoded)
                             await ws.send(json.dumps({"type":"transfer_ack","transfer_id":transfer_id,
                                                       "next_offset":offset}))
@@ -671,6 +722,7 @@ async def run_once(args, stop_event=None):
                                     privacy_banner.stop()
                                     privacy_banner = None
                                 applied = True
+                            _set_privacy_screen_active(bool(message.get("enabled")) and bool(applied))
                             await ws.send(json.dumps({"type":"privacy_screen_ack","enabled":bool(message.get("enabled")) and bool(applied),"mode":mode}))
                         else:
                             await asyncio.to_thread(apply_control, message)
@@ -688,6 +740,7 @@ async def run_once(args, stop_event=None):
             if latency_task:
                 latency_task.cancel()
             streaming.clear()
+            _set_privacy_screen_active(False)
             if privacy_banner:
                 privacy_banner.stop()
             if recorder:
@@ -702,7 +755,12 @@ async def run_once(args, stop_event=None):
             if incoming_file:
                 incoming_file["handle"].close()
 
-async def run(args, stop_event=None):
+async def calculate_backoff(attempt: int, base: int = 2, cap: int = 30) -> int:
+    """Bounded exponential reconnect delay; first retry waits two seconds."""
+    exponent = max(0, min(10, int(attempt) - 1))
+    return min(max(1, int(cap)), max(1, int(base)) * (2 ** exponent))
+
+def run(args, stop_event=None):
     """Keep the host agent alive across transient relay/network interruptions."""
     retry_delay = 2
     attempt = 0
@@ -720,6 +778,7 @@ async def run(args, stop_event=None):
         except Exception as exc:
             log.warning("Relay/network interruption (%s); reconnecting in %ss.", exc, retry_delay)
             set_status("Server waking up / unreachable — retrying...")
+        retry_delay = calculate_backoff(attempt)
         if stop_event is None:
             # The relay session and its async tasks have fully unwound here. A
             # synchronous wait is deliberate: the frozen Windows one-file build
@@ -733,11 +792,20 @@ async def run(args, stop_event=None):
 
 def main():
     parser = argparse.ArgumentParser(description="Remote Desk Pro visible-consent host agent")
-    parser.add_argument("--server", default=os.getenv("RDP_SERVER", "https://remote-desk-pro-pj29.onrender.com"))
+    parser.add_argument("--server", default=os.getenv("RDP_SERVER", "http://127.0.0.1:8000"))
+    parser.add_argument("--viewer", action="store_true", help="Open the embedded viewer for this relay server.")
     parser.add_argument("--device-id", default=os.getenv("RDP_DEVICE_ID"))
     parser.add_argument("--secret", default=os.getenv("RDP_AGENT_SECRET"))
     parser.add_argument("--dynamic-password", default=os.getenv("RDP_DYNAMIC_PASSWORD", ""))
     args = parser.parse_args()
+    if args.viewer:
+        try:
+            import webview
+        except ImportError:
+            parser.error("Embedded viewer support is unavailable; rebuild with pywebview installed.")
+        webview.create_window("Remote Desk Pro — Viewer", args.server.rstrip("/") + "/", width=1360, height=900, min_size=(900, 600))
+        webview.start(gui="edgechromium")
+        return
     log.info("Startup mode: device_id_set=%s secret_set=%s", bool(args.device_id), bool(args.secret))
     set_windows_dpi_awareness()
     if not args.device_id and not args.secret:

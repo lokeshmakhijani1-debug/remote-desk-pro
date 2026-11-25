@@ -2,6 +2,11 @@ name: Live Cloud E2E
 
 on:
   workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'RDP_BASE_URL for the private live environment'
+        required: true
+        type: string
   push:
     branches: [main]
     paths:
@@ -27,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: feature/v2-bidirectional-automation
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -41,7 +46,7 @@ jobs:
         run: |
           python - <<'PY'
           import json, time, urllib.request
-          url = "https://remote-desk-pro-pj29.onrender.com/health"
+          url = "${{ inputs.base_url }}/health"
           deadline = time.monotonic() + 240
           while time.monotonic() < deadline:
               try:

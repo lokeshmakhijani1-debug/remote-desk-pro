@@ -15,9 +15,15 @@ services:
       - key: APP_SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
-        value: sqlite:///./remote_desk.db
+        sync: false
       - key: CORS_ORIGINS
-        value: https://remote-desk-pro-pj29.onrender.com
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: RDP_SERVER
+        sync: false
+      - key: SUPPORT_EMAIL
+        sync: false
       - key: STUN_URL
         value: stun:stun.l.google.com:19302
       - key: FEATURES_UNLOCKED

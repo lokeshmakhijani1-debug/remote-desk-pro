@@ -26,6 +26,10 @@ Run RemoteDeskPro-Agent.exe by double-clicking it. On first launch, sign in to a
 - The password expires after 24 hours of inactivity; a successful viewer connection refreshes the idle window. It is rotated on agent restart or when the user selects Rotate Password.
 - Every remote session requires explicit local approval. The host can disconnect at any time.
 - CLI/headless mode remains available with --server, --device-id, --secret, and --dynamic-password.
-- RDP_SERVER overrides the server URL. The verified current Render endpoint is https://remote-desk-pro-pj29.onrender.com. The requested alias https://desk-pro-pi29.onrender.com returned HTTP 404 during the Phase 4 check and is not used as a default until it is provisioned.
+- Set RDP_SERVER in the local environment or deployment dashboard; no production endpoint is embedded in tracked source.
 
 Existing viewer connections use an authenticated WebSocket after the one-time session-token handshake. WebSocket heartbeat and client/host reconnect loops keep a live session recoverable through transient transport resets; a session ends when the host or viewer explicitly disconnects.
+
+
+## Unified V2 desktop client
+The V2 Windows executable launches the host console and can open the authenticated web viewer inside an embedded WebView window. Configure `RDP_SERVER` before launch. Trusted unattended access remains opt-in and requires the device's saved PIN; otherwise host approval remains active. Semantic action recording is enabled only while the privacy blank screen is active. Typed text and clipboard payloads are intentionally excluded from workflow JSON.

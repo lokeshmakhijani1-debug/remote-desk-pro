@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import httpx, websockets, zstandard
 from playwright.async_api import async_playwright
 
-BASE = os.getenv("RDP_BASE_URL", "https://remote-desk-pro-pj29.onrender.com").rstrip("/")
+BASE = os.getenv("RDP_BASE_URL", "").rstrip("/")
 REPORT = Path("tests/artifacts/cloud_e2e_report.json")
 CHUNK, TOTAL = 256 * 1024, 2 * 1024 * 1024
 

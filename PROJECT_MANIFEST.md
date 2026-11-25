@@ -56,9 +56,9 @@
 - Render service: `remote-desk-pro-pj29`; service ID: `srv-dc0917utlv9c739h7o30`.
 - Deployment: `dep-dc0918etlv9c739h7p80`; status: **live**; Docker build and deploy events both succeeded.
 - Plan/region: **Free / Singapore**; auto-deploy from `main`; configured health check path: `/api/health`.
-- Public application: https://remote-desk-pro-pj29.onrender.com â€” fetched successfully; title `Remote Desk Pro`; sign-in/create-account landing screen rendered.
-- Health endpoint: https://remote-desk-pro-pj29.onrender.com/api/health â€” fetched successfully; body reports `status: ok`, service `remote-desk-pro`, version `0.1.0`, database `configured`, capacity target `50`.
-- Manifest endpoint: https://remote-desk-pro-pj29.onrender.com/api/manifest â€” fetched successfully; reports WebSocket binary relay and device pairing enabled; file transfer, clipboard sync and recording disabled.
+- Public application: RDP_SERVER â€” fetched successfully; title `Remote Desk Pro`; sign-in/create-account landing screen rendered.
+- Health endpoint: RDP_SERVER/api/health â€” fetched successfully; body reports `status: ok`, service `remote-desk-pro`, version `0.1.0`, database `configured`, capacity target `50`.
+- Manifest endpoint: RDP_SERVER/api/manifest â€” fetched successfully; reports WebSocket binary relay and device pairing enabled; file transfer, clipboard sync and recording disabled.
 - Verification scope: public page + health + manifest HTTP fetch only. No account creation/login, host-agent pairing, remote-control session, WebSocket frame relay, load test or security penetration test performed.
 - Important operational risk remains: Render Free filesystem is ephemeral and the current SQLite database is not backed by persistent disk. Do not rely on account/device data surviving service replacement/redeploy; configure managed PostgreSQL before real users or production data.
 - Browser Use interactive automation was unavailable due insufficient credits; direct public endpoint fetches were used instead.
@@ -98,7 +98,7 @@
 - This is an authentication/configuration failure, not evidence of SQLAlchemy/Psycopg driver incompatibility. Do not run migrations or E2E tests until a successful DB connection is verified.
 - The logs show the configured pooler host is in Supabase's `ap-northeast-1` region and port 5432. Supabase Session Pooler connection strings commonly require the pooler username form `postgres.<project-ref>` rather than plain `postgres`; confirm the exact username shown in Supabase's Connection string UI. Also verify the database password is current and URL-encode reserved characters (`@`, `:`, `/`, `#`, `?`, `%`) before saving it in Render. Do not send the URI or password in chat.
 - Current Render service is unhealthy due to PostgreSQL authentication failure; the previous SQLite deployment was deactivated. Restore service by correcting the existing `DATABASE_URL` in Render, then verify `/api/health` returns `database=postgresql`.
-- Desktop Commander device `DESKTOP-OLL6O6U` (ID `c895725a-c3f5-496f-9d75-9b751772e22c`) is currently offline (last seen 30 minutes ago). Step 6.3/6.4 cannot be executed until the laptop agent reconnects.
+- Desktop Commander device `[redacted-host-name]` (ID `c895725a-c3f5-496f-9d75-9b751772e22c`) is currently offline (last seen 30 minutes ago). Step 6.3/6.4 cannot be executed until the laptop agent reconnects.
 - Live WebSocket, clipboard, file-transfer, audit, PyInstaller, and local-to-cloud smoke tests remain **not run**. Do not treat feature flags or deployment status as E2E verification.
 
 
@@ -108,26 +108,26 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 ### 6.1 â€” PostgreSQL health and URL normalization
 - Commit: `d6a4c3b55ccf09f657ec2b5e88165621bb717e09`; Render deployment: `dep-dc09rdivcj2c73dka2s0` (**live**).
 - `backend/database.py` now calls `url.strip()` before SQLAlchemy parses or normalizes the environment URL, removing trailing CR, LF, tabs, spaces, and other surrounding whitespace.
-- Verified from the connected Windows laptop against `https://remote-desk-pro-pj29.onrender.com/api/health`: HTTP 200, `status=ok`, `database=postgresql`.
+- Verified from the connected Windows laptop against `RDP_SERVER/api/health`: HTTP 200, `status=ok`, `database=postgresql`.
 - No database password or connection URI is stored in this repository or this manifest.
 
 ### 6.2 â€” Live WebSocket relay, clipboard, file transfer, and audit verification
 - Added `tests/e2e_live_relay.py`; added `websockets>=13,<16` to `requirements-dev.txt`.
-- First live E2E run: synthetic admin account `rdp-e2e-3948c60c942d@example.com`, device `636616212`. Passed PostgreSQL health, account/device registration, host online presence, 35-byte binary frame relay, bidirectional clipboard, file offer/accept/chunk/complete (4,440 bytes), path basename sanitization, and persistent audit retrieval.
+- First live E2E run: synthetic admin account `[redacted-test-account]`, device `[redacted-device-id]`. Passed PostgreSQL health, account/device registration, host online presence, 35-byte binary frame relay, bidirectional clipboard, file offer/accept/chunk/complete (4,440 bytes), path basename sanitization, and persistent audit retrieval.
 - Audit API confirmed `rdp_audit_events` contained `device.paired`, `session.requested`, `session.host_approved`, `clipboard.relayed`, `file.offered`, and `file.received` for the synthetic device.
-- Second live E2E run: synthetic technician account `rdp-e2e-b9e442dbeacb@example.com`, device `104028049`. Passed PostgreSQL health, registration, online presence, 35-byte binary frame relay, bidirectional clipboard, safe filename handling, and multi-chunk file transfer of 185,000 bytes across 4 chunks. Audit retrieval was not repeated in this second run because the synthetic user was a technician; audit persistence had already passed in the first admin run.
+- Second live E2E run: synthetic technician account `[redacted-test-account]`, device `[redacted-device-id]`. Passed PostgreSQL health, registration, online presence, 35-byte binary frame relay, bidirectional clipboard, safe filename handling, and multi-chunk file transfer of 185,000 bytes across 4 chunks. Audit retrieval was not repeated in this second run because the synthetic user was a technician; audit persistence had already passed in the first admin run.
 - These are synthetic protocol tests, not a full visual desktop-interaction or 50-user load test.
-- Synthetic test accounts/devices remain in the application database as test artifacts: admin E2E account `rdp-e2e-3948c60c942d@example.com` / device `636616212`; multi-chunk E2E technician `rdp-e2e-b9e442dbeacb@example.com` / device `104028049`; pre-final-deploy host pairing `rdp-host-smoke-779dc761d2fd@example.com` / device `521743345`; final live host pairing `rdp-host-final-1ca979e7ae60@example.com` / device `827335259`. The first account received the initial admin role because it was the first account in the dedicated app tables; its generated password was not retained. No account/device deletion was attempted because the app currently has no safe self-service cleanup endpoint and destructive DB cleanup was not authorized.
+- Synthetic test accounts/devices remain in the application database as test artifacts: admin E2E account `[redacted-test-account]` / device `[redacted-device-id]`; multi-chunk E2E technician `[redacted-test-account]` / device `[redacted-device-id]`; pre-final-deploy host pairing `[redacted-test-account]` / device `[redacted-device-id]`; final live host pairing `[redacted-test-account]` / device `[redacted-device-id]`. The first account received the initial admin role because it was the first account in the dedicated app tables; its generated password was not retained. No account/device deletion was attempted because the app currently has no safe self-service cleanup endpoint and destructive DB cleanup was not authorized.
 
 ### 6.3 â€” Standalone Windows agent build
-- Build completed on `DESKTOP-OLL6O6U` using Python 3.14.0 and PyInstaller 6.22.3.
+- Build completed on `[redacted-host-name]` using Python 3.14.0 and PyInstaller 6.22.3.
 - Verified executable: `E:\\GitHub-Vault\\remote-desk-pro-main\\agent\\dist\\RemoteDeskPro-Agent.exe`.
 - Size: 21,302,595 bytes; SHA-256: `27AC654E1750BE03603F40D93ECEE094A53D523039837E1CD0E6A38559856AF9`.
 - Standalone `--help` startup/import check passed. EXE/build intermediates and local pairing credentials are excluded from Git; no secrets are committed.
 
 ### 6.4 â€” Local-to-cloud pairing smoke test
-- Launched the built EXE on `DESKTOP-OLL6O6U`; Render authenticated `GET /api/devices` confirmed the host online.
-- Final post-deploy smoke-test device: `827335259`; account: `rdp-host-final-1ca979e7ae60@example.com`; host process PID at launch: `10692`.
+- Launched the built EXE on `[redacted-host-name]`; Render authenticated `GET /api/devices` confirmed the host online.
+- Final post-deploy smoke-test device: `[redacted-device-id]`; account: `[redacted-test-account]`; host process PID at launch: `10692`.
 - After the final Render auto-deploy completed, the EXE was relaunched and authenticated `GET /api/devices` again confirmed the host online. Host process remains running and connected. Visible per-session consent remains enabled; unattended access is disabled; no viewer session was started during this pairing check.
 - The EXE remains local at the path above and is not uploaded to GitHub.
 
@@ -138,7 +138,7 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 ## Windows build refresh â€” 2026-11-21 (IST)
 - Source branch: `main`; fetched and fast-forward pulled from `origin/main` (already up to date).
 - Source commit: `24a56af636c0a27040b8a2e03f58ca3efd2baa4c`.
-- Build host: `DESKTOP-OLL6O6U` (Windows 10 build 19045); Python `3.14.0`; PyInstaller `6.22.3`.
+- Build host: `[redacted-host-name]` (Windows 10 build 19045); Python `3.14.0`; PyInstaller `6.22.3`.
 - Build command: `python -m PyInstaller --noconfirm --clean --onefile --windowed --name RemoteDeskPro-Agent --collect-all mss --collect-all pyautogui --collect-all pyperclip --hidden-import tkinter --hidden-import websockets --distpath dist --workpath build host_agent.py` (run from `agent/`).
 - Build result: **successful**. EXE: `E:\GitHub-Vault\remote-desk-pro-main\agent\dist\RemoteDeskPro-Agent.exe`.
 - EXE size: `21299813` bytes; SHA-256: `F324BF88C2B6622058E5A21683F46E203F56BD745C2A144F4DC4C31E39A4A38F`.
@@ -192,10 +192,10 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 - Frontend TypeScript/Vite production build: PASS.
 - git diff --check: PASS.
 - Frozen EXE relay-reset test: PASS (3/3).
-- Live Render E2E: PASS against `https://remote-desk-pro-pj29.onrender.com` after deployment of `2a08441`. Verified same-account registration/pairing, password rotation invalidation with existing viewer-token continuity, host approval, bidirectional clipboard relay, 185,000-byte chunked file transfer, explicit one-viewer rejection (`viewer_rejected`), heartbeat acknowledgement, and host reconnect while the viewer remained connected. The test creates synthetic @example.com accounts/devices; these test records were not deleted.
+- Live Render E2E: PASS against `RDP_SERVER` after deployment of `2a08441`. Verified same-account registration/pairing, password rotation invalidation with existing viewer-token continuity, host approval, bidirectional clipboard relay, 185,000-byte chunked file transfer, explicit one-viewer rejection (`viewer_rejected`), heartbeat acknowledgement, and host reconnect while the viewer remained connected. The test creates synthetic @example.com accounts/devices; these test records were not deleted.
 - Audit persistence: PASS — a read-only Supabase query on project `qxssuczpumsaqywifirv` confirmed 12 `rdp_audit_events` rows for the successful synthetic E2E device, including device pairing/password rotation, session request/approval, clipboard relay, file offer/receipt, and host disconnect. The test account is a technician, so the admin-only audit API was not used; direct read-only database verification confirmed persistence.
-- Render service: remote-desk-pro-pj29 (srv-dc0917utlv9c739h7o30), branch main, auto-deploy enabled, verified URL https://remote-desk-pro-pj29.onrender.com; /api/health returns HTTP 200, status=ok, database=postgresql.
-- Requested alias https://desk-pro-pi29.onrender.com returns HTTP 404 and is not configured as the agent default.
+- Render service: remote-desk-pro-pj29 (srv-dc0917utlv9c739h7o30), branch main, auto-deploy enabled, verified URL RDP_SERVER; /api/health returns HTTP 200, status=ok, database=postgresql.
+- Requested alias RDP_SERVER returns HTTP 404 and is not configured as the agent default.
 - GitHub repository is PRIVATE. Release v1.0.0 can be published to repository collaborators; asset downloads require repository access. Repository visibility will not be changed as part of this release.
 - Backend/frontend source commit `2a08441` is pushed to `main` and deployed on Render. Final Windows-agent reconnect backoff fix is pushed in `d4b88e3`; the E2E harness adjustment and documentation are committed. GitHub Release `v1.0.0` and verified EXE/checksum asset upload remain pending.
 
@@ -215,11 +215,11 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 ### Public Windows agent download
 - The public API route `GET /download/agent` serves `backend/downloads/RemoteDeskPro-Agent.exe` as an attachment with the Windows executable media type.
 - Docker runtime copies the complete `backend/` directory, including the downloadable executable, into the Render image.
-- Public URL after the Render deployment containing this commit is live: https://remote-desk-pro-pj29.onrender.com/download/agent
+- Public URL after the Render deployment containing this commit is live: RDP_SERVER/download/agent
 - The GitHub repository remains private; the Render download endpoint is the public distribution path and does not require GitHub repository access.
 
 ### Authoritative standalone build
-- Build host: DESKTOP-OLL6O6U, Windows 10 build 19045.
+- Build host: [redacted-host-name], Windows 10 build 19045.
 - Python: 3.14.0; PyInstaller: 6.22.3; one-file, windowed executable with agent runtime dependencies bundled.
 - Authoritative local executable: `agent/dist/RemoteDeskPro-Agent.exe`.
 - Public distribution copy: `backend/downloads/RemoteDeskPro-Agent.exe`.
@@ -246,7 +246,7 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 - Render build: `bld-dc0ndvfb9u1s73bnfea0` - **SUCCEEDED** for commit `f3defe6ddb1d0a0a09d0870a432837e2d8d89ae2`.
 - Render deployment: `dep-dc0ndvfb9u1s73bnfe9g` - **SUCCEEDED**.
 - Live public GET download verified from the internet: HTTP 200, content length 21,586,937 bytes, content type `application/vnd.microsoft.portable-executable`; downloaded SHA-256 exactly matched `C1BC99DCBC631DA6DC532F505B4620D908A0ECA71BAA2A968BA55DA90C529223`.
-- Public download URL: https://remote-desk-pro-pj29.onrender.com/download/agent
+- Public download URL: RDP_SERVER/download/agent
 
 
 ### Live production remote-input E2E (2026-11-21)
@@ -376,7 +376,7 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 - Current status: partial protocol integration committed; full E2E and production certification pending. Existing verified horizontal/vertical scroll, touch, cursor, and keyboard dispatch logic was not edited.
 - Laptop verification command (run only after the new Windows Actions artifact is published; replace the checksum with the new successful build's checksum):
 ```powershell
-$ErrorActionPreference='Stop'; $base='https://remote-desk-pro-pj29.onrender.com'; $exe=Join-Path $env:LOCALAPPDATA 'RemoteDeskPro\RemoteDeskPro-Agent.exe'; New-Item -ItemType Directory -Force (Split-Path $exe) | Out-Null; Invoke-WebRequest "$base/download/agent" -OutFile $exe; $expected='REPLACE_WITH_NEW_ACTIONS_SHA256'; $actual=(Get-FileHash $exe -Algorithm SHA256).Hash; if($actual -ne $expected){throw "Build checksum mismatch; wait for new Actions artifact."}; Start-Process $exe; Start-Sleep -Seconds 15; python tests/e2e_remote_control_live.py
+$ErrorActionPreference='Stop'; $base='RDP_SERVER'; $exe=Join-Path $env:LOCALAPPDATA 'RemoteDeskPro\RemoteDeskPro-Agent.exe'; New-Item -ItemType Directory -Force (Split-Path $exe) | Out-Null; Invoke-WebRequest "$base/download/agent" -OutFile $exe; $expected='REPLACE_WITH_NEW_ACTIONS_SHA256'; $actual=(Get-FileHash $exe -Algorithm SHA256).Hash; if($actual -ne $expected){throw "Build checksum mismatch; wait for new Actions artifact."}; Start-Process $exe; Start-Sleep -Seconds 15; python tests/e2e_remote_control_live.py
 ```
 
 ## Cloud-only repair checkpoint — 2026-11-21 (verification pending)
@@ -459,7 +459,7 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Viewer visibility resume refreshes device presence and sends an immediate heartbeat; a missing heartbeat acknowledgement closes and reattaches the viewer WebSocket.
 - Local validation on 2026-11-22: Python compilation PASS; pytest 49 passed (one upstream Starlette/httpx deprecation warning); frontend TypeScript/Vite production build PASS; git diff --check PASS.
 - tests/e2e_remote_control_live.py now includes headless Chromium mobile keyboard, clipboard paste, visibility-resume, zoomed touch-pan/tap, host file-consent, reconnect/resume, and Downloads SHA-256 checks at 390x844 with touch enabled. The expanded live test has not yet been run; do not certify the live Windows-to-Render path until its report is PASS.
-- No .env files or secret values were changed. Deployment target remains Render https://remote-desk-pro-pj29.onrender.com; Vercel is not used.
+- No .env files or secret values were changed. Deployment target remains Render RDP_SERVER; Vercel is not used.
 
 ## GitHub Actions Windows build (latest)
 - Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
@@ -676,3 +676,15 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+
+## V2 bidirectional automation branch
+- `agent/workflow_engine.py`: opt-in semantic input recorder and normalized-coordinate adaptive replay; typed text and clipboard payloads are excluded; saves to `project_memory/workflows/` (APPDATA for frozen Windows builds).
+- `agent/telemetry.py`: thread-safe FPS, ping, upload and download throughput counters for the host diagnostics HUD.
+- `agent/host_agent.py`: exponential reconnect backoff, telemetry integration, privacy-screen-gated workflow recording, and `--viewer` embedded-client mode.
+- `agent/desktop_app.py`: unified host console with embedded web viewer launch, workflow recording toggle and local replay control.
+- `agent/requirements.txt`: adds `psutil`, Windows process/window metadata support, and `pywebview` for the embedded viewer.
+- `.github/workflows/test-and-build-v2.yml`: Windows regression/unit/stress/fault-injection tests, full-history Gitleaks scan, frontend build, and one-file Windows executable artifact.
+- `test_instructions.json`: non-interactive dependency, regression, E2E, stress, security and fault-injection runner commands.
+- Runtime endpoints and contact data are environment-provided (`RDP_SERVER`, `RDP_BASE_URL`, `CORS_ORIGINS`, `PUBLIC_BASE_URL`, `SUPPORT_EMAIL`, `VITE_CONTACT_EMAIL`). Production `APP_SECRET_KEY` must be unique and at least 32 characters.
+- User-generated workflow JSON is ignored by `.gitignore` and must not be committed.

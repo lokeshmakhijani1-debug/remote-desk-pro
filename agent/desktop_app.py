@@ -7,6 +7,8 @@ import concurrent.futures
 import json
 import logging
 import os
+import sys
+import subprocess
 import threading
 import time
 import urllib.error
@@ -16,8 +18,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox
 
-# desk-pro-pi29.onrender.com currently returns HTTP 404; use the verified live API.
-DEFAULT_SERVER = os.getenv("RDP_SERVER", "https://remote-desk-pro-pj29.onrender.com").rstrip("/")
+DEFAULT_SERVER = os.getenv("RDP_SERVER", "http://127.0.0.1:8000").rstrip("/")
 APP_DIR = Path(os.getenv("APPDATA", str(Path.home()))) / "RemoteDeskPro"
 CONFIG_FILE = APP_DIR / "config.json"
 LOG_FILE = APP_DIR / "agent.log"
@@ -170,6 +171,13 @@ class DesktopApp:
         self.attempt = 0
         self.last_error = "None"
         self.latency_ms = None
+        try:
+            from workflow_engine import WorkflowRecorder, WorkflowReplayEngine
+        except ModuleNotFoundError:
+            from agent.workflow_engine import WorkflowRecorder, WorkflowReplayEngine
+        self.workflow_recorder = WorkflowRecorder()
+        self.workflow_engine = WorkflowReplayEngine()
+        self.telemetry_snapshot = {"fps": 0.0, "ping_ms": None, "upload_kbps": 0.0, "download_kbps": 0.0}
         self.status_var = tk.StringVar(value="Not connected")
         self.id_var = tk.StringVar(value=self.config.get("device_id", "Not paired"))
         self.password_var = tk.StringVar(value=self.config.get("dynamic_password", "••••••"))
@@ -183,7 +191,8 @@ class DesktopApp:
 
     def _build(self):
         tk.Label(self.root, text="REMOTE DESK PRO", bg="#f3f6fa", fg="#087d65", font=("Segoe UI", 10, "bold")).pack(pady=(22, 2))
-        tk.Label(self.root, text="Your computer, ready for secure remote support", bg="#f3f6fa", fg="#25364d", font=("Segoe UI", 16, "bold")).pack(pady=(0, 16))
+        tk.Label(self.root, text="Your computer, ready for secure remote support", bg="#f3f6fa", fg="#25364d", font=("Segoe UI", 16, "bold")).pack(pady=(0, 8))
+        tk.Button(self.root, text="Open Viewer / Take Control", command=self._open_viewer, bg="#087d65", fg="white", relief="flat", padx=12, pady=7).pack(pady=(0, 8))
         card = tk.Frame(self.root, bg="white", highlightbackground="#e0e7ef", highlightthickness=1)
         card.pack(fill="x", padx=24, pady=8)
         tk.Label(card, text="YOUR ID", bg="white", fg="#7b8ba1", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(18, 4))
@@ -210,6 +219,11 @@ class DesktopApp:
         tk.Label(pin_row, text="Trusted PIN (4-8 digits):", bg="white", fg="#52637a", font=("Segoe UI", 8)).pack(side="left")
         tk.Entry(pin_row, textvariable=self.unattended_pin_var, show="*", width=12).pack(side="left", padx=8)
         tk.Button(pin_row, text="Save PIN", command=self._save_unattended, bg="#087d65", fg="white", relief="flat", padx=10).pack(side="right")
+        workflow_card = tk.Frame(self.root, bg="white", highlightbackground="#e0e7ef", highlightthickness=1)
+        workflow_card.pack(fill="x", padx=24, pady=6)
+        self.workflow_record_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(workflow_card, text="Record semantic actions only while privacy blank-screen is active", variable=self.workflow_record_var, command=self._set_workflow_recording, bg="white", fg="#17243a", font=("Segoe UI", 8, "bold"), wraplength=390).pack(anchor="w", padx=12, pady=(8, 3))
+        tk.Button(workflow_card, text="Replay latest saved workflow", command=self._replay_latest_workflow, bg="#ffffff", fg="#52637a", relief="solid", bd=1).pack(fill="x", padx=12, pady=(2, 8))
         self.diag = tk.Frame(self.root, bg="#f3f6fa")
         self.diag.pack(fill="x", padx=24, pady=6)
         self.diag_visible = False
@@ -248,6 +262,41 @@ class DesktopApp:
             os.environ.pop("RDP_UNATTENDED_PIN", None)
             self._sync_unattended_pin_to_server("")
             self.status_var.set("Unattended Auto-Approve disabled (Manual approval required)")
+
+    def _open_viewer(self):
+        if getattr(sys, "frozen", False):
+            command = [sys.executable, "--viewer", "--server", self.server]
+        else:
+            command = [sys.executable, str(Path(__file__).with_name("host_agent.py")), "--viewer", "--server", self.server]
+        try:
+            subprocess.Popen(command, close_fds=True)
+        except Exception as exc:
+            messagebox.showerror("Viewer could not start", str(exc))
+
+    def _set_workflow_recording(self):
+        enabled = bool(self.workflow_record_var.get())
+        try:
+            import host_agent
+        except ModuleNotFoundError:
+            from agent import host_agent
+        host_agent.set_workflow_recording_requested(enabled)
+        self.status_var.set("Action recording is armed; it records only while the privacy screen is active." if enabled else "Semantic action recording disabled.")
+
+    def _replay_latest_workflow(self):
+        target = self.workflow_engine.latest()
+        if target is None:
+            self.status_var.set("No saved workflow exists yet.")
+            return
+        def replay():
+            try:
+                result = self.workflow_engine.replay(target)
+                message = f"Workflow replayed: {result['executed']} steps."
+                if result.get("warnings"):
+                    message += " Some target applications were not found."
+            except Exception as exc:
+                message = "Workflow replay failed: " + str(exc)
+            self.root.after(0, lambda: self.status_var.set(message))
+        threading.Thread(target=replay, daemon=True, name="RDPWorkflowReplay").start()
 
     def _toggle_diag(self):
         self.diag_visible = not self.diag_visible
@@ -419,6 +468,9 @@ class DesktopApp:
                 host_agent.set_consent_callback(self._ask_consent)
                 host_agent.set_file_consent_callback(self._ask_file_consent)
                 host_agent.set_diagnostics_callback(self._agent_diagnostics)
+                host_agent.set_telemetry_callback(self._agent_telemetry)
+                host_agent.set_workflow_recorder(self.workflow_recorder)
+                host_agent.set_workflow_recording_requested(bool(self.workflow_record_var.get()))
                 args = type("Args", (), {"server":self.server,"device_id":self.config["device_id"],"secret":self.config["device_secret"],"dynamic_password":self.config.get("dynamic_password","")})()
                 self.agent_args = args
                 asyncio.run(host_agent.run(args, self.stop_event))
@@ -432,7 +484,15 @@ class DesktopApp:
 
     def _diagnostics_text(self):
         latency = str(self.latency_ms) + " ms" if self.latency_ms is not None else "Measuring / unavailable"
-        return f"Server: {self.server}\nLast error: {self.last_error}\nRelay latency: {latency}\nLog: {LOG_FILE}"
+        t = self.telemetry_snapshot
+        ping = str(t["ping_ms"]) + " ms" if t["ping_ms"] is not None else latency
+        return f"Server: {self.server}\nLast error: {self.last_error}\nFPS: {t['fps']} | Ping: {ping}\nUpload: {t['upload_kbps']} KB/s | Download: {t['download_kbps']} KB/s\nLog: {LOG_FILE}"
+
+    def _agent_telemetry(self, snapshot):
+        def update():
+            self.telemetry_snapshot = dict(snapshot)
+            self.diag_text.configure(text=self._diagnostics_text())
+        self.root.after(0, update)
 
     def _agent_diagnostics(self, last_error, latency_ms):
         def update():
