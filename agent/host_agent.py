@@ -653,6 +653,8 @@ async def run_once(args, stop_event=None):
                     await asyncio.to_thread(current.stop)
                     await ws.send(json.dumps({"type": "recording_status", "active": False, "reason": None,
                                               "detail": "Privacy security recording finalized locally." if previous_reason == "privacy" else "Recording saved locally."}))
+                elif recorder is not None and recorder.is_alive:
+                    await ws.send(json.dumps({"type": "recording_status", "active": True, "reason": recording_reason, "detail": "Manual recording continues after the privacy screen is removed."}))
                 else:
                     await ws.send(json.dumps({"type": "recording_status", "active": False, "reason": None, "detail": "No active recording."}))
                 return
