@@ -924,7 +924,11 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Added tests/e2e_responsive_layout.mjs using Playwright and the built Vite CSS. It checks dock buttons and recording-manager layout at 390×844, 844×390, and 1440×900; CI installs Chromium and runs it after the frontend build.
 - test_instructions.json includes the browser installation and layout test commands.
 - Note: responsive Playwright coverage uses a DOM fixture styled by the production Vite CSS. It is not an authenticated real-host session test; production login and host-side workflows still require live E2E.
-- These commits require fresh main CI and a Render redeploy before any live-production PASS is claimed.
+- Verified CI: [Remote Desk Pro CI #45870348035](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/actions/runs/45870348035) passed on source commit e0b1ef702032f4533973f8a3572b5ffe3db182f1 (138 passed, 1 skipped); frontend build and all three headless viewport cases passed.
+- Verified Windows Agent Build: [#45870348072](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/actions/runs/45870348072) succeeded on the same source commit.
+- Render production /health and /api/manifest returned HTTP 200; manifest git_sha matched main HEAD 79805bd34a46fe34af0afb3dd2399af9c0e4c9f9. A cache-busted homepage response exposed the requested viewport-fit=cover metadata.
+- The exact Vite JS/CSS build assets were fetched successfully from /assets/index-BZDfJSV8.js and /assets/index-CI2ZtAl5.css. The Windows agent is published as latest-agent with SHA-256 223DA23FA246E4741FB64E8E1085BE627E7C1693EF8C73EBA4449A0565B6E6D5.
+- Playwright viewport coverage uses a DOM fixture styled by the production Vite CSS; authenticated live host-session E2E and physical Windows input/recording tests remain separate from this CI certification.
 
 ## GitHub Actions Windows build (latest)
 - Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
