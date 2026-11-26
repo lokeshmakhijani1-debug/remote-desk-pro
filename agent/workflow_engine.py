@@ -4,6 +4,10 @@ import json, os, re, sys, threading, time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+try:
+    from adaptive_replay import resolve_target, wait_for_anchor, dismiss_known_popups, clear_input_and_verify
+except ModuleNotFoundError:
+    from agent.adaptive_replay import resolve_target, wait_for_anchor, dismiss_known_popups, clear_input_and_verify
 
 _EMAIL=re.compile(r"(?i)[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}")
 MAX_STEPS=10_000
@@ -25,6 +29,69 @@ def _active_context()->dict[str,Any]:
         context.update({"window_title":_EMAIL.sub("[redacted-email]",title[:180]),"process_name":name[:100],"application":Path(name).stem[:80],"window_bounds":[int(v) for v in bounds]})
     except Exception: pass
     return context
+
+
+def _semantic_anchor_at(x: int, y: int) -> dict[str, Any]:
+    """Capture nearby UIA label/role and optional OCR; never read input field values."""
+    result: dict[str, Any] = {}
+    if os.name == "nt":
+        try:
+            from pywinauto import Desktop
+            candidates = []
+            for window in Desktop(backend="uia").windows():
+                for control in window.descendants():
+                    try:
+                        rect = control.rectangle()
+                        if rect.left <= x <= rect.right and rect.top <= y <= rect.bottom:
+                            name = str(control.window_text() or "").strip()
+                            role = str(control.element_info.control_type or "").strip()
+                            if name or role:
+                                candidates.append((max(1,(rect.right-rect.left)*(rect.bottom-rect.top)),name,role,rect))
+                    except Exception:
+                        continue
+            if candidates:
+                _, name, role, rect = min(candidates,key=lambda item:item[0])
+                if name and role.casefold() != "edit":
+                    result["name"] = _EMAIL.sub("[redacted-email]",name[:100])
+                if role:
+                    result["role"] = role[:40]
+                result["bounds"] = [int(rect.left),int(rect.top),int(rect.right),int(rect.bottom)]
+        except Exception:
+            pass
+    # Restrict OCR to a click-adjacent crop and skip edit controls to avoid field values.
+    if result.get("role","").casefold() != "edit":
+        try:
+            import pyautogui
+            import pytesseract
+            from pytesseract import Output
+            left,top=max(0,x-260),max(0,y-100)
+            image=pyautogui.screenshot(region=(left,top,520,200))
+            data=pytesseract.image_to_data(image,output_type=Output.DICT)
+            words=[]
+            for i,token in enumerate(data.get("text",[])):
+                token=str(token).strip()
+                try: confidence=float(data["conf"][i])
+                except (ValueError,TypeError): confidence=0
+                if token and confidence>=55: words.append(token)
+            text=_EMAIL.sub("[redacted-email]"," ".join(words))[:100]
+            if text: result["text"]=text
+        except Exception:
+            pass
+    return result
+
+
+def _focused_input_state() -> dict[str, Any]:
+    """Record focus/editability booleans only; never capture typed values."""
+    if os.name != "nt":
+        return {"focused":False,"editable":False}
+    try:
+        from pywinauto import Desktop
+        control=Desktop(backend="uia").get_focus()
+        role=str(control.element_info.control_type or "")
+        return {"focused":True,"editable":role.casefold() in {"edit","document","combobox"},"role":role[:40]}
+    except Exception:
+        return {"focused":False,"editable":False}
+
 
 class WorkflowRecorder:
     def __init__(self,root:Path|None=None)->None:
@@ -68,10 +135,18 @@ class WorkflowRecorder:
                     if right>left and bottom>top and left<=px<=right and top<=py<=bottom:
                         x=(px-left)/(right-left); y=(py-top)/(bottom-top); mode="window"
                 step.update({"x":round(float(x),6),"y":round(float(y),6),"coordinate_mode":mode,"button":{0:"left",1:"middle",2:"right"}.get(message.get("button"),"left")})
+                if self._screen["width"] and self._screen["height"]:
+                    anchor=_semantic_anchor_at(round(float(message.get("x",0))*self._screen["width"]),
+                                               round(float(message.get("y",0))*self._screen["height"]))
+                    if anchor:
+                        step["anchor"]=anchor
             elif event in {"key_down","key_up"}:
                 key=str(message.get("key",""))[:32]
                 if not key:return
-                step["key"]=key
+                # Printable keys are deliberately not persisted.
+                if len(key)>1 or key.casefold() in {"ctrl","alt","shift","win"}:
+                    step["key"]=key
+                step["input_state"]=_focused_input_state()
             else:
                 dx,dy=message.get("deltaX",0),message.get("deltaY",0)
                 if not isinstance(dx,(int,float)) or not isinstance(dy,(int,float)):return
@@ -110,54 +185,82 @@ class WorkflowReplayEngine:
                 win32gui.ShowWindow(matches[0],win32con.SW_RESTORE);win32gui.SetForegroundWindow(matches[0]);return tuple(win32gui.GetWindowRect(matches[0]))
         except Exception:pass
         return None
-    def replay(self,path:Path|None=None,*,dry_run:bool=False)->dict[str,Any]:
+    def replay(self,path:Path|None=None,*,dry_run:bool=False,
+               popup_handler=None,readiness_waiter=None,uia_resolver=None,ocr_resolver=None)->dict[str,Any]:
         target=Path(path) if path else self.latest()
-        if target is None or not target.is_file():raise FileNotFoundError("No saved workflow was found.")
+        if target is None or not target.is_file():
+            raise FileNotFoundError("No saved workflow was found.")
         data=json.loads(target.read_text(encoding="utf-8"))
-        if data.get("schema_version")!=1 or data.get("coordinate_space")!="normalized_0_to_1":raise ValueError("Unsupported workflow schema.")
+        if data.get("schema_version")!=1 or data.get("coordinate_space")!="normalized_0_to_1":
+            raise ValueError("Unsupported workflow schema.")
         steps=data.get("steps")
-        if not isinstance(steps,list) or len(steps)>MAX_STEPS:raise ValueError("Workflow step count is invalid.")
-        if dry_run:return {"steps":len(steps),"executed":0,"dry_run":True,"warnings":[]}
+        if not isinstance(steps,list) or len(steps)>MAX_STEPS:
+            raise ValueError("Workflow step count is invalid.")
+        if dry_run:
+            return {"steps":len(steps),"executed":0,"dry_run":True,"warnings":[],"adaptations":[]}
         import pyautogui
-        pyautogui.FAILSAFE=True; width,height=pyautogui.size(); executed=0; warnings=[]
-        for step in steps:
-            if not isinstance(step,dict):continue
-            time.sleep(max(0,min(30000,int(step.get("delay_ms",0))))/1000)
+        pyautogui.FAILSAFE=True
+        width,height=pyautogui.size()
+        executed=0
+        warnings=[]
+        adaptations=[]
+        popup_events=0
+        for index,step in enumerate(steps):
+            if not isinstance(step,dict):
+                continue
+            if step.get("wait_for"):
+                waiter=readiness_waiter or wait_for_anchor
+                if not waiter(step["wait_for"],float(step.get("wait_timeout_seconds",15))):
+                    warnings.append(f"Readiness condition timed out at step {index+1}")
+                    continue
+            else:
+                time.sleep(max(0,min(30000,int(step.get("delay_ms",0))))/1000)
+            if dismiss_known_popups(popup_handler):
+                popup_events+=1
             context=step.get("context") if isinstance(step.get("context"),dict) else {}
             process=str(context.get("process_name",""))[:100]
             bounds=self._focus_process(process) if process else None
             if process and bounds is None:
                 warning=f"Target application not found: {process}"
-                if warning not in warnings:warnings.append(warning)
+                if warning not in warnings:
+                    warnings.append(warning)
             action=step.get("action")
             if action=="checkpoint":
                 executed+=1
                 continue
             if action=="mouse_down":
-                x=max(0.0,min(1.0,float(step.get("x",0))));y=max(0.0,min(1.0,float(step.get("y",0))))
-                if step.get("coordinate_mode")=="window" and bounds:
-                    left,top,right,bottom=bounds; px=left+x*max(1,right-left); py=top+y*max(1,bottom-top)
-                else:
-                    px=x*max(0,width-1); py=y*max(0,height-1)
-                pyautogui.click(round(px),round(py),button=step.get("button","left"))
+                resolved=resolve_target(step,(width,height),bounds,uia_resolver=uia_resolver,ocr_resolver=ocr_resolver)
+                pyautogui.click(resolved["x"],resolved["y"],button=step.get("button","left"))
+                adaptations.append({"step":index+1,"strategy":resolved["strategy"],"attempts":resolved["attempts"]})
+            elif action=="clear_input":
+                resolved=resolve_target(step,(width,height),bounds,uia_resolver=uia_resolver,ocr_resolver=ocr_resolver)
+                pyautogui.click(resolved["x"],resolved["y"])
+                focused=clear_input_and_verify(step.get("uia_control"),
+                    lambda: pyautogui.hotkey("ctrl","a"),
+                    lambda: bool(step.get("input_state",{}).get("focused",True)))
+                if not focused:
+                    warnings.append(f"Input focus could not be verified at step {index+1}")
+                adaptations.append({"step":index+1,"strategy":resolved["strategy"],"input_focus_verified":focused})
             elif action in {"key_down","key_up"}:
-                key=str(step.get("key",""))[:32];allowed=set(getattr(pyautogui,"KEYBOARD_KEYS",()))
-                if key and (len(key)==1 or key in allowed):(pyautogui.keyDown if action=="key_down" else pyautogui.keyUp)(key)
+                key=str(step.get("key",""))[:32]
+                allowed=set(getattr(pyautogui,"KEYBOARD_KEYS",()))
+                if key and (len(key)==1 or key in allowed):
+                    (pyautogui.keyDown if action=="key_down" else pyautogui.keyUp)(key)
             elif action=="mouse_scroll":
-                dx=float(step.get("delta_x",0));dy=float(step.get("delta_y",0))
                 if "x" in step and "y" in step:
-                    x=float(step["x"]); y=float(step["y"])
-                    if step.get("coordinate_mode")=="window" and bounds:
-                        left,top,right,bottom=bounds; px=left+x*max(1,right-left); py=top+y*max(1,bottom-top)
-                    else:
-                        px=x*(width-1); py=y*(height-1)
-                    pyautogui.moveTo(round(px),round(py))
-                if dy:pyautogui.scroll(int(dy/120))
+                    resolved=resolve_target(step,(width,height),bounds,uia_resolver=uia_resolver,ocr_resolver=ocr_resolver)
+                    pyautogui.moveTo(resolved["x"],resolved["y"])
+                    adaptations.append({"step":index+1,"strategy":resolved["strategy"],"attempts":resolved["attempts"]})
+                dx=float(step.get("delta_x",0))
+                dy=float(step.get("delta_y",0))
+                if dy:
+                    pyautogui.scroll(int(dy/120))
                 if dx and os.name=="nt":
                     import ctypes
                     ctypes.windll.user32.mouse_event(0x01000,0,0,ctypes.c_ulong(int(dx)).value,0)
             executed+=1
-        return {"steps":len(steps),"executed":executed,"dry_run":False,"warnings":warnings}
+        return {"steps":len(steps),"executed":executed,"dry_run":False,"warnings":warnings,
+                "adaptations":adaptations,"popup_events_handled":popup_events}
 
 
 def annotate_workflow(path: Path, name: str, tags: list[str] | None = None, notes: str = "") -> Path:
