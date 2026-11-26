@@ -747,3 +747,10 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - CI: feature-branch workflow runs Python regression/privacy/10-environment tests, frontend build, full-history Gitleaks, and Windows PyInstaller. Live cloud E2E runs when repository secret RDP_BASE_URL is configured; otherwise it is explicitly skipped. No production secret is added by this change.
 
 - Production Supabase migration applied successfully to RemoteDeskPro project qxssuczpumsaqywifirv; recorded migration version 20261126094251. Verified public.rdp_community_workflows exists with RLS enabled, public-only CHECK constraint, 2 MiB row-size constraint, owner FK, and SELECT policy limited to is_public=true. Table was empty at verification. Render was not deployed.
+
+
+## V2 release security scan exception (2026-11-26)
+- Added `.gitleaks.toml` with default Gitleaks rules retained (`[extend] useDefault = true`).
+- A single AND-scoped allowlist matches only the exact `PROJECT_MANIFEST.md` path, the two historical finding commits (`09bad163435de687eb0be82b4f0206cd25d21abb`, `cb66a236aa4efa6671522d1d95052cb481b5a0b3`), and a secret value consisting of exactly 64 hexadecimal characters.
+- This exception is limited to the two documented public SHA-256 digest findings. It does not disable general secret scanning or allow arbitrary API keys/tokens.
+- V2 prerelease build and public asset details will be recorded here only after the workflow, executable, and checksum are verified.
