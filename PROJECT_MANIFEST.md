@@ -969,3 +969,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Certification: NO-GO pending documented remediation and successful isolated load/fault-injection evidence.
 
 - Follow-up read-only production probe recovered: `/api/health` and `/api/manifest` both returned HTTP 200; manifest git_sha matched inspected baseline `da4a391a5bd49405455321bdffd7143cc9ffd8f6`, database dialect `postgresql`, capacity target 50. First probe returned 503; recovered endpoint fetch latencies were ~4.6 s and ~4.4 s.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: e5b8d59ee188d48cbfd27dda72de9e6b661994c6.
+- EXE size: 68520051 bytes.
+- EXE SHA-256: 15977A980CFBE9CA7C5FFD8055A09F6335353E2D1B88772D3918722C92EB308F.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
