@@ -115,19 +115,23 @@ def load_config() -> dict:
             data["access_token"] = _unseal(data.pop("access_token_enc"))
         if data.get("dynamic_password_enc"):
             data["dynamic_password"] = _unseal(data.pop("dynamic_password_enc"))
+        if data.get("unattended_pin_enc"):
+            data["unattended_pin"] = _unseal(data.pop("unattended_pin_enc"))
         return data
     except Exception:
         logger.exception("Unable to read protected local configuration")
         return {}
 
 def save_config(data: dict) -> None:
-    safe = {k: v for k, v in data.items() if k not in ("device_secret", "access_token", "dynamic_password")}
+    safe = {k: v for k, v in data.items() if k not in ("device_secret", "access_token", "dynamic_password", "unattended_pin")}
     if data.get("device_secret"):
         safe["device_secret_enc"] = _seal(data["device_secret"])
     if data.get("access_token"):
         safe["access_token_enc"] = _seal(data["access_token"])
     if data.get("dynamic_password"):
         safe["dynamic_password_enc"] = _seal(data["dynamic_password"])
+    if data.get("unattended_pin"):
+        safe["unattended_pin_enc"] = _seal(str(data["unattended_pin"]))
     APP_DIR.mkdir(parents=True, exist_ok=True)
     temp = CONFIG_FILE.with_suffix(".tmp")
     temp.write_text(json.dumps(safe, indent=2), encoding="utf-8")
