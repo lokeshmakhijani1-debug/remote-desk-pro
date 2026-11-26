@@ -87,7 +87,7 @@ jobs:
       - name: Build unified host/viewer executable
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name RemoteDeskPro-Agent --collect-all mss --collect-all pyautogui --collect-all pyperclip --collect-all imageio_ffmpeg --collect-data certifi --collect-all webview --hidden-import workflow_engine --hidden-import telemetry --hidden-import win32gui --hidden-import win32process --hidden-import psutil --hidden-import websockets.asyncio.client --hidden-import websockets.asyncio.connection agent/host_agent.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name RemoteDeskPro-Agent --collect-all mss --collect-all pyautogui --collect-all pyperclip --collect-all pywinauto --collect-all pytesseract --collect-all imageio_ffmpeg --collect-data certifi --collect-all webview --hidden-import workflow_engine --hidden-import adaptive_replay --hidden-import telemetry --hidden-import win32gui --hidden-import win32process --hidden-import psutil --hidden-import websockets.asyncio.client --hidden-import websockets.asyncio.connection agent/host_agent.py
       - name: Verify and checksum executable
         shell: pwsh
         run: |

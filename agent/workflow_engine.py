@@ -104,7 +104,7 @@ class WorkflowRecorder:
     def set_enabled(self,enabled:bool)->Path|None:
         with self._lock:
             if enabled and not self._enabled:
-                self._steps=[]; self._last=time.monotonic()
+                self._steps=[]; self._pressed_keys.clear(); self._last=time.monotonic()
                 try:
                     import pyautogui
                     size=pyautogui.size(); self._screen={"width":int(size.width),"height":int(size.height)}

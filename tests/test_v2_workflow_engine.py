@@ -69,3 +69,17 @@ def test_workflow_history_lists_only_json_files(tmp_path):
     (tmp_path / "ignored.json.tmp").write_text("{}", encoding="utf-8")
     (tmp_path / "two.json").write_text("{}", encoding="utf-8")
     assert {p.name for p in workflow_engine.list_workflows(tmp_path)} == {"one.json", "two.json"}
+
+
+def test_recorder_redacts_printable_keys_but_records_ctrl_a_clear_action(tmp_path):
+    import json
+    recorder = WorkflowRecorder(tmp_path)
+    recorder.set_enabled(True)
+    recorder.record_control({"event": "key_down", "key": "ctrl"})
+    recorder.record_control({"event": "key_down", "key": "a"})
+    recorder.record_control({"event": "key_up", "key": "a"})
+    recorder.record_control({"event": "key_up", "key": "ctrl"})
+    path = recorder.set_enabled(False)
+    steps = json.loads(path.read_text(encoding="utf-8"))["steps"]
+    assert any(step["action"] == "clear_input" for step in steps)
+    assert all(step.get("key") != "a" for step in steps)
