@@ -397,6 +397,10 @@ def test_t23_valid_trusted_pin_connects_and_bypasses_manual_consent(v2_api_clien
 
 def test_t24_invalid_trusted_pin_is_rejected_and_connect_endpoint_rate_limits(v2_api_client):
     client, token, device_id = v2_api_client
+    # TestClient reuses one synthetic source IP across the entire pytest process.
+    # Isolate this test's rate-limit window without changing production throttling.
+    backend_main._attempts.pop("connect:testclient", None)
+    backend_main._attempts.pop(f"connect-device:testclient:{device_id}", None)
     headers = {"Authorization": "Bearer " + token}
     for _ in range(8):
         response = client.post("/api/devices/connect", headers=headers,
