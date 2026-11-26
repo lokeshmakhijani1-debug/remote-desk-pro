@@ -12,7 +12,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 from .config import settings
-from .database import SessionLocal, init_db, User, Device, AuditEvent, verify_database_connection, DATABASE_KIND
+from .database import SessionLocal, init_db, User, Device, AuditEvent, CommunityWorkflow, verify_database_connection, DATABASE_KIND
 from .security import hash_secret, verify_secret, issue_token, read_token, new_device_id, new_dynamic_password
 
 logger = logging.getLogger("uvicorn.error")
@@ -68,6 +68,10 @@ class PairIn(BaseModel):
 class ConnectIn(BaseModel):
     device_id: str = Field(pattern=r"^\d{9}$")
     password: str = Field(pattern=r"^\d{6}$")
+
+class WorkflowPublishIn(BaseModel):
+    workflow: dict[str, Any]
+
 
 _attempts: dict[str, list[float]] = defaultdict(list)
 
@@ -240,6 +244,82 @@ def audit_logs(authorization: str | None = Header(default=None), db: Session = D
         raise HTTPException(403, "Admin role required")
     rows = db.scalars(select(AuditEvent).order_by(AuditEvent.created_at.desc()).limit(200)).all()
     return [{"action":r.action,"user_id":r.user_id,"device_id":r.device_id,"detail":r.detail,"at":r.created_at.isoformat()} for r in rows]
+
+
+def _public_workflow_payload(source: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(source, dict) or source.get("schema_version") != 1:
+        raise HTTPException(422, "Unsupported workflow schema")
+    if source.get("is_public") is not True:
+        raise HTTPException(403, "Workflow must be explicitly marked public before publishing")
+    privacy = source.get("privacy") if isinstance(source.get("privacy"), dict) else {}
+    if privacy.get("local_only") is True:
+        raise HTTPException(403, "Local-only workflows cannot be transmitted; explicitly opt in first")
+    if privacy.get("typed_text_recorded") or privacy.get("clipboard_recorded"):
+        raise HTTPException(422, "Workflows containing typed text or clipboard data cannot be published")
+    steps = source.get("steps")
+    if not isinstance(steps, list) or not steps or len(steps) > 10000:
+        raise HTTPException(422, "Workflow must contain between 1 and 10000 steps")
+    try:
+        encoded = json.dumps(source, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        raise HTTPException(422, "Workflow must be valid JSON")
+    if len(encoded.encode("utf-8")) > 2_000_000:
+        raise HTTPException(413, "Workflow exceeds the 2 MB community limit")
+    forbidden = {"typed_text", "clipboard", "password", "secret", "input_value"}
+    def inspect(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if str(key).casefold() in forbidden:
+                    raise HTTPException(422, "Workflow contains a prohibited sensitive field")
+                inspect(item)
+        elif isinstance(value, list):
+            for item in value: inspect(item)
+    inspect(source)
+    clean = json.loads(encoded)
+    clean["name"] = " ".join(str(clean.get("name") or "Community workflow").split())[:120]
+    tags = clean.get("tags", [])
+    clean["tags"] = [str(tag).strip()[:32] for tag in tags[:12] if str(tag).strip()] if isinstance(tags, list) else []
+    clean["notes"] = str(clean.get("notes") or "").strip()[:1000]
+    clean["is_public"] = True
+    clean["privacy"] = {"typed_text_recorded": False, "clipboard_recorded": False, "local_only": False}
+    return clean
+
+
+@app.post("/api/workflows/publish")
+def publish_workflow(data: WorkflowPublishIn, authorization: str | None = Header(default=None), db: Session = Depends(db_session)):
+    user = current_user(authorization, db)
+    workflow = _public_workflow_payload(data.workflow)
+    row = CommunityWorkflow(owner_id=user.id, name=workflow["name"], description=workflow["notes"],
+                            tags=workflow["tags"], workflow=workflow, is_public=True)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    audit(db, "workflow.published", user.id, detail=f"workflow_id={row.id}")
+    return {"id": row.id, "name": row.name, "tags": row.tags, "is_public": True, "created_at": row.created_at.isoformat()}
+
+
+@app.get("/api/workflows/community")
+def community_workflows(authorization: str | None = Header(default=None), db: Session = Depends(db_session)):
+    current_user(authorization, db)
+    rows = db.scalars(select(CommunityWorkflow).where(CommunityWorkflow.is_public.is_(True))
+                      .order_by(CommunityWorkflow.created_at.desc()).limit(100)).all()
+    return [{"id": row.id, "name": row.name, "description": row.description, "tags": row.tags,
+             "workflow": row.workflow, "created_at": row.created_at.isoformat()} for row in rows]
+
+
+@app.post("/api/workflows/import/{workflow_id}")
+def import_community_workflow(workflow_id: int, authorization: str | None = Header(default=None), db: Session = Depends(db_session)):
+    current_user(authorization, db)
+    row = db.scalar(select(CommunityWorkflow).where(CommunityWorkflow.id == workflow_id,
+                                                     CommunityWorkflow.is_public.is_(True)))
+    if not row:
+        raise HTTPException(404, "Public community workflow not found")
+    imported = json.loads(json.dumps(row.workflow))
+    imported["is_public"] = False
+    imported["privacy"] = {"typed_text_recorded": False, "clipboard_recorded": False, "local_only": True}
+    imported["imported_from"] = {"community_workflow_id": row.id, "published_at": row.created_at.isoformat()}
+    return {"workflow": imported}
+
 
 class Hub:
     def __init__(self):
