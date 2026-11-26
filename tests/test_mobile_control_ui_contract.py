@@ -13,6 +13,7 @@ def test_remote_dock_exposes_all_core_actions_and_workflow_panels():
         "Recording Settings", "Disconnect", "Zoom In", "Zoom Out", "Reset Zoom",
     ):
         assert label in app
+    assert "Step preview (" in app
     assert 'function sendControl(data:Record<string,unknown>,force=false)' in app
     assert 'sendControl({event:"mouse_down",button:2,x:0.5,y:0.5},true)' in app
     assert 'sendControl({event:"mouse_scroll",deltaX:0,deltaY:-420},true)' in app
