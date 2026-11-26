@@ -26,3 +26,9 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
+      - name: Install headless Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Verify mobile portrait, landscape and desktop layouts
+        run: npm run test:layout
+        working-directory: frontend
