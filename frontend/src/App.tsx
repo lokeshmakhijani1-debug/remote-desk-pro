@@ -35,7 +35,7 @@ export default function App(){
  const socket=useRef<WebSocket|null>(null),canvas=useRef<HTMLCanvasElement>(null),screenContainer=useRef<HTMLDivElement>(null),fileInput=useRef<HTMLInputElement>(null),pendingFile=useRef<File|null>(null);
  const incomingTransfer=useRef<IncomingTransfer|null>(null);
  const [recordings,setRecordings]=useState<any[]>([]),[recordingsOpen,setRecordingsOpen]=useState(false),[savedRecording,setSavedRecording]=useState<any|null>(null);
- const recordingDownloadRef=useRef<{filename:string;chunks:Uint8Array[];offset:number;total:number;sha256:string}|null>(null);
+ const recordingDownloadRef=useRef<{filename:string;chunks:Uint8Array[];offset:number;total:number;sha256:string}|null>(null),pendingRecordingPrompt=useRef(false);
  const pressedKeys=useRef<Set<string>>(new Set()),manualDisconnect=useRef(false),retryTimer=useRef<number|undefined>(undefined),heartbeatTimer=useRef<number|undefined>(undefined),resumeProbeTimer=useRef<number|undefined>(undefined),attemptRef=useRef(0),heartbeatSentAt=useRef(0);
  const [clipboardText,setClipboardText]=useState(""),[remoteClipboard,setRemoteClipboard]=useState(""),[transferStatus,setTransferStatus]=useState("");const [transferProgress,setTransferProgress]=useState(0),[transferPaused,setTransferPaused]=useState(false),[useZstd,setUseZstd]=useState(false),[transferVerified,setTransferVerified]=useState(false);const transferOffset=useRef(0),activeTransfer=useRef<ActiveTransfer|null>(null);
  const [keyboardOpen,setKeyboardOpen]=useState(false),[keyboardBuffer,setKeyboardBuffer]=useState(""),[zoom,setZoom]=useState(1),[panX,setPanX]=useState(0),[panY,setPanY]=useState(0);
@@ -119,9 +119,9 @@ export default function App(){
       const wasActive=recordingActive;
       setRecordingActive(Boolean(m.active));setRecordingReason(m.active&&m.reason==="privacy"?"privacy":null);
       if(m.detail)setToast(String(m.detail));
-      if(wasActive&&!m.active){setSavedRecording({filename:"",sha256:""});requestRecordings();}
+      if(wasActive&&!m.active){pendingRecordingPrompt.current=true;requestRecordings();}
      }
-     if(m.type==="recording_list_result"){const rows=Array.isArray(m.recordings)?m.recordings:[];setRecordings(rows);if(rows.length&&savedRecording)setSavedRecording(rows[0]);}
+     if(m.type==="recording_list_result"){const rows=Array.isArray(m.recordings)?m.recordings:[];setRecordings(rows);if(pendingRecordingPrompt.current){pendingRecordingPrompt.current=false;if(rows.length)setSavedRecording(rows[0]);}}
      if(m.type==="recording_deleted"){setRecordings(Array.isArray(m.recordings)?m.recordings:[]);setSavedRecording(null);setToast("Recording deleted from the host.");}
      if(m.type==="recording_error")setToast(String(m.detail||"Recording request failed"));
      if(m.type==="recording_chunk_result"){
