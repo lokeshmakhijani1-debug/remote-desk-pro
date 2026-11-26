@@ -267,3 +267,11 @@ def test_backend_accepts_visible_privacy_banner_control(event):
 def test_backend_rejects_hidden_or_unsupported_privacy_modes():
     assert not validate_control({"event": "privacy_screen", "enabled": True, "mode": "blank"})
     assert not validate_control({"event": "privacy_screen", "enabled": "yes", "mode": "banner"})
+
+
+def test_backend_accepts_approved_host_local_workflow_replay_control():
+    assert validate_control({"type": "control", "event": "workflow_replay"})
+
+
+def test_backend_rejects_workflow_replay_with_untrusted_payload_fields():
+    assert not validate_control({"type": "control", "event": "workflow_replay", "path": "../../secret.json"})
