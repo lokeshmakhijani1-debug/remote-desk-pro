@@ -721,3 +721,14 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - A public prerelease is gated behind an explicit `workflow_dispatch` input `publish_prerelease=true`; it runs only from `feature/v2-bidirectional-automation` and only after unit/frontend/security and Windows packaging jobs pass.
 - The prerelease tag format is `v2.0.0-rc.<run_number>`; the downloadable executable and checksum are attached to the GitHub Release. This does not deploy Render and does not modify `main`.
 - Local Windows build entrypoint: `powershell -NoProfile -ExecutionPolicy Bypass -File agent/build_windows.ps1`. Windows PyInstaller is required for a Windows `.exe`; Google Colab/Linux cannot cross-compile a native Windows executable using PyInstaller.
+
+
+## Phase 5 community API and adaptive replay (2026-11-26)
+- API: POST /api/workflows/publish (authenticated, explicit is_public=true, rejects local-only/sensitive data, 2 MB cap); GET /api/workflows/community (authenticated public-only listing); POST /api/workflows/import/{id} (public-only import returned as local/private).
+- Database: rdp_community_workflows model in backend/database.py. Uses configured DATABASE_URL and existing SQLite WAL fallback when SQLite is selected. PostgreSQL migration: supabase/migrations/20261126170000_workflow_community.sql.
+- Privacy: agent-local JSON remains in %APPDATA%\RemoteDeskPro\workflows\. Browser dashboard requires file selection, separate Make Public toggle, and Publish click before sending. API rejects is_public=false, privacy.local_only=true, typed/clipboard flags and sensitive field names. Community queries/imports filter is_public=true.
+- Frontend: Workflow History enables explicit local JSON selection/publishing; Community Library lists public workflows and downloads imported JSON marked local/private. Browser cannot silently read APPDATA.
+- Agent: agent/adaptive_replay.py implements UIA -> OCR -> window-relative/normalized coordinate fallback, bounded readiness polling, explicit safe popup-handler hooks, and Ctrl+A focus verification. agent/workflow_engine.py records nearby UIA name/role/bounds and click-adjacent OCR anchors; printable keystrokes and field values are not stored.
+- Optional Windows dependencies: pywinauto and pytesseract. Tesseract OCR executable must be installed separately; absent optional tools degrade to coordinate anchors.
+- Added tests: tests/test_workflow_community.py (5 privacy/API tests) and tests/test_adaptive_replay_10_envs.py (10 environment simulations). Latest CI determines complete suite count.
+- No new network port. No Render deployment or production environment changes. Feature branch pushes trigger CI/security/Windows executable packaging.
