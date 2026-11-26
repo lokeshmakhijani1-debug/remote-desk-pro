@@ -26,7 +26,7 @@ try {
   ]) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await page.setContent(html, { waitUntil: "domcontentloaded" });
-    await page.locator(".sidebar-toggle").click();
+    await page.locator(".sidebar-toggle").evaluate((element) => element.click());
     const sidebarCollapsed = await page.locator(".layout").evaluate((element) => element.classList.contains("sidebar-collapsed"));
     if (!sidebarCollapsed) throw new Error(viewport.name + ": sidebar did not collapse");
     const result = await page.evaluate(() => {
