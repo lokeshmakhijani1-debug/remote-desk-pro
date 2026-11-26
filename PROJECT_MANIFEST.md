@@ -793,3 +793,13 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Remaining verification: live browser automation is attempted against the supplied staging URL. Any browser-provider credit/availability failure is reported as not verified, never as a pass. GitHub Actions and Render status must be checked against the final pushed SHA.
 
 - Follow-up UI detail: the same draggable dock is now displayed on desktop as well as mobile; the full-width desktop toolbar remains available. The dock uses a three-column desktop grid and touch-friendly mobile grid.
+
+
+## Mobile floating controls and responsive viewer hardening — 2026-11-26
+- `frontend/src/App.tsx`: corrected the dock's gated input shortcuts so Right-click and Scroll explicitly dispatch through the authenticated control WebSocket even when Mouse Mode was previously off, then enable Mouse Mode. Added distinct Scroll Up/Down actions, Virtual Keyboard focus-on-open, Workflow Steps and Community Library shortcuts, Zoom In/Out/Reset actions, and viewport-bounded dock dragging.
+- `frontend/src/styles.css`: made the high-contrast dock persistently visible whenever a remote viewer session is active on both desktop and mobile; pinned it at z-index 9999 with safe-area-aware offsets, constrained the expanded grid to the dynamic viewport, and raised the mobile sidebar/drawer and overlay stacking order without covering the sidebar toggle.
+- `tests/test_input_dispatch.py`: included host-local workflow replay in the accepted control protocol test cases.
+- `tests/test_mobile_control_ui_contract.py`: added static contract tests for all dock actions, forced right-click/scroll dispatch, dynamic viewport/orientation observers, safe-area/z-index rules, and opaque black privacy styling.
+- `test_instructions.json`: explicitly lists the mobile control UI contract and orientation/FAB stress regression commands in addition to the full Python test suite, frontend build, security scan, fault injection, and recording checks.
+- Host privacy remains the native Win32 black rectangle (`SS_BLACKRECT`) at alpha 255. Recording remains manual start/stop with bounded local-only retention settings. Workflow JSON publish remains explicit opt-in from Workflow History; replay executes the latest host-local workflow only.
+- Browser E2E still requires the deployed authenticated dashboard and an approved host. A blank host password cannot be used to verify remote input/blackout/recording against the real host.
