@@ -779,3 +779,5 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 
 - Backend backend/main.py: validates recording-control action and resource caps, enforces the existing authenticated non-read-only viewer and host-approval gates, relays recording status acknowledgements, and records start/stop request audit events.
 - Security tests tests/test_recording_control_security.py: rejects community-upload mode, malformed actions, boolean-as-integer values, and out-of-range duration/retention/storage settings.
+
+- Deployment routing check: render.yaml still configures the existing Render service to deploy from main. Pushing this feature branch does not trigger that service's auto-deploy; the Render service/Blueprint was not modified because switching its deployment branch would alter the active deployment target. No Render deployment is claimed.
