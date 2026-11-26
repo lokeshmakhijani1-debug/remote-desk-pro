@@ -4,6 +4,7 @@ import sys
 import time
 import types
 from pathlib import Path
+import pytest
 
 from agent import privacy_overlay
 from agent.privacy_overlay import PrivacyBanner
@@ -19,6 +20,7 @@ def test_privacy_banner_is_disabled_off_windows(monkeypatch):
 
 def test_session_recorder_writes_mp4_and_audit_hash(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr("agent.session_recorder.RECORDING_DIR", tmp_path)
 
     class FakeWriter:
         def __init__(self, path):
@@ -60,6 +62,7 @@ def test_session_recorder_writes_mp4_and_audit_hash(tmp_path, monkeypatch):
     assert events[-1]["sha256"] == expected
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Native Win32 privacy overlay requires a Windows runner")
 def test_privacy_banner_starts_and_stops_with_emergency_unlock_binding(monkeypatch):
     import threading
 

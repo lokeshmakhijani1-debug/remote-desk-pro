@@ -7,6 +7,8 @@ import concurrent.futures
 import json
 import logging
 import os
+import sys
+import subprocess
 import threading
 import time
 import urllib.error
@@ -16,8 +18,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox
 
-# desk-pro-pi29.onrender.com currently returns HTTP 404; use the verified live API.
-DEFAULT_SERVER = os.getenv("RDP_SERVER", "https://remote-desk-pro-pj29.onrender.com").rstrip("/")
+DEFAULT_SERVER = os.getenv("RDP_SERVER", "http://127.0.0.1:8000").rstrip("/")
 APP_DIR = Path(os.getenv("APPDATA", str(Path.home()))) / "RemoteDeskPro"
 CONFIG_FILE = APP_DIR / "config.json"
 LOG_FILE = APP_DIR / "agent.log"
@@ -114,19 +115,23 @@ def load_config() -> dict:
             data["access_token"] = _unseal(data.pop("access_token_enc"))
         if data.get("dynamic_password_enc"):
             data["dynamic_password"] = _unseal(data.pop("dynamic_password_enc"))
+        if data.get("unattended_pin_enc"):
+            data["unattended_pin"] = _unseal(data.pop("unattended_pin_enc"))
         return data
     except Exception:
         logger.exception("Unable to read protected local configuration")
         return {}
 
 def save_config(data: dict) -> None:
-    safe = {k: v for k, v in data.items() if k not in ("device_secret", "access_token", "dynamic_password")}
+    safe = {k: v for k, v in data.items() if k not in ("device_secret", "access_token", "dynamic_password", "unattended_pin")}
     if data.get("device_secret"):
         safe["device_secret_enc"] = _seal(data["device_secret"])
     if data.get("access_token"):
         safe["access_token_enc"] = _seal(data["access_token"])
     if data.get("dynamic_password"):
         safe["dynamic_password_enc"] = _seal(data["dynamic_password"])
+    if data.get("unattended_pin"):
+        safe["unattended_pin_enc"] = _seal(str(data["unattended_pin"]))
     APP_DIR.mkdir(parents=True, exist_ok=True)
     temp = CONFIG_FILE.with_suffix(".tmp")
     temp.write_text(json.dumps(safe, indent=2), encoding="utf-8")
@@ -156,26 +161,41 @@ class DesktopApp:
     def __init__(self, server=None):
         self.root = tk.Tk()
         self.root.title("Remote Desk Pro")
-        self.root.geometry("500x570")
-        self.root.minsize(460, 520)
+        self.root.geometry("500x740")
+        self.root.minsize(460, 680)
         self.root.configure(bg="#f3f6fa")
         self._set_system_awake(True)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.config = load_config()
+        saved_pin = str(self.config.get("unattended_pin", "")).strip()
+        if self.config.get("unattended_auto_approve") and 4 <= len(saved_pin) <= 8 and saved_pin.isdigit():
+            os.environ["RDP_UNATTENDED_PIN"] = saved_pin
+        else:
+            os.environ.pop("RDP_UNATTENDED_PIN", None)
         self.server = self.config.get("server") or server or DEFAULT_SERVER
         self.running = False
+        self.session_live = False
         self.agent_thread = None
         self.agent_args = None
         self.stop_event = threading.Event()
         self.attempt = 0
         self.last_error = "None"
         self.latency_ms = None
+        try:
+            from workflow_engine import WorkflowRecorder, WorkflowReplayEngine
+        except ModuleNotFoundError:
+            from agent.workflow_engine import WorkflowRecorder, WorkflowReplayEngine
+        self.workflow_recorder = WorkflowRecorder()
+        self.workflow_engine = WorkflowReplayEngine()
+        self._workflow_prompted_path = None
+        self.telemetry_snapshot = {"fps": 0.0, "ping_ms": None, "upload_kbps": 0.0, "download_kbps": 0.0}
         self.status_var = tk.StringVar(value="Not connected")
         self.id_var = tk.StringVar(value=self.config.get("device_id", "Not paired"))
         self.password_var = tk.StringVar(value=self.config.get("dynamic_password", "••••••"))
         self._build()
         self.root.deiconify()
         self.root.lift()
+        self.root.after(750, self._poll_workflow_save)
         if self.config.get("device_id") and self.config.get("device_secret"):
             self.root.after(250, self._start_existing)
         else:
@@ -183,7 +203,9 @@ class DesktopApp:
 
     def _build(self):
         tk.Label(self.root, text="REMOTE DESK PRO", bg="#f3f6fa", fg="#087d65", font=("Segoe UI", 10, "bold")).pack(pady=(22, 2))
-        tk.Label(self.root, text="Your computer, ready for secure remote support", bg="#f3f6fa", fg="#25364d", font=("Segoe UI", 16, "bold")).pack(pady=(0, 16))
+        tk.Label(self.root, text="Your computer, ready for secure remote support", bg="#f3f6fa", fg="#25364d", font=("Segoe UI", 16, "bold")).pack(pady=(0, 8))
+        tk.Button(self.root, text="Open Viewer / Take Control", command=self._open_viewer, bg="#087d65", fg="white", relief="flat", padx=12, pady=7).pack(pady=(0, 4))
+        tk.Button(self.root, text="Send File to Connected Viewer", command=self._send_file_to_viewer, bg="#ffffff", fg="#087d65", relief="solid", bd=1, padx=10, pady=5).pack(pady=(0, 8))
         card = tk.Frame(self.root, bg="white", highlightbackground="#e0e7ef", highlightthickness=1)
         card.pack(fill="x", padx=24, pady=8)
         tk.Label(card, text="YOUR ID", bg="white", fg="#7b8ba1", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(18, 4))
@@ -210,13 +232,25 @@ class DesktopApp:
         tk.Label(pin_row, text="Trusted PIN (4-8 digits):", bg="white", fg="#52637a", font=("Segoe UI", 8)).pack(side="left")
         tk.Entry(pin_row, textvariable=self.unattended_pin_var, show="*", width=12).pack(side="left", padx=8)
         tk.Button(pin_row, text="Save PIN", command=self._save_unattended, bg="#087d65", fg="white", relief="flat", padx=10).pack(side="right")
+        workflow_card = tk.Frame(self.root, bg="white", highlightbackground="#e0e7ef", highlightthickness=1)
+        workflow_card.pack(fill="x", padx=24, pady=6)
+        self.workflow_record_var = tk.BooleanVar(value=False)
+        self.session_recording_var = tk.BooleanVar(value=False)
+        self.recording_duration_var = tk.IntVar(value=int(self.config.get("recording_max_minutes", 30)))
+        self.recording_retention_var = tk.IntVar(value=int(self.config.get("recording_retention_count", 5)))
+        self.recording_storage_var = tk.IntVar(value=int(self.config.get("recording_max_storage_mb", 1024)))
+        tk.Checkbutton(workflow_card, text="Record semantic actions only while privacy blank-screen is active", variable=self.workflow_record_var, command=self._set_workflow_recording, bg="white", fg="#17243a", font=("Segoe UI", 8, "bold"), wraplength=390).pack(anchor="w", padx=12, pady=(8, 3))
+        tk.Button(workflow_card, text="Workflow History", command=self._open_workflow_history, bg="#ffffff", fg="#52637a", relief="solid", bd=1).pack(fill="x", padx=12, pady=(2, 8))
+        tk.Checkbutton(workflow_card, text="Start / Stop MP4 session recording (off by default)", variable=self.session_recording_var, command=self._set_session_recording, bg="white", fg="#17243a", font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=12, pady=(2, 4))
+        tk.Button(workflow_card, text="Recording & Storage Settings", command=self._recording_settings_dialog, bg="#ffffff", fg="#52637a", relief="solid", bd=1).pack(fill="x", padx=12, pady=(0, 8))
+        tk.Button(workflow_card, text="Replay latest saved workflow", command=self._replay_latest_workflow, bg="#ffffff", fg="#52637a", relief="solid", bd=1).pack(fill="x", padx=12, pady=(0, 8))
         self.diag = tk.Frame(self.root, bg="#f3f6fa")
         self.diag.pack(fill="x", padx=24, pady=6)
         self.diag_visible = False
         tk.Button(self.diag, text="Connection Diagnostics  ▾", command=self._toggle_diag, relief="flat", bg="#f3f6fa", fg="#53637a").pack(anchor="w")
         self.diag_text = tk.Label(self.diag, text=self._diagnostics_text(), bg="#f3f6fa", fg="#718096", justify="left", font=("Consolas", 8))
         tk.Button(self.root, text="Sign out / Re-link account", command=self._show_login, bg="#ffffff", fg="#53637a", relief="solid", bd=1).pack(fill="x", padx=24, pady=(10, 5))
-        tk.Label(self.root, text="Remote control requires your approval on this computer. Unattended access is disabled.", bg="#f3f6fa", fg="#718096", wraplength=430, font=("Segoe UI", 8)).pack(pady=12)
+        tk.Label(self.root, text="Manual approval is the default. Trusted unattended mode requires the owner's saved PIN.", bg="#f3f6fa", fg="#718096", wraplength=430, font=("Segoe UI", 8)).pack(pady=12)
 
     def _sync_unattended_pin_to_server(self, pin_value: str):
         did = self.config.get("device_id")
@@ -248,6 +282,193 @@ class DesktopApp:
             os.environ.pop("RDP_UNATTENDED_PIN", None)
             self._sync_unattended_pin_to_server("")
             self.status_var.set("Unattended Auto-Approve disabled (Manual approval required)")
+
+    def _open_viewer(self):
+        if getattr(sys, "frozen", False):
+            command = [sys.executable, "--viewer", "--server", self.server]
+        else:
+            command = [sys.executable, str(Path(__file__).with_name("host_agent.py")), "--viewer", "--server", self.server]
+        try:
+            subprocess.Popen(command, close_fds=True)
+        except Exception as exc:
+            messagebox.showerror("Viewer could not start", str(exc))
+
+    def _send_file_to_viewer(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(parent=self.root, title="Choose a file to send to the viewer")
+        if not path:
+            return
+        try:
+            try:
+                import host_agent
+            except ModuleNotFoundError:
+                from agent import host_agent
+            host_agent.enqueue_file_send(path)
+            self.status_var.set("File queued; it will be offered to the next approved viewer session.")
+        except Exception as exc:
+            messagebox.showerror("File could not be queued", str(exc))
+
+    def _set_session_recording(self):
+        enabled = bool(self.session_recording_var.get())
+        if enabled and not self.session_live:
+            self.session_recording_var.set(False)
+            self.status_var.set("Connect and approve a live viewer session before starting recording.")
+            return
+        try:
+            import host_agent
+        except ModuleNotFoundError:
+            from agent import host_agent
+        settings = {
+            "max_duration_seconds": max(1, min(240, self.recording_duration_var.get())) * 60,
+            "retention_count": max(1, min(100, self.recording_retention_var.get())),
+            "max_storage_mb": max(100, min(20480, self.recording_storage_var.get())),
+            "save_mode": "local",
+        }
+        host_agent.set_session_recording_requested(enabled, settings)
+        self.status_var.set("Recording start requested — saved locally only." if enabled else "Recording stop requested.")
+
+    def _recording_settings_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Recording & Storage Settings")
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        dialog.grab_set()
+        fields = [
+            ("Maximum duration (minutes)", self.recording_duration_var, 1, 240),
+            ("Keep last N recordings", self.recording_retention_var, 1, 100),
+            ("Storage cap (MB)", self.recording_storage_var, 100, 20480),
+        ]
+        tk.Label(dialog, text="Recording & Storage Settings", font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=16, pady=(14, 8))
+        for label, variable, minimum, maximum in fields:
+            tk.Label(dialog, text=label).pack(anchor="w", padx=16, pady=(8, 2))
+            tk.Spinbox(dialog, from_=minimum, to=maximum, textvariable=variable, width=12).pack(anchor="w", padx=16)
+        tk.Label(dialog, text="Destination: Save Locally. Community video publishing is disabled.", fg="#087d65").pack(anchor="w", padx=16, pady=12)
+        def save():
+            self.config.update({
+                "recording_max_minutes": max(1, min(240, self.recording_duration_var.get())),
+                "recording_retention_count": max(1, min(100, self.recording_retention_var.get())),
+                "recording_max_storage_mb": max(100, min(20480, self.recording_storage_var.get())),
+            })
+            save_config(self.config)
+            dialog.destroy()
+            self.status_var.set("Recording settings saved.")
+        tk.Button(dialog, text="Save Settings", command=save, bg="#087d65", fg="white", relief="flat").pack(fill="x", padx=16, pady=(0, 16))
+
+    def _set_workflow_recording(self):
+        enabled = bool(self.workflow_record_var.get())
+        try:
+            import host_agent
+        except ModuleNotFoundError:
+            from agent import host_agent
+        host_agent.set_workflow_recording_requested(enabled)
+        self.status_var.set("Action recording is armed; it records only while the privacy screen is active." if enabled else "Semantic action recording disabled.")
+
+    def _poll_workflow_save(self):
+        try:
+            target = self.workflow_recorder.last_saved
+            if target and target.is_file() and str(target) != self._workflow_prompted_path:
+                self._workflow_prompted_path = str(target)
+                self._prompt_workflow_metadata(target)
+        except Exception:
+            logger.exception("Workflow save prompt failed")
+        finally:
+            if self.root.winfo_exists():
+                self.root.after(750, self._poll_workflow_save)
+
+    def _prompt_workflow_metadata(self, target):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Save recorded workflow")
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        dialog.grab_set()
+        tk.Label(dialog, text="Name this workflow", font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=16, pady=(14, 4))
+        name_var = tk.StringVar(value="Workflow " + time.strftime("%Y-%m-%d %H:%M"))
+        name_entry = tk.Entry(dialog, textvariable=name_var, width=48)
+        name_entry.pack(fill="x", padx=16)
+        tk.Label(dialog, text="Tags (comma-separated)", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=16, pady=(10, 3))
+        tags_var = tk.StringVar()
+        tk.Entry(dialog, textvariable=tags_var, width=48).pack(fill="x", padx=16)
+        tk.Label(dialog, text="Notes", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=16, pady=(10, 3))
+        notes = tk.Text(dialog, width=48, height=4, wrap="word")
+        notes.pack(fill="x", padx=16)
+        tk.Label(dialog, text="Saved locally on this device. Nothing is uploaded or shared.", fg="#087d65").pack(anchor="w", padx=16, pady=8)
+        def save():
+            try:
+                try:
+                    from workflow_engine import annotate_workflow
+                except ModuleNotFoundError:
+                    from agent.workflow_engine import annotate_workflow
+                saved = annotate_workflow(target, name_var.get(), tags_var.get().split(","), notes.get("1.0", "end").strip())
+                self._workflow_prompted_path = str(saved)
+                self.status_var.set("Workflow saved locally: " + saved.stem)
+                dialog.destroy()
+            except Exception as exc:
+                messagebox.showerror("Workflow could not be saved", str(exc), parent=dialog)
+        buttons = tk.Frame(dialog); buttons.pack(fill="x", padx=16, pady=(0, 14))
+        tk.Button(buttons, text="Save locally", command=save, bg="#087d65", fg="white", relief="flat").pack(side="right")
+        tk.Button(buttons, text="Keep unnamed", command=dialog.destroy, relief="flat").pack(side="right", padx=8)
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+        name_entry.focus_set()
+
+    def _open_workflow_history(self):
+        try:
+            try:
+                from workflow_engine import list_workflows
+            except ModuleNotFoundError:
+                from agent.workflow_engine import list_workflows
+            paths = list_workflows()
+            if not paths:
+                messagebox.showinfo("Workflow History", "No locally saved workflows yet.", parent=self.root)
+                return
+            dialog = tk.Toplevel(self.root); dialog.title("Local Workflow History"); dialog.geometry("520x360")
+            listing = tk.Listbox(dialog, height=12, activestyle="dotbox")
+            listing.pack(fill="both", expand=True, padx=12, pady=12)
+            for path in paths:
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    title = str(data.get("name") or path.stem)
+                    tags = ", ".join(data.get("tags", []))
+                    listing.insert("end", title + (("  |  " + tags) if tags else ""))
+                except Exception:
+                    listing.insert("end", path.stem + "  |  unreadable")
+            def replay_selected():
+                selected = listing.curselection()
+                if not selected:
+                    return
+                dialog.destroy()
+                self._replay_workflow_path(paths[selected[0]])
+            listing.bind("<Double-Button-1>", lambda _event: replay_selected())
+            tk.Button(dialog, text="Replay selected workflow", command=replay_selected).pack(pady=(0, 12))
+        except Exception as exc:
+            messagebox.showerror("Workflow History", str(exc), parent=self.root)
+
+    def _replay_workflow_path(self, target):
+        def replay():
+            try:
+                result = self.workflow_engine.replay(target)
+                message = f"Workflow replayed: {result['executed']} steps."
+                if result.get("warnings"):
+                    message += " Adaptation warnings: " + "; ".join(result["warnings"][:3])
+            except Exception as exc:
+                message = "Workflow replay failed: " + str(exc)
+            self.root.after(0, lambda: self.status_var.set(message))
+        threading.Thread(target=replay, daemon=True, name="RDPWorkflowReplay").start()
+
+    def _replay_latest_workflow(self):
+        target = self.workflow_engine.latest()
+        if target is None:
+            self.status_var.set("No saved workflow exists yet.")
+            return
+        def replay():
+            try:
+                result = self.workflow_engine.replay(target)
+                message = f"Workflow replayed: {result['executed']} steps."
+                if result.get("warnings"):
+                    message += " Some target applications were not found."
+            except Exception as exc:
+                message = "Workflow replay failed: " + str(exc)
+            self.root.after(0, lambda: self.status_var.set(message))
+        threading.Thread(target=replay, daemon=True, name="RDPWorkflowReplay").start()
 
     def _toggle_diag(self):
         self.diag_visible = not self.diag_visible
@@ -419,6 +640,9 @@ class DesktopApp:
                 host_agent.set_consent_callback(self._ask_consent)
                 host_agent.set_file_consent_callback(self._ask_file_consent)
                 host_agent.set_diagnostics_callback(self._agent_diagnostics)
+                host_agent.set_telemetry_callback(self._agent_telemetry)
+                host_agent.set_workflow_recorder(self.workflow_recorder)
+                host_agent.set_workflow_recording_requested(bool(self.workflow_record_var.get()))
                 args = type("Args", (), {"server":self.server,"device_id":self.config["device_id"],"secret":self.config["device_secret"],"dynamic_password":self.config.get("dynamic_password","")})()
                 self.agent_args = args
                 asyncio.run(host_agent.run(args, self.stop_event))
@@ -432,7 +656,15 @@ class DesktopApp:
 
     def _diagnostics_text(self):
         latency = str(self.latency_ms) + " ms" if self.latency_ms is not None else "Measuring / unavailable"
-        return f"Server: {self.server}\nLast error: {self.last_error}\nRelay latency: {latency}\nLog: {LOG_FILE}"
+        t = self.telemetry_snapshot
+        ping = str(t["ping_ms"]) + " ms" if t["ping_ms"] is not None else latency
+        return f"Server: {self.server}\nLast error: {self.last_error}\nFPS: {t['fps']} | Ping: {ping}\nUpload: {t['upload_kbps']} KB/s | Download: {t['download_kbps']} KB/s\nLog: {LOG_FILE}"
+
+    def _agent_telemetry(self, snapshot):
+        def update():
+            self.telemetry_snapshot = dict(snapshot)
+            self.diag_text.configure(text=self._diagnostics_text())
+        self.root.after(0, update)
 
     def _agent_diagnostics(self, last_error, latency_ms):
         def update():
@@ -442,7 +674,17 @@ class DesktopApp:
         self.root.after(0, update)
 
     def _agent_status(self, value: str):
-        self.root.after(0, lambda: self.status_var.set(value))
+        normalized = value.lower()
+        if "connected (live)" in normalized:
+            self.session_live = True
+        disconnected = any(marker in normalized for marker in ("waiting for a viewer", "viewer disconnected", "host offline", "disconnected", "connection denied", "agent stopped"))
+        if disconnected:
+            self.session_live = False
+        def update():
+            self.status_var.set(value)
+            if disconnected:
+                self.session_recording_var.set(False)
+        self.root.after(0, update)
         logger.info("Status: %s", value)
 
     def run(self):

@@ -32,7 +32,7 @@
 - Local development supports SQLite WAL; the deployed Render service uses Supabase-managed PostgreSQL, confirmed by a live `SELECT 1` health check.
 - Maximum concurrent viewer sockets is configured to 50, but not load-tested or certified.
 - Login and connection attempts have in-memory IP-based throttling; distributed rate limiting is not implemented.
-- Clipboard sync is bidirectional after host approval (64 KiB cap). File transfer is viewer-to-host only (50 MiB cap) with host-selected save path; chat delivery, audio, recording, multi-monitor switching, WOL, unattended access and user-invitation administration are not implemented.
+- Clipboard sync is bidirectional after host approval (64 KiB cap). V1 viewer-to-host transfer remains supported; V2 adds host-to-viewer SHA-256-verified chunked transfer with resume offsets and viewer acceptance (50 MiB cap); chat delivery, audio, recording, multi-monitor switching, WOL, unattended access and user-invitation administration are not implemented.
 - No paid Render plan or external paid TURN service is part of the plan.
 
 ## Phase checkpoints
@@ -56,9 +56,9 @@
 - Render service: `remote-desk-pro-pj29`; service ID: `srv-dc0917utlv9c739h7o30`.
 - Deployment: `dep-dc0918etlv9c739h7p80`; status: **live**; Docker build and deploy events both succeeded.
 - Plan/region: **Free / Singapore**; auto-deploy from `main`; configured health check path: `/api/health`.
-- Public application: https://remote-desk-pro-pj29.onrender.com â€” fetched successfully; title `Remote Desk Pro`; sign-in/create-account landing screen rendered.
-- Health endpoint: https://remote-desk-pro-pj29.onrender.com/api/health â€” fetched successfully; body reports `status: ok`, service `remote-desk-pro`, version `0.1.0`, database `configured`, capacity target `50`.
-- Manifest endpoint: https://remote-desk-pro-pj29.onrender.com/api/manifest â€” fetched successfully; reports WebSocket binary relay and device pairing enabled; file transfer, clipboard sync and recording disabled.
+- Public application: RDP_SERVER â€” fetched successfully; title `Remote Desk Pro`; sign-in/create-account landing screen rendered.
+- Health endpoint: RDP_SERVER/api/health â€” fetched successfully; body reports `status: ok`, service `remote-desk-pro`, version `0.1.0`, database `configured`, capacity target `50`.
+- Manifest endpoint: RDP_SERVER/api/manifest â€” fetched successfully; reports WebSocket binary relay and device pairing enabled; file transfer, clipboard sync and recording disabled.
 - Verification scope: public page + health + manifest HTTP fetch only. No account creation/login, host-agent pairing, remote-control session, WebSocket frame relay, load test or security penetration test performed.
 - Important operational risk remains: Render Free filesystem is ephemeral and the current SQLite database is not backed by persistent disk. Do not rely on account/device data surviving service replacement/redeploy; configure managed PostgreSQL before real users or production data.
 - Browser Use interactive automation was unavailable due insufficient credits; direct public endpoint fetches were used instead.
@@ -98,7 +98,7 @@
 - This is an authentication/configuration failure, not evidence of SQLAlchemy/Psycopg driver incompatibility. Do not run migrations or E2E tests until a successful DB connection is verified.
 - The logs show the configured pooler host is in Supabase's `ap-northeast-1` region and port 5432. Supabase Session Pooler connection strings commonly require the pooler username form `postgres.<project-ref>` rather than plain `postgres`; confirm the exact username shown in Supabase's Connection string UI. Also verify the database password is current and URL-encode reserved characters (`@`, `:`, `/`, `#`, `?`, `%`) before saving it in Render. Do not send the URI or password in chat.
 - Current Render service is unhealthy due to PostgreSQL authentication failure; the previous SQLite deployment was deactivated. Restore service by correcting the existing `DATABASE_URL` in Render, then verify `/api/health` returns `database=postgresql`.
-- Desktop Commander device `DESKTOP-OLL6O6U` (ID `c895725a-c3f5-496f-9d75-9b751772e22c`) is currently offline (last seen 30 minutes ago). Step 6.3/6.4 cannot be executed until the laptop agent reconnects.
+- Desktop Commander device `[redacted-host-name]` (ID `c895725a-c3f5-496f-9d75-9b751772e22c`) is currently offline (last seen 30 minutes ago). Step 6.3/6.4 cannot be executed until the laptop agent reconnects.
 - Live WebSocket, clipboard, file-transfer, audit, PyInstaller, and local-to-cloud smoke tests remain **not run**. Do not treat feature flags or deployment status as E2E verification.
 
 
@@ -108,26 +108,26 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 ### 6.1 â€” PostgreSQL health and URL normalization
 - Commit: `d6a4c3b55ccf09f657ec2b5e88165621bb717e09`; Render deployment: `dep-dc09rdivcj2c73dka2s0` (**live**).
 - `backend/database.py` now calls `url.strip()` before SQLAlchemy parses or normalizes the environment URL, removing trailing CR, LF, tabs, spaces, and other surrounding whitespace.
-- Verified from the connected Windows laptop against `https://remote-desk-pro-pj29.onrender.com/api/health`: HTTP 200, `status=ok`, `database=postgresql`.
+- Verified from the connected Windows laptop against `RDP_SERVER/api/health`: HTTP 200, `status=ok`, `database=postgresql`.
 - No database password or connection URI is stored in this repository or this manifest.
 
 ### 6.2 â€” Live WebSocket relay, clipboard, file transfer, and audit verification
 - Added `tests/e2e_live_relay.py`; added `websockets>=13,<16` to `requirements-dev.txt`.
-- First live E2E run: synthetic admin account `rdp-e2e-3948c60c942d@example.com`, device `636616212`. Passed PostgreSQL health, account/device registration, host online presence, 35-byte binary frame relay, bidirectional clipboard, file offer/accept/chunk/complete (4,440 bytes), path basename sanitization, and persistent audit retrieval.
+- First live E2E run: synthetic admin account `[redacted-test-account]`, device `[redacted-device-id]`. Passed PostgreSQL health, account/device registration, host online presence, 35-byte binary frame relay, bidirectional clipboard, file offer/accept/chunk/complete (4,440 bytes), path basename sanitization, and persistent audit retrieval.
 - Audit API confirmed `rdp_audit_events` contained `device.paired`, `session.requested`, `session.host_approved`, `clipboard.relayed`, `file.offered`, and `file.received` for the synthetic device.
-- Second live E2E run: synthetic technician account `rdp-e2e-b9e442dbeacb@example.com`, device `104028049`. Passed PostgreSQL health, registration, online presence, 35-byte binary frame relay, bidirectional clipboard, safe filename handling, and multi-chunk file transfer of 185,000 bytes across 4 chunks. Audit retrieval was not repeated in this second run because the synthetic user was a technician; audit persistence had already passed in the first admin run.
+- Second live E2E run: synthetic technician account `[redacted-test-account]`, device `[redacted-device-id]`. Passed PostgreSQL health, registration, online presence, 35-byte binary frame relay, bidirectional clipboard, safe filename handling, and multi-chunk file transfer of 185,000 bytes across 4 chunks. Audit retrieval was not repeated in this second run because the synthetic user was a technician; audit persistence had already passed in the first admin run.
 - These are synthetic protocol tests, not a full visual desktop-interaction or 50-user load test.
-- Synthetic test accounts/devices remain in the application database as test artifacts: admin E2E account `rdp-e2e-3948c60c942d@example.com` / device `636616212`; multi-chunk E2E technician `rdp-e2e-b9e442dbeacb@example.com` / device `104028049`; pre-final-deploy host pairing `rdp-host-smoke-779dc761d2fd@example.com` / device `521743345`; final live host pairing `rdp-host-final-1ca979e7ae60@example.com` / device `827335259`. The first account received the initial admin role because it was the first account in the dedicated app tables; its generated password was not retained. No account/device deletion was attempted because the app currently has no safe self-service cleanup endpoint and destructive DB cleanup was not authorized.
+- Synthetic test accounts/devices remain in the application database as test artifacts: admin E2E account `[redacted-test-account]` / device `[redacted-device-id]`; multi-chunk E2E technician `[redacted-test-account]` / device `[redacted-device-id]`; pre-final-deploy host pairing `[redacted-test-account]` / device `[redacted-device-id]`; final live host pairing `[redacted-test-account]` / device `[redacted-device-id]`. The first account received the initial admin role because it was the first account in the dedicated app tables; its generated password was not retained. No account/device deletion was attempted because the app currently has no safe self-service cleanup endpoint and destructive DB cleanup was not authorized.
 
 ### 6.3 â€” Standalone Windows agent build
-- Build completed on `DESKTOP-OLL6O6U` using Python 3.14.0 and PyInstaller 6.22.3.
+- Build completed on `[redacted-host-name]` using Python 3.14.0 and PyInstaller 6.22.3.
 - Verified executable: `E:\\GitHub-Vault\\remote-desk-pro-main\\agent\\dist\\RemoteDeskPro-Agent.exe`.
 - Size: 21,302,595 bytes; SHA-256: `27AC654E1750BE03603F40D93ECEE094A53D523039837E1CD0E6A38559856AF9`.
 - Standalone `--help` startup/import check passed. EXE/build intermediates and local pairing credentials are excluded from Git; no secrets are committed.
 
 ### 6.4 â€” Local-to-cloud pairing smoke test
-- Launched the built EXE on `DESKTOP-OLL6O6U`; Render authenticated `GET /api/devices` confirmed the host online.
-- Final post-deploy smoke-test device: `827335259`; account: `rdp-host-final-1ca979e7ae60@example.com`; host process PID at launch: `10692`.
+- Launched the built EXE on `[redacted-host-name]`; Render authenticated `GET /api/devices` confirmed the host online.
+- Final post-deploy smoke-test device: `[redacted-device-id]`; account: `[redacted-test-account]`; host process PID at launch: `10692`.
 - After the final Render auto-deploy completed, the EXE was relaunched and authenticated `GET /api/devices` again confirmed the host online. Host process remains running and connected. Visible per-session consent remains enabled; unattended access is disabled; no viewer session was started during this pairing check.
 - The EXE remains local at the path above and is not uploaded to GitHub.
 
@@ -138,7 +138,7 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 ## Windows build refresh â€” 2026-11-21 (IST)
 - Source branch: `main`; fetched and fast-forward pulled from `origin/main` (already up to date).
 - Source commit: `24a56af636c0a27040b8a2e03f58ca3efd2baa4c`.
-- Build host: `DESKTOP-OLL6O6U` (Windows 10 build 19045); Python `3.14.0`; PyInstaller `6.22.3`.
+- Build host: `[redacted-host-name]` (Windows 10 build 19045); Python `3.14.0`; PyInstaller `6.22.3`.
 - Build command: `python -m PyInstaller --noconfirm --clean --onefile --windowed --name RemoteDeskPro-Agent --collect-all mss --collect-all pyautogui --collect-all pyperclip --hidden-import tkinter --hidden-import websockets --distpath dist --workpath build host_agent.py` (run from `agent/`).
 - Build result: **successful**. EXE: `E:\GitHub-Vault\remote-desk-pro-main\agent\dist\RemoteDeskPro-Agent.exe`.
 - EXE size: `21299813` bytes; SHA-256: `F324BF88C2B6622058E5A21683F46E203F56BD745C2A144F4DC4C31E39A4A38F`.
@@ -192,10 +192,10 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 - Frontend TypeScript/Vite production build: PASS.
 - git diff --check: PASS.
 - Frozen EXE relay-reset test: PASS (3/3).
-- Live Render E2E: PASS against `https://remote-desk-pro-pj29.onrender.com` after deployment of `2a08441`. Verified same-account registration/pairing, password rotation invalidation with existing viewer-token continuity, host approval, bidirectional clipboard relay, 185,000-byte chunked file transfer, explicit one-viewer rejection (`viewer_rejected`), heartbeat acknowledgement, and host reconnect while the viewer remained connected. The test creates synthetic @example.com accounts/devices; these test records were not deleted.
+- Live Render E2E: PASS against `RDP_SERVER` after deployment of `2a08441`. Verified same-account registration/pairing, password rotation invalidation with existing viewer-token continuity, host approval, bidirectional clipboard relay, 185,000-byte chunked file transfer, explicit one-viewer rejection (`viewer_rejected`), heartbeat acknowledgement, and host reconnect while the viewer remained connected. The test creates synthetic @example.com accounts/devices; these test records were not deleted.
 - Audit persistence: PASS — a read-only Supabase query on project `qxssuczpumsaqywifirv` confirmed 12 `rdp_audit_events` rows for the successful synthetic E2E device, including device pairing/password rotation, session request/approval, clipboard relay, file offer/receipt, and host disconnect. The test account is a technician, so the admin-only audit API was not used; direct read-only database verification confirmed persistence.
-- Render service: remote-desk-pro-pj29 (srv-dc0917utlv9c739h7o30), branch main, auto-deploy enabled, verified URL https://remote-desk-pro-pj29.onrender.com; /api/health returns HTTP 200, status=ok, database=postgresql.
-- Requested alias https://desk-pro-pi29.onrender.com returns HTTP 404 and is not configured as the agent default.
+- Render service: remote-desk-pro-pj29 (srv-dc0917utlv9c739h7o30), branch main, auto-deploy enabled, verified URL RDP_SERVER; /api/health returns HTTP 200, status=ok, database=postgresql.
+- Requested alias RDP_SERVER returns HTTP 404 and is not configured as the agent default.
 - GitHub repository is PRIVATE. Release v1.0.0 can be published to repository collaborators; asset downloads require repository access. Repository visibility will not be changed as part of this release.
 - Backend/frontend source commit `2a08441` is pushed to `main` and deployed on Render. Final Windows-agent reconnect backoff fix is pushed in `d4b88e3`; the E2E harness adjustment and documentation are committed. GitHub Release `v1.0.0` and verified EXE/checksum asset upload remain pending.
 
@@ -215,11 +215,11 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 ### Public Windows agent download
 - The public API route `GET /download/agent` serves `backend/downloads/RemoteDeskPro-Agent.exe` as an attachment with the Windows executable media type.
 - Docker runtime copies the complete `backend/` directory, including the downloadable executable, into the Render image.
-- Public URL after the Render deployment containing this commit is live: https://remote-desk-pro-pj29.onrender.com/download/agent
+- Public URL after the Render deployment containing this commit is live: RDP_SERVER/download/agent
 - The GitHub repository remains private; the Render download endpoint is the public distribution path and does not require GitHub repository access.
 
 ### Authoritative standalone build
-- Build host: DESKTOP-OLL6O6U, Windows 10 build 19045.
+- Build host: [redacted-host-name], Windows 10 build 19045.
 - Python: 3.14.0; PyInstaller: 6.22.3; one-file, windowed executable with agent runtime dependencies bundled.
 - Authoritative local executable: `agent/dist/RemoteDeskPro-Agent.exe`.
 - Public distribution copy: `backend/downloads/RemoteDeskPro-Agent.exe`.
@@ -246,7 +246,7 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 - Render build: `bld-dc0ndvfb9u1s73bnfea0` - **SUCCEEDED** for commit `f3defe6ddb1d0a0a09d0870a432837e2d8d89ae2`.
 - Render deployment: `dep-dc0ndvfb9u1s73bnfe9g` - **SUCCEEDED**.
 - Live public GET download verified from the internet: HTTP 200, content length 21,586,937 bytes, content type `application/vnd.microsoft.portable-executable`; downloaded SHA-256 exactly matched `C1BC99DCBC631DA6DC532F505B4620D908A0ECA71BAA2A968BA55DA90C529223`.
-- Public download URL: https://remote-desk-pro-pj29.onrender.com/download/agent
+- Public download URL: RDP_SERVER/download/agent
 
 
 ### Live production remote-input E2E (2026-11-21)
@@ -376,7 +376,7 @@ This final checkpoint supersedes the earlier Phase 6 pending/blocked notes above
 - Current status: partial protocol integration committed; full E2E and production certification pending. Existing verified horizontal/vertical scroll, touch, cursor, and keyboard dispatch logic was not edited.
 - Laptop verification command (run only after the new Windows Actions artifact is published; replace the checksum with the new successful build's checksum):
 ```powershell
-$ErrorActionPreference='Stop'; $base='https://remote-desk-pro-pj29.onrender.com'; $exe=Join-Path $env:LOCALAPPDATA 'RemoteDeskPro\RemoteDeskPro-Agent.exe'; New-Item -ItemType Directory -Force (Split-Path $exe) | Out-Null; Invoke-WebRequest "$base/download/agent" -OutFile $exe; $expected='REPLACE_WITH_NEW_ACTIONS_SHA256'; $actual=(Get-FileHash $exe -Algorithm SHA256).Hash; if($actual -ne $expected){throw "Build checksum mismatch; wait for new Actions artifact."}; Start-Process $exe; Start-Sleep -Seconds 15; python tests/e2e_remote_control_live.py
+$ErrorActionPreference='Stop'; $base='RDP_SERVER'; $exe=Join-Path $env:LOCALAPPDATA 'RemoteDeskPro\RemoteDeskPro-Agent.exe'; New-Item -ItemType Directory -Force (Split-Path $exe) | Out-Null; Invoke-WebRequest "$base/download/agent" -OutFile $exe; $expected='REPLACE_WITH_NEW_ACTIONS_SHA256'; $actual=(Get-FileHash $exe -Algorithm SHA256).Hash; if($actual -ne $expected){throw "Build checksum mismatch; wait for new Actions artifact."}; Start-Process $exe; Start-Sleep -Seconds 15; python tests/e2e_remote_control_live.py
 ```
 
 ## Cloud-only repair checkpoint — 2026-11-21 (verification pending)
@@ -459,7 +459,7 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Viewer visibility resume refreshes device presence and sends an immediate heartbeat; a missing heartbeat acknowledgement closes and reattaches the viewer WebSocket.
 - Local validation on 2026-11-22: Python compilation PASS; pytest 49 passed (one upstream Starlette/httpx deprecation warning); frontend TypeScript/Vite production build PASS; git diff --check PASS.
 - tests/e2e_remote_control_live.py now includes headless Chromium mobile keyboard, clipboard paste, visibility-resume, zoomed touch-pan/tap, host file-consent, reconnect/resume, and Downloads SHA-256 checks at 390x844 with touch enabled. The expanded live test has not yet been run; do not certify the live Windows-to-Render path until its report is PASS.
-- No .env files or secret values were changed. Deployment target remains Render https://remote-desk-pro-pj29.onrender.com; Vercel is not used.
+- No .env files or secret values were changed. Deployment target remains Render RDP_SERVER; Vercel is not used.
 
 ## GitHub Actions Windows build (latest)
 - Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
@@ -677,11 +677,183 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
 
-## GitHub Actions Windows build (latest)
-- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
-- Build source: 77366a23de9c55bd950d6d117b2876dd8108813c.
-- EXE size: 61080227 bytes.
-- EXE SHA-256: CB133BCFDCA88CE498E14C59C7EA2AD3CD4D84CAB5BDD63AB563828069F22859.
-- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
-- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
-- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+## V2 bidirectional automation branch
+- `agent/workflow_engine.py`: opt-in semantic input recorder and normalized-coordinate adaptive replay; typed text and clipboard payloads are excluded; saves to `project_memory/workflows/` (APPDATA for frozen Windows builds).
+- `agent/telemetry.py`: thread-safe FPS, ping, upload and download throughput counters for the host diagnostics HUD.
+- `agent/host_agent.py`: exponential reconnect backoff, telemetry integration, privacy-screen-gated workflow recording, and `--viewer` embedded-client mode.
+- `agent/desktop_app.py`: unified host console with embedded web viewer launch, workflow recording toggle and local replay control.
+- `agent/requirements.txt`: adds `psutil`, Windows process/window metadata support, and `pywebview` for the embedded viewer.
+- `Dockerfile` passes `VITE_CONTACT_EMAIL` into the Vite build; Render config exposes it as a manually supplied environment variable.
+- `agent/build_windows.ps1`: local one-file V2 packaging command with embedded WebView, workflow, telemetry and Windows process metadata dependencies.
+- `.github/workflows/test-and-build-v2.yml`: Windows regression/unit/stress/fault-injection tests, full-history Gitleaks scan, frontend build, and one-file Windows executable artifact.
+- `test_instructions.json`: non-interactive dependency, regression, E2E, stress, security and fault-injection runner commands.
+- Runtime endpoints and contact data are environment-provided (`RDP_SERVER`, `RDP_BASE_URL`, `CORS_ORIGINS`, `PUBLIC_BASE_URL`, `SUPPORT_EMAIL`, `VITE_CONTACT_EMAIL`). Production `APP_SECRET_KEY` must be unique and at least 32 characters.
+- User-generated workflow JSON is ignored by `.gitignore` and must not be committed.
+
+- V2 host-to-viewer file transfer: `agent/host_agent.py` queues a local file, persists its source path/hash/acknowledged offset in the host profile, sends 256 KiB chunks, resumes from viewer-acknowledged offsets after relay reconnect, and only clears the checkpoint after viewer SHA-256 verification.
+- V2 viewer-side incoming transfer: `frontend/src/App.tsx` asks the viewer to accept, buffers chunks, acknowledges each offset, verifies SHA-256, then triggers a browser download. The current receiver resumes across WebSocket reconnects while the viewer page remains open; a full page reload restarts that incoming transfer from offset zero.
+
+ 
+## V2 CI and security audit checkpoint — 2026-11-25
+- Feature branch: `feature/v2-bidirectional-automation`; all V2 CI edits remain isolated from `main`.
+- V2 validation now runs on `ubuntu-latest`; the `windows-latest` job is reserved for the PyInstaller executable build and SHA-256 artifact verification. `workflow_dispatch` remains enabled.
+- Gitleaks runs on Ubuntu with full checkout history (`fetch-depth: 0`) to scan Git history; this scan has not yet completed because the repository's hosted jobs are failing before runner allocation.
+- Issue #2 records six runs failing with `runner_id: 0`, no runner name, no steps and no job logs. Runner labels are valid standard labels. Billing/minutes quota is a plausible cause but is not confirmed by available API evidence.
+- A targeted current-branch source/config/log scan found no high-severity credential-pattern matches in 55 inspected text files. This is not a complete all-commits/all-branches audit and is not public-release clearance.
+- Public visibility gate: **NO — keep the repository private** until full-history Gitleaks results and branch-history review are clean, and any exposed credential is rotated/revoked.
+
+
+## Phase 5/5 — local workflow history and privacy boundary (2026-11-26)
+- Workflow storage defaults to `%APPDATA%\\RemoteDeskPro\\workflows\\` on Windows for both frozen and source-run agents; `RDP_WORKFLOW_DIR` remains an explicit test/portable override.
+- A completed recording is detected by the desktop GUI and prompts for a workflow name, comma-separated tags and notes. The workflow is atomically renamed and annotated in local JSON; unnamed workflows can be retained.
+- Added a local Workflow History window with selection and replay. Local workflow metadata explicitly defaults to `is_public=false`; the UI states that nothing is uploaded or shared.
+- Added `annotate_workflow` and `list_workflows` APIs in `agent/workflow_engine.py`; metadata validation constrains names, tags and notes, and annotation refuses paths outside the configured workflow directory.
+- Local schema fields: `schema_version`, `created_at`, `updated_at`, `name`, `tags`, `notes`, `is_public`, `coordinate_space`, `recorded_screen`, `step_count`, `steps`, and privacy flags. Private workflow files remain excluded from Git by `.gitignore`.
+- Ports/endpoints: no new network endpoint or listening port is introduced by local workflow history.
+- Verification added: APPDATA path selection, metadata sanitization/local-only defaults, and JSON-only history enumeration tests.
+- Explicit remaining implementation gates: public community publishing/import APIs and database schema are not implemented; current recording captures normalized mouse/key/scroll actions and foreground process/window context, not complete ARIA/OCR semantic anchors; replay still uses process/window context plus normalized/window-relative coordinates and does not yet implement full UIA → OCR → coordinate fallback, popup recovery, or dynamic readiness waits. These are not completed capabilities.
+- Release gate: the existing V2 Windows workflow produces a 14-day Actions artifact, not a public stable GitHub Release. Do not publish a release asset or deploy Render from this feature branch until full tests and separate release approval.
+
+
+## Windows V2 build and optional public prerelease
+- The feature-branch Windows build now names the binary `RemoteDeskPro-Agent.exe`, emits a SHA-256 sidecar, and retains the Actions artifact for 30 days.
+- A public prerelease is gated behind an explicit `workflow_dispatch` input `publish_prerelease=true`; it runs only from `feature/v2-bidirectional-automation` and only after unit/frontend/security and Windows packaging jobs pass.
+- The prerelease tag format is `v2.0.0-rc.<run_number>`; the downloadable executable and checksum are attached to the GitHub Release. This does not deploy Render and does not modify `main`.
+- Local Windows build entrypoint: `powershell -NoProfile -ExecutionPolicy Bypass -File agent/build_windows.ps1`. Windows PyInstaller is required for a Windows `.exe`; Google Colab/Linux cannot cross-compile a native Windows executable using PyInstaller.
+
+
+## Phase 5 community API and adaptive replay (2026-11-26)
+- API: POST /api/workflows/publish (authenticated, explicit is_public=true, rejects local-only/sensitive data, 2 MB cap); GET /api/workflows/community (authenticated public-only listing); POST /api/workflows/import/{id} (public-only import returned as local/private).
+- Database: rdp_community_workflows model in backend/database.py. Uses configured DATABASE_URL and existing SQLite WAL fallback when SQLite is selected. PostgreSQL migration: supabase/migrations/20261126170000_workflow_community.sql.
+- Privacy: agent-local JSON remains in %APPDATA%\RemoteDeskPro\workflows\. Browser dashboard requires file selection, separate Make Public toggle, and Publish click before sending. API rejects is_public=false, privacy.local_only=true, typed/clipboard flags and sensitive field names. Community queries/imports filter is_public=true.
+- Frontend: Workflow History enables explicit local JSON selection/publishing; Community Library lists public workflows and downloads imported JSON marked local/private. Browser cannot silently read APPDATA.
+- Agent: agent/adaptive_replay.py implements UIA -> OCR -> window-relative/normalized coordinate fallback, bounded readiness polling, explicit safe popup-handler hooks, and Ctrl+A focus verification. agent/workflow_engine.py records nearby UIA name/role/bounds and click-adjacent OCR anchors; printable keystrokes and field values are not stored.
+- Optional Windows dependencies: pywinauto and pytesseract. Tesseract OCR executable must be installed separately; absent optional tools degrade to coordinate anchors.
+- Added tests: tests/test_workflow_community.py (5 privacy/API tests) and tests/test_adaptive_replay_10_envs.py (10 environment simulations). Latest CI determines complete suite count.
+- No new network port. No Render deployment or production environment changes. Feature branch pushes trigger CI/security/Windows executable packaging.
+
+
+## Phase 5 community API and adaptive replay (2026-11-26)
+- API: POST /api/workflows/publish (authenticated, explicit is_public=true, rejects local-only/sensitive data, 2 MB cap); GET /api/workflows/community (authenticated public-only listing); POST /api/workflows/import/{id} (public-only import returned as local/private).
+- Database: rdp_community_workflows model in backend/database.py. Uses configured DATABASE_URL and existing SQLite WAL fallback when SQLite is selected. PostgreSQL migration: supabase/migrations/20261126170000_workflow_community.sql.
+- Privacy: agent-local JSON remains in %APPDATA%\RemoteDeskPro\workflows\. Browser dashboard requires file selection, separate Make Public toggle, and Publish click before sending. API rejects is_public=false, privacy.local_only=true, typed/clipboard flags and sensitive field names. Community queries/imports filter is_public=true.
+- Frontend: Workflow History enables explicit local JSON selection/publishing; Community Library lists public workflows and downloads imported JSON marked local/private. Browser cannot silently read APPDATA.
+- Agent: agent/adaptive_replay.py implements UIA -> OCR -> window-relative/normalized coordinate fallback, bounded readiness polling, explicit safe popup-handler hooks, and Ctrl+A focus verification. agent/workflow_engine.py records nearby UIA name/role/bounds and click-adjacent OCR anchors; printable keystrokes and field values are not stored.
+- Optional Windows dependencies: pywinauto and pytesseract. Tesseract OCR executable must be installed separately; absent optional tools degrade to coordinate anchors.
+- Added tests: tests/test_workflow_community.py (5 privacy/API tests) and tests/test_adaptive_replay_10_envs.py (10 environment simulations). Latest CI determines complete suite count.
+- No new network port. No Render deployment or production environment changes. Feature branch push triggers CI/security/Windows executable packaging.
+
+- CI: feature-branch workflow runs Python regression/privacy/10-environment tests, frontend build, full-history Gitleaks, and Windows PyInstaller. Live cloud E2E runs when repository secret RDP_BASE_URL is configured; otherwise it is explicitly skipped. No production secret is added by this change.
+
+- Production Supabase migration applied successfully to RemoteDeskPro project qxssuczpumsaqywifirv; recorded migration version 20261126094251. Verified public.rdp_community_workflows exists with RLS enabled, public-only CHECK constraint, 2 MiB row-size constraint, owner FK, and SELECT policy limited to is_public=true. Table was empty at verification. Render was not deployed.
+
+
+## V2 release security scan exception (2026-11-26)
+- Added `.gitleaks.toml` with default Gitleaks rules retained (`[extend] useDefault = true`).
+- A rule-specific AND-scoped allowlist extends only the default `generic-api-key` rule and matches the exact `PROJECT_MANIFEST.md` path, the two historical finding commits (`09bad163435de687eb0be82b4f0206cd25d21abb`, `cb66a236aa4efa6671522d1d95052cb481b5a0b3`), and a Gitleaks finding match containing a SHA-256 label followed within 40 characters by exactly 64 hexadecimal characters (`regexTarget = "match"`). All other default rules and generic-api-key findings remain enabled.
+- This exception is limited to the two documented public SHA-256 digest findings. It does not disable general secret scanning or allow arbitrary API keys/tokens.
+- V2 prerelease build and public asset details will be recorded here only after the workflow, executable, and checksum are verified.
+
+
+## V2 public prerelease — verified (2026-11-26)
+- Release: [v2.0.0-rc.46](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/releases/tag/v2.0.0-rc.46) (public GitHub prerelease; not stable).
+- Workflow run: [#46](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/actions/runs/45810421042), dispatched on `feature/v2-bidirectional-automation` at commit `591c80b4733219ccbf0c06ebb882603f4c1d01a0` with `publish_prerelease=true`.
+- Verified jobs: Python regression/frontend build SUCCESS; full-history Gitleaks SUCCESS; Windows V2 executable SUCCESS; prerelease publish SUCCESS. Live cloud E2E was skipped because repository secret `RDP_BASE_URL` is not configured.
+- Executable: [RemoteDeskPro-Agent.exe](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/releases/download/v2.0.0-rc.46/RemoteDeskPro-Agent.exe) (69,468,639 bytes).
+- SHA-256: `967EE16823F4512261B765EE59F8999A24E1D0BE39ADAB1BACBED537B363F104`. The Windows build job's `Get-FileHash -Algorithm SHA256` output matches the GitHub Release API asset digest.
+- Checksum file: [RemoteDeskPro-Agent.exe.sha256](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/releases/download/v2.0.0-rc.46/RemoteDeskPro-Agent.exe.sha256).
+- Release assets are attached to the GitHub Release. No Render deployment was triggered.
+
+
+## V2 mobile control and explicit video recording update — 2026-11-26
+- Frontend frontend/src/App.tsx: persistent sidebar preference in localStorage; mobile/tablet slide-in drawer behavior; touch-friendly floating action dock with drag repositioning and grid actions for Mouse, Keyboard, Privacy, File Transfer, Start/Stop Recording, Recording Settings, and Disconnect; live REC mm:ss elapsed badge.
+- Frontend frontend/src/styles.css: responsive drawer overlay, mobile dock grid, safe-area-aware FAB placement, touch-sized controls, and recording settings modal styles. The full remote toolbar remains available on desktop.
+- Agent agent/host_agent.py: removed automatic MP4 recording from host approval. The host now reports recording=false on approval and accepts explicit recording_control start/stop messages; desktop-agent requests are queued and handled by the active host loop. Recording is finalized on stop, viewer departure, and disconnect.
+- Agent agent/session_recorder.py: duration cap (maximum four hours), retention count (1–100), storage cap (100–20,480 MB), oldest-first cleanup, and SHA-256 audit records. Recording construction alone does not start capture.
+- Desktop agent agent/desktop_app.py: explicit MP4 start/stop checkbox (off by default) and Recording & Storage Settings dialog for duration, retained count, and storage cap. Agent mutex acquisition/release code was not changed.
+- Tests: tests/test_session_recorder_settings.py covers off-by-default construction, bounded settings, retention cleanup, and symlink-safe deletion behavior. Existing fault-injection suite remains in tests/test_v2_fault_injection.py.
+- Recording destination limitation: MP4 recordings are currently saved locally only. Community Library publishing remains disabled for video assets; the UI explicitly communicates this rather than implying an upload endpoint exists. Existing Community Library workflow JSON publishing is separate.
+- Verification: GitHub source edits are committed on feature/v2-bidirectional-automation. No local laptop/desktop tools were used. Frontend build, Python tests, Windows packaged-agent validation, and live Render deployment must be confirmed by the branch CI/Render workflow before release.
+
+
+- Backend backend/main.py: validates recording-control action and resource caps, enforces the existing authenticated non-read-only viewer and host-approval gates, relays recording status acknowledgements, and records start/stop request audit events.
+- Security tests tests/test_recording_control_security.py: rejects community-upload mode, malformed actions, boolean-as-integer values, and out-of-range duration/retention/storage settings.
+
+- Deployment routing check: render.yaml still configures the existing Render service to deploy from main. Pushing this feature branch does not trigger that service's auto-deploy; the Render service/Blueprint was not modified because switching its deployment branch would alter the active deployment target. No Render deployment is claimed.
+
+
+## Mobile remote control recovery, privacy blackout, and viewport rotation — 2026-11-26
+- Frontend `frontend/src/App.tsx`: expanded the draggable mobile action dock to expose Mouse Mode, Right-click, Scroll, Virtual Keyboard, Privacy, Clipboard Sync, File Transfer, Fullscreen, MP4 Start/Stop, V2 AI Workflow Replay, Recording Settings, and Disconnect. The dock routes actions through the established authenticated viewer WebSocket protocol; workflow replay is a host-local replay request and never uploads a workflow.
+- Frontend viewport: added a ResizeObserver on the remote screen container plus resize/orientationchange listeners to reset zoom/pan on viewport changes. The CSS uses dynamic viewport units, orientation-specific sizing, safe-area-aware dock bounds, and a pitch-black remote screen background.
+- Privacy overlay `agent/privacy_overlay.py`: retained the Win32 opaque layered surface with alpha 255 and made its SS_BLACKRECT window style explicit. Frontend privacy preview is solid `#000000`.
+- Backend `backend/main.py`: allowlists the no-argument `workflow_replay` control event; viewer WebSocket control relay still requires a valid authenticated session, non-read-only role, host approval, and `validate_control`.
+- Host `agent/host_agent.py`: receives workflow replay only over the authenticated, approved host WebSocket and replays the latest host-local workflow from the existing APPDATA workflow directory. The replay response is returned to the viewer as `workflow_replay_status`. Existing mutex and APPDATA paths are unchanged.
+- Tests: `tests/test_input_dispatch.py` now asserts the replay event is accepted only without arbitrary path/payload fields; `test_instructions.json` includes the focused remote-control, session-security, and fault-injection command.
+- Remaining verification: live browser automation is attempted against the supplied staging URL. Any browser-provider credit/availability failure is reported as not verified, never as a pass. GitHub Actions and Render status must be checked against the final pushed SHA.
+
+- Follow-up UI detail: the same draggable dock is now displayed on desktop as well as mobile; the full-width desktop toolbar remains available. The dock uses a three-column desktop grid and touch-friendly mobile grid.
+
+
+## Mobile floating controls and responsive viewer hardening — 2026-11-26
+- `frontend/src/App.tsx`: corrected the dock's gated input shortcuts so Right-click and Scroll explicitly dispatch through the authenticated control WebSocket even when Mouse Mode was previously off, then enable Mouse Mode. Added distinct Scroll Up/Down actions, Virtual Keyboard focus-on-open, Workflow Steps and Community Library shortcuts, Zoom In/Out/Reset actions, and viewport-bounded dock dragging.
+- `frontend/src/styles.css`: made the high-contrast dock persistently visible whenever a remote viewer session is active on both desktop and mobile; pinned it at z-index 9999 with safe-area-aware offsets, constrained the expanded grid to the dynamic viewport, and raised the mobile sidebar/drawer and overlay stacking order without covering the sidebar toggle.
+- `tests/test_input_dispatch.py`: included host-local workflow replay in the accepted control protocol test cases.
+- `tests/test_mobile_control_ui_contract.py`: added static contract tests for all dock actions, forced right-click/scroll dispatch, dynamic viewport/orientation observers, safe-area/z-index rules, and opaque black privacy styling.
+- `test_instructions.json`: explicitly lists the mobile control UI contract and orientation/FAB stress regression commands in addition to the full Python test suite, frontend build, security scan, fault injection, and recording checks.
+- Host privacy remains the native Win32 black rectangle (`SS_BLACKRECT`) at alpha 255. Recording remains manual start/stop with bounded local-only retention settings. Workflow JSON publish remains explicit opt-in from Workflow History; replay executes the latest host-local workflow only.
+- Browser E2E still requires the deployed authenticated dashboard and an approved host. A blank host password cannot be used to verify remote input/blackout/recording against the real host.
+
+
+## Final V2 UI, recording, CI and staging verification — 2026-11-26
+- Branch head at verification: `35f167b3d383eb208a555693406be50cfc09a8fd` (`feature/v2-bidirectional-automation`). Source inspection confirms the mobile/desktop action dock, sidebar toggle, mouse/right-click/scroll, virtual keyboard dispatch, black privacy mode, clipboard/file transfer, zoom/fullscreen/disconnect, V2 workflow replay/history/community navigation, and manual recording settings/timer are present.
+- GitHub Actions run [#87](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/actions/runs/45848238106): Python regression/unit suite PASS; frontend production build PASS; full-history Gitleaks PASS; Windows agent packaging and SHA-256 verification PASS. Optional live E2E job skipped because `RDP_BASE_URL` is not configured.
+- `test_instructions.json` now contains directly executable shell command strings (not object records), addressing the Colab runner issue that attempted to execute `{ 'name': ..., 'command': ... }` as shell syntax. Includes dependency setup, compile, full regression suite, frontend build, mobile protocol/UI, recording/security, stress, fault injection, Gitleaks, and optional cloud E2E.
+- Staging URL `https://remote-desk-pro-rtij.onrender.com`: authenticated registration/sign-in/sign-out succeeded using temporary test account `e2e_test_user_2026_01@example.com` (requested example address was already registered). Sidebar collapse/expand and workflow/community entry points were visible and working; no browser console or network errors were observed. The staging page displayed version `0.1.0` and did not expose a recording settings modal or active viewer control dock without an active host session. No host connection was attempted because the supplied host password was a placeholder. Therefore live viewer controls, pitch-black host blackout, remote keyboard/mouse, recording start/stop, and disconnect were NOT verified against a real host.
+- Render routing remains intentionally unchanged: existing Render service `srv-dc0917utlv9c739h7o30` is configured to deploy from `main`; pushing this feature branch does not auto-deploy it. The separate `rtij` staging URL could not be mapped to a confirmed Render service because no Render workspace was selected. No Render deployment is claimed.
+- `main` was not modified, merged, or deployed by this execution.
+
+- `tests/e2e_cloud_headless.py`: refreshed the cloud relay E2E lifecycle assertions to verify recording is OFF after host approval, starts only after an explicit local recording command, stops on disconnect, and requires a fresh explicit start after reconnect. Privacy E2E now exercises `mode=black`; the synthetic host doubles expose the recorder lifecycle used by the production path.
+- Responsive overflow follow-up: `frontend/src/styles.css` constrains root/layout/content/grid/panel widths to the available viewport while retaining dynamic viewport units for the dock and screen sizing. This addresses the browser's reported horizontal-scroll concern; exact 390×844 / 844×390 / 1440×900 measurements were not available from the browser run.
+
+- The floating dock now labels Mouse Mode explicitly (ON · Trackpad + Tap / OFF), exposes a `Privacy ON · BLACK` active state via `aria-pressed`, and retains the live recording badge in the viewer header.
+
+- Workflow History now parses a user-selected JSON export locally in the browser and displays a bounded preview of up to 100 step labels before any publish action. The dashboard exposes Recording & Storage Settings before a host session exists; the same modal remains available from the live viewer dock. This allows the settings UI and local workflow preview to be checked without pairing a host.
+
+- Staging deployment verification: `https://remote-desk-pro-rtij.onrender.com` returned HTTP 200 from `/health` with PostgreSQL. The authenticated browser still rendered the older dashboard and did not expose the new pre-session Recording Settings button after the feature-branch push. The repository Render blueprint still specifies `branch: main`; no Render deployment target or `render.yaml` branch was changed to avoid altering the existing service. Feature-branch source/CI is verified separately from the live staging deployment.
+
+
+## Main-to-V2 parity audit and privacy recording hardening — 2026-11-26
+
+### Branch comparison
+- Compared \`main\` (\`27802c6199e6706afe2f7aa4932ec74d0384f983\`) with \`feature/v2-bidirectional-automation\` (\`086c276b313c34b8baff985b22912fae322f0577\`) before this hardening pass. V2 was 95 commits ahead and 2 commits behind; the histories are intentionally divergent.
+- The two main-only commits change the V2 workflow/manifest history and add a generated Windows executable under \`backend/downloads/\`. V2 already has its own feature-branch CI workflow and more complete V2 manifest; the generated binary is a build artifact, not source functionality, and was not copied into the source branch.
+- No merge, rebase, cherry-pick, or write was made to \`main\`.
+
+### Audited feature matrix
+| Capability | V2 source state |
+|---|---|
+| V1 manual host consent | Preserved; manual approval remains the default |
+| Trusted unattended PIN | Preserved: desktop toggle, 4–8 digit numeric PIN, server-side hash sync/verification, and host consent bypass only when enabled with a valid PIN |
+| PIN storage | Hardened in this pass: desktop config now stores the PIN using Windows DPAPI (\`unattended_pin_enc\`) and restores it to the host process environment on startup; legacy plaintext config values are migrated on next save |
+| V2 bidirectional control and workflow engine | Preserved; host-to-viewer resumable transfer, workflow replay/history/community publishing remain on V2 |
+| Viewer control dock | Present on desktop and mobile with mouse mode, right-click, scroll up/down, virtual keyboard, black privacy, clipboard, file transfer, fullscreen, recording, workflow/community, zoom, and disconnect actions |
+| Privacy blackout | Native host black overlay and solid black viewer preview are present |
+| Recording | Manual start/stop remains available; this pass adds host-side MP4 auto-recording on successful privacy blank activation, finalization when privacy is disabled or the session ends, and a viewer disclosure badge. Manual recordings continue when privacy mode is disabled; a privacy-triggered recording cannot be manually stopped while the host remains blanked |
+| Recording caps and retention | Existing max-duration, retention-count, storage-cap settings and SHA-256 audit log remain active |
+| Responsive viewport | Dynamic viewport sizing, ResizeObserver, resize/orientationchange listeners, and safe-area-aware dock sizing are present |
+| Keep / Download / Delete recording manager | Not implemented in this pass. MP4 files remain host-local; the browser has no authenticated recording-list/download/delete API. Do not claim this requirement is complete |
+| Exact live viewport/device E2E | Not verified. The public staging landing page was inspected signed out; no test account was created, no host was connected, and exact 390×844 / 844×390 / 1440×900 measurements were not captured |
+
+### Verification boundary
+- Added \`tests/test_privacy_recording_policy.py\` for privacy-start/stop semantics, manual-recording preservation, disclosure, and encrypted Trusted PIN persistence.
+- \`test_instructions.json\` includes the focused privacy/recording/security test command in addition to the full regression suite, frontend build, and Gitleaks scan.
+- The pre-hardening branch CI run #101 at \`086c276b\` passed Python regression, frontend build, full-history Gitleaks, and Windows executable packaging. Live cloud E2E was skipped because \`RDP_BASE_URL\` was not configured. A fresh CI run is required for the commits in this section.
+- Public staging inspection at \`https://remote-desk-pro-rtij.onrender.com\` found the sign-in/create-account screen, title \`Remote Desk Pro\`, no visible version metadata, and no active session. The browser was left signed out. Browser Use was unavailable due to insufficient provider credits; the public TinyFish inspection succeeded.
+- The staging login and real-host control path were not exercised. The Render deployment branch remains independently configured; no deployment or production environment change is claimed.
+
+
+### Post-hardening CI and staging check
+- Final code-and-test commit \`abd0ffff46081d4bd295e4b317f89160bf03ef6b\` passed GitHub Actions run [#111](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/actions/runs/45856782264): Python compile/regression suite PASS, frontend production build PASS, full-history Gitleaks PASS, Windows unified executable build and SHA-256 artifact verification PASS. Optional authenticated cloud E2E was skipped because \`RDP_BASE_URL\` is not configured.
+- The subsequent public staging responsive inspection confirmed the sign-in card and all form controls fit in the available default viewport without observed clipping or overflow. The browser provider could not set exact 390×844, 844×390, and 1440×900 viewport sizes, so those exact dimensions remain unverified. Browser left signed out and no host session was started.
+- Remaining release blockers: authenticated staging login/host E2E with a valid test account and connected test host; exact viewport-size measurements; and the Keep/Download/Delete MP4 recordings manager. No merge to \`main\` is authorized or performed.

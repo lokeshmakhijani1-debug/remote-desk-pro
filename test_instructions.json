@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "runner": "ubuntu-latest",
+  "commands": [
+    "python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt -r agent/requirements.txt && npm --prefix frontend install --no-audit --no-fund",
+    "python -m compileall -q agent backend tests",
+    "python -m pytest -q tests/test_*.py",
+    "npm --prefix frontend run build",
+    "python -m pytest -q tests/test_input_dispatch.py tests/test_session_security.py tests/test_v2_fault_injection.py",
+    "python -m pytest -q tests/test_mobile_control_ui_contract.py tests/test_input_dispatch.py",
+    "python -m pytest -q tests/test_privacy_recording_policy.py tests/test_session_recorder_settings.py tests/test_recording_control_security.py",
+    "python -m pytest -q tests/test_session_recorder_settings.py tests/test_recording_control_security.py",
+    "python -m pytest -q tests/test_v2_workflow_engine.py -k caps",
+    "python -m pytest -q tests/test_v2_fault_injection.py",
+    "python -m pytest -q tests/test_mobile_control_ui_contract.py tests/test_v2_fault_injection.py tests/test_v2_workflow_engine.py",
+    "gitleaks detect --source . --redact --verbose --log-opts=--all",
+    "if [ -n \"$RDP_BASE_URL\" ]; then python -m pip install playwright && python -m playwright install --with-deps chromium && python tests/e2e_cloud_headless.py; else echo 'SKIP: configure RDP_BASE_URL to run live cloud E2E'; fi"
+  ]
+}

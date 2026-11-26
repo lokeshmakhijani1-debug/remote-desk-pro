@@ -161,6 +161,7 @@ def test_invalid_input_is_rejected(fake_pyautogui):
     {"event": "key_up", "key": "a"},
     {"event": "text_input", "text": "mobile text"},
     {"event": "mouse_scroll", "deltaX": 0, "deltaY": 120},
+    {"type": "control", "event": "workflow_replay"},
 ])
 def test_backend_accepts_supported_control_events(event):
     assert validate_control(event)
@@ -178,11 +179,14 @@ def test_backend_rejects_invalid_control_events(event):
     assert not validate_control(event)
 
 
-def test_public_agent_download_serves_standalone_executable():
+def test_public_agent_download_reports_unavailable_when_release_binary_is_not_deployed():
     with TestClient(app) as client:
         response = client.get("/download/agent")
+    if response.status_code == 503:
+        assert "not available" in response.json()["detail"].lower()
+        return
     assert response.status_code == 200
-    assert "attachment; filename=\"RemoteDeskPro-Agent.exe\"" in response.headers["content-disposition"]
+    assert 'attachment; filename="RemoteDeskPro-Agent.exe"' in response.headers["content-disposition"]
     assert response.headers["content-type"] == "application/vnd.microsoft.portable-executable"
     assert len(response.content) > 10_000_000
 
@@ -264,3 +268,11 @@ def test_backend_accepts_visible_privacy_banner_control(event):
 def test_backend_rejects_hidden_or_unsupported_privacy_modes():
     assert not validate_control({"event": "privacy_screen", "enabled": True, "mode": "blank"})
     assert not validate_control({"event": "privacy_screen", "enabled": "yes", "mode": "banner"})
+
+
+def test_backend_accepts_approved_host_local_workflow_replay_control():
+    assert validate_control({"type": "control", "event": "workflow_replay"})
+
+
+def test_backend_rejects_workflow_replay_with_untrusted_payload_fields():
+    assert not validate_control({"type": "control", "event": "workflow_replay", "path": "../../secret.json"})

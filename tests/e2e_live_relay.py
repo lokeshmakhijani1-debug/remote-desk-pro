@@ -1,9 +1,10 @@
 """Synthetic live relay verification for Remote Desk Pro.
 
-Run: python tests/e2e_live_relay.py --base-url https://remote-desk-pro-pj29.onrender.com
+Run: set RDP_BASE_URL and run python tests/e2e_live_relay.py
 Creates one synthetic account and one synthetic paired device in the configured database.
 """
 import argparse
+import os
 import asyncio
 import base64
 import json
@@ -202,6 +203,6 @@ async def run(base_url):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", default="https://remote-desk-pro-pj29.onrender.com")
+    parser.add_argument("--base-url", default=os.getenv("RDP_BASE_URL", ""))
     args = parser.parse_args()
     asyncio.run(run(args.base_url))

@@ -2,15 +2,11 @@ name: Live Cloud E2E
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/live-cloud-e2e.yml'
-      - 'tests/e2e_cloud_headless.py'
-      - 'agent/host_agent.py'
-      - 'agent/resumable_transfer.py'
-      - 'backend/main.py'
-      - 'backend/file_transfer.py'
+    inputs:
+      base_url:
+        description: 'RDP_BASE_URL for the private live environment'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -27,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: feature/v2-bidirectional-automation
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -41,7 +37,7 @@ jobs:
         run: |
           python - <<'PY'
           import json, time, urllib.request
-          url = "https://remote-desk-pro-pj29.onrender.com/health"
+          url = "${{ inputs.base_url }}/health"
           deadline = time.monotonic() + 240
           while time.monotonic() < deadline:
               try:
@@ -58,7 +54,7 @@ jobs:
           PY
       - name: Run live cloud E2E
         env:
-          RDP_BASE_URL: https://remote-desk-pro-pj29.onrender.com
+          RDP_BASE_URL: ${{ inputs.base_url }}
           PYTHONUNBUFFERED: "1"
         run: python tests/e2e_cloud_headless.py
       - name: Upload exact JSON report

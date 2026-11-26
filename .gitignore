@@ -22,3 +22,6 @@ agent/RemoteDeskPro-Agent.spec
 agent/host-smoke.*.log
 agent/host-smoke-result.json
 tests/pair_smoke_launch.local.py
+
+# User-generated workflows may include private window context
+project_memory/workflows/*.json
