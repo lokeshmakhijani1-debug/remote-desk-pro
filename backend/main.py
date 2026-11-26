@@ -456,6 +456,26 @@ def validate_control(event: dict) -> bool:
             return False
     return False
 
+def validate_recording_control(event: dict) -> bool:
+    """Accept only explicit local recording actions with bounded resource settings."""
+    action = event.get("action")
+    if action == "stop":
+        return True
+    if action != "start":
+        return False
+    settings_value = event.get("settings")
+    if not isinstance(settings_value, dict) or settings_value.get("save_mode", "local") != "local":
+        return False
+    duration = settings_value.get("max_duration_seconds", 1800)
+    retention = settings_value.get("retention_count", 5)
+    storage = settings_value.get("max_storage_mb", 1024)
+    return (
+        type(duration) is int and 60 <= duration <= 14400
+        and type(retention) is int and 1 <= retention <= 100
+        and type(storage) is int and 100 <= storage <= 20480
+    )
+
+
 def safe_file_name(value: Any) -> str:
     name = str(value or "").replace("\\x00", "").replace("\\\\", "/").split("/")[-1]
     if not name or name in (".", "..") or len(name) > 180:
@@ -513,8 +533,12 @@ async def host_socket(ws: WebSocket, device_id: str):
             elif kind == "host_denied":
                 hub.approved.discard(device_id)
                 await hub.relay(device_id, ws, raw)
-            elif kind in ("clipboard_ack", "privacy_screen_ack") and hub.is_approved(device_id):
+            elif kind in ("clipboard_ack", "privacy_screen_ack", "recording_status") and hub.is_approved(device_id):
                 await hub.relay(device_id, ws, raw)
+            elif kind == "recording_control" and hub.is_approved(device_id):
+                if validate_recording_control(event):
+                    audit(db, "recording." + str(event.get("action")) + "_requested", device.owner_id, device_id)
+                    await hub.relay(device_id, ws, raw)
             elif kind == "clipboard_paste" and hub.is_approved(device_id):
                 if validate_clipboard(event):
                     audit(db, "clipboard.pasted", device.owner_id, device_id, f"characters={len(event['text'])}")
@@ -665,6 +689,12 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                                     "device_online":device_id in hub.hosts})
             elif kind == "control":
                 if user_role != "read_only" and hub.is_approved(device_id) and validate_control(event):
+                    await hub.relay(device_id, ws, raw)
+            elif kind == "recording_control" and user_role != "read_only":
+                if not hub.is_approved(device_id):
+                    await ws.send_json({"type":"input_pending","operation":"recording","detail":"Waiting for host approval"})
+                elif validate_recording_control(event):
+                    audit(db, "recording." + str(event.get("action")) + "_requested", user_id, device_id)
                     await hub.relay(device_id, ws, raw)
             elif kind == "clipboard_paste" and user_role != "read_only":
                 if not hub.is_approved(device_id):
