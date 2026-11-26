@@ -100,13 +100,19 @@ async def main():
         class SyntheticRecorder:
             def __init__(self, device_id, viewer_id):
                 self.device_id, self.viewer_id = device_id, viewer_id
+                self.active = False
+            @property
+            def is_alive(self):
+                return self.active
             def start(self):
+                self.active = True
                 recording_events.append(("start", self.device_id, self.viewer_id))
             def stop(self):
+                self.active = False
                 recording_events.append(("stop", self.device_id, self.viewer_id))
         class SyntheticPrivacyBanner:
-            def start(self):
-                privacy_events.append("enabled")
+            def start(self, mode="black"):
+                privacy_events.append(("enabled", mode))
                 return True
             def stop(self):
                 privacy_events.append("disabled")
@@ -150,7 +156,7 @@ async def main():
                 return ws
             viewer = await new_viewer()
             approved = await event(viewer,"host_approved")
-            check(approved.get("recording") is True, f"Recording was not acknowledged: {approved}")
+            check(approved.get("recording") is False, f"Recording must remain off until explicit start: {approved}")
             frame = await asyncio.wait_for(viewer.recv(),timeout=15)
             check(isinstance(frame,bytes) and b"RDP-CLOUD-VIRTUAL-FRAME" in frame,"No virtual screen frame")
             result["checks"]["live_websocket_frame_delivery"] = "PASS"
@@ -172,15 +178,22 @@ async def main():
             check(clipboard_ack.get("success") is True and clipboard_pastes[-1]=="clipboard paste payload",f"Clipboard paste ACK mismatch: {clipboard_ack}")
             result["checks"]["clipboard_paste_ack"] = "PASS"
 
-            await viewer.send(json.dumps({"type":"control","event":"privacy_screen","enabled":True,"mode":"banner"}))
+            await viewer.send(json.dumps({"type":"control","event":"privacy_screen","enabled":True,"mode":"black"}))
             privacy_on = await event(viewer,"privacy_screen_ack")
-            check(privacy_on.get("enabled") is True, f"Privacy banner did not enable: {privacy_on}")
-            await viewer.send(json.dumps({"type":"control","event":"privacy_screen","enabled":False,"mode":"banner"}))
+            check(privacy_on.get("enabled") is True, f"Black privacy screen did not enable: {privacy_on}")
+            await viewer.send(json.dumps({"type":"control","event":"privacy_screen","enabled":False,"mode":"black"}))
             privacy_off = await event(viewer,"privacy_screen_ack")
-            check(privacy_off.get("enabled") is False, f"Privacy banner did not disable: {privacy_off}")
-            await viewer.send(json.dumps({"type":"control","event":"privacy_screen","enabled":True,"mode":"banner"}))
+            check(privacy_off.get("enabled") is False, f"Black privacy screen did not disable: {privacy_off}")
+            await viewer.send(json.dumps({"type":"control","event":"privacy_screen","enabled":True,"mode":"black"}))
             await event(viewer,"privacy_screen_ack")
-            result["checks"]["privacy_banner_toggle"] = "PASS"
+            result["checks"]["pitch_black_privacy_toggle"] = "PASS"
+
+            recording_settings = {"max_duration_seconds":60,"retention_count":1,"max_storage_mb":100,"save_mode":"local"}
+            await viewer.send(json.dumps({"type":"recording_control","action":"start","settings":recording_settings}))
+            started = await event(viewer,"recording_status")
+            check(started.get("active") is True and len([x for x in recording_events if x[0]=="start"])==1,
+                  f"Explicit recording start failed: {started}")
+            result["checks"]["explicit_recording_start"] = "PASS"
 
             payload = os.urandom(TOTAL)
             digest = hashlib.sha256(payload).hexdigest()
@@ -207,7 +220,11 @@ async def main():
             # A transport disconnect terminates approval and cleans host UI/recording.
             # The same owner can resume the transfer only after fresh host approval.
             resumed_approval = await event(viewer,"host_approved")
-            check(resumed_approval.get("recording") is True, "Recording did not restart after fresh approval")
+            check(resumed_approval.get("recording") is False, "Recording unexpectedly restarted on fresh approval")
+            await viewer.send(json.dumps({"type":"recording_control","action":"start","settings":recording_settings}))
+            restarted = await event(viewer,"recording_status")
+            check(restarted.get("active") is True and len([x for x in recording_events if x[0]=="start"])==2,
+                  f"Explicit recording restart failed: {restarted}")
             await viewer.send(json.dumps(manifest))
             resumed = await event(viewer,"transfer_resume_req")
             check(resumed.get("next_offset")==CHUNK,f"Resume did not continue from persisted ACK: {resumed}")
@@ -221,8 +238,12 @@ async def main():
             check(complete.get("verified") is True and complete.get("sha256")==digest,f"Checksum result: {complete}")
             check(destination.is_file() and hashlib.sha256(destination.read_bytes()).hexdigest()==digest,"Saved file checksum mismatch")
             check(consents==2,f"Expected a fresh consent after transport disconnect; got {consents}")
-            check(len([x for x in recording_events if x[0]=="start"])==2,"Expected recording to restart after fresh approval")
-            result["checks"]["synthetic_auto_consent_hook"] = "PASS"
+            await viewer.send(json.dumps({"type":"recording_control","action":"stop"}))
+            stopped = await event(viewer,"recording_status")
+            check(stopped.get("active") is False and len([x for x in recording_events if x[0]=="stop"])>=2,
+                  f"Explicit recording stop failed: {stopped}")
+            result["checks"]["manual_recording_stop"] = "PASS"
+            result["checks"]["host_approval_keeps_recording_off"] = "PASS"
             result["checks"]["same_viewer_resume_with_fresh_consent"] = "PASS"
             result["checks"]["recording_disconnect_cleanup"] = "PASS"
             result["host_status"] = host_status
