@@ -14,7 +14,10 @@ import queue
 import hashlib
 import uuid
 from pathlib import Path
-from resumable_transfer import EndpointFileReceiver, EndpointTransferError
+try:
+    from resumable_transfer import EndpointFileReceiver, EndpointTransferError
+except ModuleNotFoundError:
+    from agent.resumable_transfer import EndpointFileReceiver, EndpointTransferError
 try:
     from privacy_overlay import PrivacyBanner
     from session_recorder import SessionRecorder
