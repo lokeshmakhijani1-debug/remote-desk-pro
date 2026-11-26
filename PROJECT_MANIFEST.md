@@ -997,3 +997,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - `test_instructions.json` now includes the load/fault suite and opt-in production health check command.
 - At this checkpoint, the suite has been committed but has not yet been executed by GitHub Actions. Do not mark Phase 3 stress certification or production certification as passed until the new CI run is green and the live HTTPS check is observed.
 - Core application runtime code was not modified in this phase; the only regression correction is test isolation. Screen relay, input control, Trusted PIN, privacy overlay, MP4 recording, transfer protocol, and workflow replay source paths remain unchanged.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: 4e5789839cd87b7624acb8e2ce08957f88d4b153.
+- EXE size: 68502136 bytes.
+- EXE SHA-256: F41B74CFBA964248F42842D09FF8CB8AF7A48809EC84A56A564275779CA6FA2B.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
