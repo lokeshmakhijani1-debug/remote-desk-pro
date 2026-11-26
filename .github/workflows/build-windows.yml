@@ -87,8 +87,24 @@ jobs:
           git add backend/downloads/RemoteDeskPro-Agent.exe PROJECT_MANIFEST.md
           if (git diff --cached --quiet) { Write-Host "No binary or manifest changes to commit."; exit 0 }
           git commit -m "ci: publish latest Windows agent build"
-          git pull --rebase origin main
-          git push origin HEAD:main
+          $pushed = $false
+          for ($attempt = 1; $attempt -le 5; $attempt++) {
+            git fetch origin main
+            if ($LASTEXITCODE -ne 0) { throw "Unable to fetch main before publishing agent build." }
+            git rebase origin/main
+            if ($LASTEXITCODE -ne 0) {
+              git rebase --abort
+              throw "Agent build commit could not be rebased cleanly onto the latest main."
+            }
+            git push origin HEAD:main
+            if ($LASTEXITCODE -eq 0) {
+              $pushed = $true
+              break
+            }
+            Write-Host "main advanced during agent publication; retrying push ($attempt/5)."
+            Start-Sleep -Seconds 2
+          }
+          if (-not $pushed) { throw "Could not publish agent build after five fast-forward attempts." }
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
