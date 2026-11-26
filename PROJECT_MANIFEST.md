@@ -925,3 +925,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - test_instructions.json includes the browser installation and layout test commands.
 - Note: responsive Playwright coverage uses a DOM fixture styled by the production Vite CSS. It is not an authenticated real-host session test; production login and host-side workflows still require live E2E.
 - These commits require fresh main CI and a Render redeploy before any live-production PASS is claimed.
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: bce710adae6aaa7bc1598d0bdfbdce43ddd66883.
+- EXE size: 68502563 bytes.
+- EXE SHA-256: A79682082641493C8A0C429AB091C46D5452EBE6938C6862BEC84938443A8B2C.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
