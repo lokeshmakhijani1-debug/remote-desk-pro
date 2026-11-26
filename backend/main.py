@@ -67,7 +67,7 @@ class PairIn(BaseModel):
 
 class ConnectIn(BaseModel):
     device_id: str = Field(pattern=r"^\d{9}$")
-    password: str = Field(pattern=r"^\d{6}$")
+    password: str = Field(pattern=r"^\d{4,8}$")
 
 class WorkflowPublishIn(BaseModel):
     workflow: dict[str, Any]
