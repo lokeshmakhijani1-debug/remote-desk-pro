@@ -781,3 +781,13 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Security tests tests/test_recording_control_security.py: rejects community-upload mode, malformed actions, boolean-as-integer values, and out-of-range duration/retention/storage settings.
 
 - Deployment routing check: render.yaml still configures the existing Render service to deploy from main. Pushing this feature branch does not trigger that service's auto-deploy; the Render service/Blueprint was not modified because switching its deployment branch would alter the active deployment target. No Render deployment is claimed.
+
+
+## Mobile remote control recovery, privacy blackout, and viewport rotation — 2026-11-26
+- Frontend `frontend/src/App.tsx`: expanded the draggable mobile action dock to expose Mouse Mode, Right-click, Scroll, Virtual Keyboard, Privacy, Clipboard Sync, File Transfer, Fullscreen, MP4 Start/Stop, V2 AI Workflow Replay, Recording Settings, and Disconnect. The dock routes actions through the established authenticated viewer WebSocket protocol; workflow replay is a host-local replay request and never uploads a workflow.
+- Frontend viewport: added a ResizeObserver on the remote screen container plus resize/orientationchange listeners to reset zoom/pan on viewport changes. The CSS uses dynamic viewport units, orientation-specific sizing, safe-area-aware dock bounds, and a pitch-black remote screen background.
+- Privacy overlay `agent/privacy_overlay.py`: retained the Win32 opaque layered surface with alpha 255 and made its SS_BLACKRECT window style explicit. Frontend privacy preview is solid `#000000`.
+- Backend `backend/main.py`: allowlists the no-argument `workflow_replay` control event; viewer WebSocket control relay still requires a valid authenticated session, non-read-only role, host approval, and `validate_control`.
+- Host `agent/host_agent.py`: receives workflow replay only over the authenticated, approved host WebSocket and replays the latest host-local workflow from the existing APPDATA workflow directory. The replay response is returned to the viewer as `workflow_replay_status`. Existing mutex and APPDATA paths are unchanged.
+- Tests: `tests/test_input_dispatch.py` now asserts the replay event is accepted only without arbitrary path/payload fields; `test_instructions.json` includes the focused remote-control, session-security, and fault-injection command.
+- Remaining verification: live browser automation is attempted against the supplied staging URL. Any browser-provider credit/availability failure is reported as not verified, never as a pass. GitHub Actions and Render status must be checked against the final pushed SHA.
