@@ -995,7 +995,7 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Added `tests/test_load_and_fault_injection.py`: 64 simultaneous viewer admission attempts against the configured 50-viewer cap; 32 concurrent 256 KiB resumable transfer streams; 50 MiB + 1 byte rejection at both transfer endpoints; truncated-chunk rejection and temporary-state cancellation; password-hash/account secret isolation; modifier-key and mouse-button release on disconnect; simulated 500 ms / 1 s / 2 s async latency; optional HTTPS live `/health` and response-header baseline check via `RDP_BASE_URL`.
 - These are deterministic in-process tests. They do not constitute a real 50-client network load test, physical disk exhaustion test, actual recording encoder interruption test, or production remote-control session test. Those require isolated infrastructure and dedicated runner/device instrumentation.
 - `test_instructions.json` now includes the load/fault suite and opt-in production health check command.
-- At this checkpoint, the suite has been committed but has not yet been executed by GitHub Actions. Do not mark Phase 3 stress certification or production certification as passed until the new CI run is green and the live HTTPS check is observed.
+- GitHub Actions CI #318 on commit `5c443b94a0ede15466e3b91b48aa9818e133754e` completed successfully: backend `159 passed, 2 skipped`; frontend build and responsive-layout checks passed. The skipped tests include platform/live-environment checks; the optional live-health pytest remains opt-in.
 - Core application runtime code was not modified in this phase; the only regression correction is test isolation. Screen relay, input control, Trusted PIN, privacy overlay, MP4 recording, transfer protocol, and workflow replay source paths remain unchanged.
 
 ## GitHub Actions Windows build (latest)
@@ -1006,3 +1006,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+
+### Phase 3 verification outcome — 2026-11-27
+- Verified CI run #318: backend 159 passed / 2 skipped; frontend production build and responsive layout checks passed. One Starlette/httpx deprecation warning remains non-failing.
+- Regression fix: the initial account-isolation test used reserved `.test` email domains rejected by Pydantic EmailStr (422). Test fixture changed to `example.com`; no application authentication behavior was changed.
+- Live production HTTPS health response body reported `status=ok`, `service=remote-desk-pro`, `database=postgresql`, and `capacity_target=50`. The HTTP content fetch did not expose response headers, so HSTS/CSP/frame/referrer header assertions remain unverified.
+- Test coverage includes 64 concurrent Hub host registrations and 64 viewer admission attempts (50 admitted / 14 rejected), 32 parallel 256 KiB transfer streams, 32 concurrent secret-verification operations, wrong-email/cross-account/wrong-password login rejection, >50 MiB rejection, malformed/truncated chunks, simulated disk-full cancellation cleanup, disconnect key/button release, and 500 ms–2 s async latency delays.
+- Limits: these are in-process Hub/storage/auth tests, not 64 real network WebSocket clients. Actual recording-encoder interruption, physical disk exhaustion, WAN packet loss, TURN/NAT traversal, and live remote-control E2E were not exercised. No destructive tests were run against production.
+- Production certification is therefore **CI-green / live-health-body-green, but not fully certified** until security headers are verified and real network/recording/device load tests are run in an isolated environment.
