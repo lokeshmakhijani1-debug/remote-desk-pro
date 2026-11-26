@@ -821,3 +821,33 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Workflow History now parses a user-selected JSON export locally in the browser and displays a bounded preview of up to 100 step labels before any publish action. The dashboard exposes Recording & Storage Settings before a host session exists; the same modal remains available from the live viewer dock. This allows the settings UI and local workflow preview to be checked without pairing a host.
 
 - Staging deployment verification: `https://remote-desk-pro-rtij.onrender.com` returned HTTP 200 from `/health` with PostgreSQL. The authenticated browser still rendered the older dashboard and did not expose the new pre-session Recording Settings button after the feature-branch push. The repository Render blueprint still specifies `branch: main`; no Render deployment target or `render.yaml` branch was changed to avoid altering the existing service. Feature-branch source/CI is verified separately from the live staging deployment.
+
+
+## Main-to-V2 parity audit and privacy recording hardening — 2026-11-26
+
+### Branch comparison
+- Compared \`main\` (\`27802c6199e6706afe2f7aa4932ec74d0384f983\`) with \`feature/v2-bidirectional-automation\` (\`086c276b313c34b8baff985b22912fae322f0577\`) before this hardening pass. V2 was 95 commits ahead and 2 commits behind; the histories are intentionally divergent.
+- The two main-only commits change the V2 workflow/manifest history and add a generated Windows executable under \`backend/downloads/\`. V2 already has its own feature-branch CI workflow and more complete V2 manifest; the generated binary is a build artifact, not source functionality, and was not copied into the source branch.
+- No merge, rebase, cherry-pick, or write was made to \`main\`.
+
+### Audited feature matrix
+| Capability | V2 source state |
+|---|---|
+| V1 manual host consent | Preserved; manual approval remains the default |
+| Trusted unattended PIN | Preserved: desktop toggle, 4–8 digit numeric PIN, server-side hash sync/verification, and host consent bypass only when enabled with a valid PIN |
+| PIN storage | Hardened in this pass: desktop config now stores the PIN using Windows DPAPI (\`unattended_pin_enc\`) and restores it to the host process environment on startup; legacy plaintext config values are migrated on next save |
+| V2 bidirectional control and workflow engine | Preserved; host-to-viewer resumable transfer, workflow replay/history/community publishing remain on V2 |
+| Viewer control dock | Present on desktop and mobile with mouse mode, right-click, scroll up/down, virtual keyboard, black privacy, clipboard, file transfer, fullscreen, recording, workflow/community, zoom, and disconnect actions |
+| Privacy blackout | Native host black overlay and solid black viewer preview are present |
+| Recording | Manual start/stop remains available; this pass adds host-side MP4 auto-recording on successful privacy blank activation, finalization when privacy is disabled or the session ends, and a viewer disclosure badge. Manual recordings continue when privacy mode is disabled; a privacy-triggered recording cannot be manually stopped while the host remains blanked |
+| Recording caps and retention | Existing max-duration, retention-count, storage-cap settings and SHA-256 audit log remain active |
+| Responsive viewport | Dynamic viewport sizing, ResizeObserver, resize/orientationchange listeners, and safe-area-aware dock sizing are present |
+| Keep / Download / Delete recording manager | Not implemented in this pass. MP4 files remain host-local; the browser has no authenticated recording-list/download/delete API. Do not claim this requirement is complete |
+| Exact live viewport/device E2E | Not verified. The public staging landing page was inspected signed out; no test account was created, no host was connected, and exact 390×844 / 844×390 / 1440×900 measurements were not captured |
+
+### Verification boundary
+- Added \`tests/test_privacy_recording_policy.py\` for privacy-start/stop semantics, manual-recording preservation, disclosure, and encrypted Trusted PIN persistence.
+- \`test_instructions.json\` includes the focused privacy/recording/security test command in addition to the full regression suite, frontend build, and Gitleaks scan.
+- The pre-hardening branch CI run #101 at \`086c276b\` passed Python regression, frontend build, full-history Gitleaks, and Windows executable packaging. Live cloud E2E was skipped because \`RDP_BASE_URL\` was not configured. A fresh CI run is required for the commits in this section.
+- Public staging inspection at \`https://remote-desk-pro-rtij.onrender.com\` found the sign-in/create-account screen, title \`Remote Desk Pro\`, no visible version metadata, and no active session. The browser was left signed out. Browser Use was unavailable due to insufficient provider credits; the public TinyFish inspection succeeded.
+- The staging login and real-host control path were not exercised. The Render deployment branch remains independently configured; no deployment or production environment change is claimed.
