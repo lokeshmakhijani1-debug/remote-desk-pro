@@ -82,7 +82,7 @@ def test_delete_recording_audits_and_removes_file(tmp_path):
     target.write_bytes(b"recording")
     assert delete_recording(target.name, tmp_path) is True
     assert not target.exists()
-    audit = (tmp_path / "audit_log.jsonl").read_text()
+    audit = (tmp_path / "audit.jsonl").read_text()
     assert '"event": "recording_deleted"' in audit
     assert '"recording": "session_delete.mp4"' in audit
 
