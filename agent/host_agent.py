@@ -879,13 +879,16 @@ async def run_once(args, stop_event=None):
                 elif message.get("type") == "control" and streaming.is_set():
                     try:
                         if message.get("event") == "workflow_replay":
-                            replay_engine = WorkflowReplayEngine()
-                            target = replay_engine.latest()
-                            if target is None:
-                                await ws.send(json.dumps({"type":"workflow_replay_status","detail":"No saved host-local workflow is available."}))
-                            else:
+                            try:
+                                replay_engine = WorkflowReplayEngine()
+                                target = replay_engine.latest()
+                                if target is None:
+                                    raise FileNotFoundError("No saved host-local workflow is available.")
                                 result = await asyncio.to_thread(replay_engine.replay, target)
-                                await ws.send(json.dumps({"type":"workflow_replay_status","detail":f"Workflow replayed: {int(result.get('executed', 0))} steps."}))
+                                detail = f"Workflow replayed: {int(result.get('executed', 0))} steps."
+                            except Exception as exc:
+                                detail = "Workflow replay failed: " + str(exc)[:180]
+                            await ws.send(json.dumps({"type":"workflow_replay_status","detail":detail}))
                         elif message.get("event") == "privacy_screen":
                             mode = message.get("mode") if message.get("mode") in ("black", "banner") else "black"
                             if message.get("enabled") is True:
