@@ -886,3 +886,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Main CI and Windows Agent Build runs for the V2 merge completed successfully: [CI #45864759600](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/actions/runs/45864759600), [Windows Build #45864759383](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/actions/runs/45864759383), [CI #45864801375](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/actions/runs/45864801375). The dedicated matrix suite and storage-retention fix are new commits and require their own post-change CI result.
 - Production `/health` and `/api/manifest` returned HTTP 200. The manifest does not expose a Git SHA. Production homepage inspection found a logged-out static login page with no viewport meta tag and no external JS/CSS assets; requested viewport sizes could not be set exactly, and authenticated recording-manager viewports remain unverified.
 - The `latest-agent` release asset is present (68,520,976 bytes), SHA-256 `5ef68e9f04f765c40a3838fa354223ae0215003196e1e737978e0956009b64e8`. The Windows workflow run also uploaded artifact digest `fee990ec0eba0fe43fb3925f55dcf35f45395ca5fac4f851bce03553e5bf6287` (ZIP artifact digest, not the EXE digest).
+
+## GitHub Actions Windows build (latest)
+- Workflow: .github/workflows/build-windows.yml (windows-latest, Python 3.12, PyInstaller onefile/windowed).
+- Build source: 376de525c48c3b7ec8e4b9400104bda5449b6e0e.
+- EXE size: 68502584 bytes.
+- EXE SHA-256: 995F9C851DD7326FC8366D1774684AFAEE33639329075944DFCBED122B71BB54.
+- Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
+- Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
+- Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
