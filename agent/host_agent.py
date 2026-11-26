@@ -52,6 +52,7 @@ _PRESSED_KEYS = set()
 _PRESSED_MOUSE_BUTTONS = set()
 _PRIMARY_CAPTURE_SIZE = None
 _FILE_SEND_QUEUE = queue.Queue()
+_RECORDING_COMMAND_QUEUE = queue.Queue()
 _OUTGOING_TRANSFER_STATE = Path(APP_DIR) / "outgoing-transfer.json"
 
 def enqueue_file_send(path: str) -> None:
@@ -156,6 +157,11 @@ def set_diagnostics_callback(callback):
 def set_telemetry_callback(callback):
     global _TELEMETRY_CALLBACK
     _TELEMETRY_CALLBACK = callback
+
+def set_session_recording_requested(enabled: bool, settings: dict | None = None):
+    """Queue an explicit local-video recording command from the desktop UI."""
+    _RECORDING_COMMAND_QUEUE.put({"action": "start" if enabled else "stop", "settings": settings or {}})
+
 
 def set_workflow_recorder(recorder):
     global _WORKFLOW_RECORDER
@@ -626,6 +632,55 @@ async def run_once(args, stop_event=None):
                     log.warning("Could not initialize outgoing file transfer: %s", exc)
                     set_status("Outgoing file transfer could not start")
         file_sender_task = asyncio.create_task(send_queued_files())
+        recording_timer_task = None
+
+        async def apply_recording_action(action: str, settings: dict | None = None):
+            nonlocal recorder, recording_timer_task
+            if action == "stop":
+                if recorder is not None:
+                    current, recorder = recorder, None
+                    if recording_timer_task and recording_timer_task is not asyncio.current_task():
+                        recording_timer_task.cancel()
+                    await asyncio.to_thread(current.stop)
+                await ws.send(json.dumps({"type": "recording_status", "active": False, "detail": "Recording saved locally."}))
+                return
+            if action != "start" or not streaming.is_set():
+                await ws.send(json.dumps({"type": "recording_status", "active": False, "detail": "Recording requires an approved live session."}))
+                return
+            if recorder is not None and recorder.is_alive:
+                await ws.send(json.dumps({"type": "recording_status", "active": True, "detail": "Recording is already active."}))
+                return
+            options = settings if isinstance(settings, dict) else {}
+            if options.get("save_mode", "local") != "local":
+                await ws.send(json.dumps({"type": "recording_status", "active": False, "detail": "Video publishing is not enabled; choose Save Locally."}))
+                return
+            max_duration = max(1, min(int(options.get("max_duration_seconds", 1800)), 14400))
+            keep_last = max(1, min(int(options.get("retention_count", 5)), 100))
+            storage_mb = max(100, min(int(options.get("max_storage_mb", 1024)), 20480))
+            candidate = SessionRecorder(args.device_id, viewer_id, max_duration_seconds=max_duration,
+                                        retention_count=keep_last, max_storage_mb=storage_mb)
+            await asyncio.to_thread(candidate.start)
+            recorder = candidate
+            await ws.send(json.dumps({"type": "recording_status", "active": True, "detail": "Local recording started."}))
+
+            async def auto_stop(expected):
+                await asyncio.sleep(max_duration)
+                if recorder is expected:
+                    await apply_recording_action("stop")
+                    await ws.send(json.dumps({"type": "recording_status", "active": False,
+                                              "detail": "Maximum recording duration reached; recording auto-stopped."}))
+
+            recording_timer_task = asyncio.create_task(auto_stop(candidate))
+
+        async def consume_recording_commands():
+            while True:
+                try:
+                    command = await asyncio.to_thread(_RECORDING_COMMAND_QUEUE.get, True, 1)
+                except queue.Empty:
+                    continue
+                await apply_recording_action(command.get("action", "stop"), command.get("settings"))
+
+        recording_command_task = asyncio.create_task(consume_recording_commands())
         if stop_event is not None:
             async def close_on_stop():
                 await asyncio.to_thread(stop_event.wait)
@@ -644,30 +699,28 @@ async def run_once(args, stop_event=None):
                     viewer_id = str(message.get("viewer_id") or "unknown")
                     set_status("Waiting for host approval...")
                     if stream_task and not stream_task.done():
-                        await ws.send(json.dumps({"type":"host_approved","recording":bool(recorder)}))
+                        await ws.send(json.dumps({"type":"host_approved","recording":bool(recorder and recorder.is_alive)}))
                         for state in outgoing_transfers.values():
                             await ws.send(json.dumps({"type":"transfer_init","transfer_id":state["transfer_id"],"name":state["name"],"total_size":state["total_size"],"sha256":state["sha256"],"chunk_size":state["chunk_size"],"compression":"none"}))
                         continue
                     if is_unattended_auto_approve_enabled() or await ask_host_consent(args.device_id, args.dynamic_password):
-                        try:
-                            recorder = SessionRecorder(args.device_id, viewer_id)
-                            recorder.start()
-                        except Exception:
-                            log.exception("Session recording could not start; refusing remote session")
-                            recorder = None
-                            await ws.send(json.dumps({"type":"host_denied","detail":"Local security recording could not start; session was not approved"}))
-                            set_status("Session denied — security recording unavailable")
-                            continue
                         streaming.set()
-                        await ws.send(json.dumps({"type":"host_approved","recording":True}))
+                        await ws.send(json.dumps({"type":"host_approved","recording":False}))
                         stream_task = asyncio.create_task(stream_screen(ws, streaming, telemetry))
                         clipboard_task = asyncio.create_task(clipboard_watch(ws, streaming))
                         for state in outgoing_transfers.values():
                             await ws.send(json.dumps({"type":"transfer_init","transfer_id":state["transfer_id"],"name":state["name"],"total_size":state["total_size"],"sha256":state["sha256"],"chunk_size":state["chunk_size"],"compression":"none"}))
-                        set_status("Connected (Live) · REC")
+                        set_status("Connected (Live) · Recording off")
                     else:
                         await ws.send(json.dumps({"type":"host_denied"}))
                         set_status("Connection denied by host")
+                elif message.get("type") == "recording_control" and streaming.is_set():
+                    try:
+                        await apply_recording_action(str(message.get("action", "stop")), message.get("settings"))
+                    except Exception as exc:
+                        log.exception("Explicit recording command failed")
+                        await ws.send(json.dumps({"type": "recording_status", "active": False,
+                                                  "detail": "Recording command failed: " + str(exc)[:180]}))
                 elif message.get("type") == "viewer_left":
                     _set_privacy_screen_active(False)
                     release_all_inputs()
@@ -853,6 +906,10 @@ async def run_once(args, stop_event=None):
                 stop_task.cancel()
             if latency_task:
                 latency_task.cancel()
+            if recording_command_task:
+                recording_command_task.cancel()
+            if recording_timer_task:
+                recording_timer_task.cancel()
             if file_sender_task:
                 file_sender_task.cancel()
             streaming.clear()
