@@ -19,6 +19,10 @@
       "command": "npm --prefix frontend run build"
     },
     {
+      "name": "mobile_remote_control_protocol",
+      "command": "python -m pytest -q tests/test_input_dispatch.py tests/test_session_security.py tests/test_v2_fault_injection.py"
+    },
+    {
       "name": "live_e2e_optional",
       "command": "if [ -n \"$RDP_BASE_URL\" ]; then python -m pip install playwright && python -m playwright install --with-deps chromium && python tests/e2e_cloud_headless.py; else echo 'SKIP: configure RDP_BASE_URL to run live cloud E2E'; fi"
     },
