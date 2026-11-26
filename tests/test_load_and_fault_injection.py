@@ -176,3 +176,64 @@ def test_live_health_endpoint_and_security_header_baseline():
     observed = {key.lower(): value for key, value in response.headers.items()}
     assert "content-type" in observed
     assert observed["content-type"].startswith("application/json")
+
+
+def test_64_concurrent_host_registrations_and_viewer_sessions_are_isolated():
+    async def scenario():
+        hub = Hub()
+        hosts = [FakeSocket() for _ in range(64)]
+        viewers = [FakeSocket() for _ in range(64)]
+        await asyncio.wait_for(
+            asyncio.gather(*[
+                hub.register_host(f"{index:09d}", socket)
+                for index, socket in enumerate(hosts)
+            ]),
+            timeout=5,
+        )
+        outcomes = await asyncio.wait_for(
+            asyncio.gather(*[
+                hub.register_viewer(f"{index:09d}", socket, 50, index + 1000)
+                for index, socket in enumerate(viewers)
+            ]),
+            timeout=5,
+        )
+        assert len(hub.hosts) == 64
+        assert sum(bool(item[0]) for item in outcomes) == 50
+        assert len(hub.viewers) == 50
+
+
+def test_trusted_pin_authentication_burst_is_parallel_and_account_scoped():
+    encoded_pin = hash_secret("482915")
+    encoded_other_account = hash_secret("731604")
+
+    async def verify_burst():
+        checks = []
+        for index in range(32):
+            expected = "482915" if index % 2 == 0 else "731604"
+            encoded = encoded_pin if index % 2 == 0 else encoded_other_account
+            checks.append(asyncio.to_thread(verify_secret, encoded, expected))
+        return await asyncio.wait_for(asyncio.gather(*checks), timeout=15)
+
+    assert all(asyncio.run(verify_burst()))
+
+
+def test_disk_full_during_chunk_write_can_be_cancelled_without_orphan_state(tmp_path, monkeypatch):
+    import backend.file_transfer as transfer_module
+
+    transfer_id = "12345678-1234-5678-1234-567812345697"
+    payload = b"d" * MIN_CHUNK_SIZE
+    store = ResumableTransferStore(tmp_path, MIN_CHUNK_SIZE)
+    store.begin(TransferManifest(
+        transfer_id, "disk-pressure.bin", len(payload),
+        hashlib.sha256(payload).hexdigest(), MIN_CHUNK_SIZE, "none",
+    ))
+
+    def disk_full(_fd):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(transfer_module.os, "fsync", disk_full)
+    with pytest.raises(OSError, match="No space left"):
+        store.append(transfer_id, 0, payload, "none")
+    store.cancel(transfer_id)
+    assert not (tmp_path / f"{transfer_id}.part").exists()
+    assert not (tmp_path / f"{transfer_id}.json").exists()
