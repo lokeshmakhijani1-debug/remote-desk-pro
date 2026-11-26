@@ -51,9 +51,9 @@ jobs:
       - name: Build frontend
         run: npm --prefix frontend run build
       - name: Run live cloud E2E when a target is configured
-        if: ${{ secrets.RDP_BASE_URL != '' }}
         env:
           RDP_BASE_URL: ${{ secrets.RDP_BASE_URL }}
+        if: ${{ env.RDP_BASE_URL != '' }}
         run: |
           python -m pip install playwright
           python -m playwright install --with-deps chromium
