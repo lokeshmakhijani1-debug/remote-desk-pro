@@ -39,7 +39,7 @@ def cleanup_recordings(folder: Path = RECORDING_DIR, keep_last: int = 5, max_sto
     return removed
 
 
-_RECORDING_NAME = re.compile(r"^session_[A-Za-z0-9_.-]+\\.mp4$")
+_RECORDING_NAME = re.compile(r"^session_[A-Za-z0-9_.-]+\.mp4$")
 
 
 def _recording_target(filename: str, folder: Path) -> tuple[Path, Path]:
@@ -68,7 +68,7 @@ def _audit_recording_event(root: Path, event: str, filename: str, **fields) -> N
     record = {"event": event, "at": datetime.now(timezone.utc).isoformat(),
               "recording": filename, **fields}
     with audit_path.open("a", encoding="utf-8") as stream:
-        stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\\n")
+        stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
         stream.flush()
         os.fsync(stream.fileno())
 
@@ -189,7 +189,7 @@ class SessionRecorder:
                   "device_id": self.device_id, "viewer_id": self.viewer_id,
                   "recording": self.path.name, **fields}
         with self.audit_path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\\n")
+            stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
             stream.flush()
             os.fsync(stream.fileno())
 
