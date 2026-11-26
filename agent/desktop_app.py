@@ -167,6 +167,11 @@ class DesktopApp:
         self._set_system_awake(True)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.config = load_config()
+        saved_pin = str(self.config.get("unattended_pin", "")).strip()
+        if self.config.get("unattended_auto_approve") and 4 <= len(saved_pin) <= 8 and saved_pin.isdigit():
+            os.environ["RDP_UNATTENDED_PIN"] = saved_pin
+        else:
+            os.environ.pop("RDP_UNATTENDED_PIN", None)
         self.server = self.config.get("server") or server or DEFAULT_SERVER
         self.running = False
         self.session_live = False
