@@ -913,3 +913,15 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+
+### V2 remaining-test remediation — 2026-11-26
+- /api/manifest now exposes git_sha at the top level and under deployment, preferring RENDER_GIT_COMMIT, then GITHUB_SHA, with a source-prefix fallback.
+- Backend static serving now resolves frontend/dist from the repository/image root and mounts Vite assets only when the built index.html exists. Dockerfile already builds and copies frontend/dist into /app/frontend/dist.
+- frontend/index.html now includes the requested maximum-scale=5.0 and viewport-fit=cover viewport settings.
+- Trusted PIN connect validation now accepts 4–8 digits, matching the stored PIN policy. Host unattended approval is extracted into approve_viewer_request; manual consent remains the fallback. Active recording start now uses start_recorder_once to reuse a live recorder through manual/privacy transitions.
+- Expanded tests/test_v2_30_suite.py with real FFmpeg MP4 encode/decode lifecycle checks, manual/privacy recorder reuse, multi-chunk SHA-256 reassembly, max-duration stop and retention, 100/125/150% resolution mapping, public workflow publish/list/import/replay, Trusted PIN connect and consent bypass, endpoint-level invalid-PIN rate limiting, 200 host input events with rapid recording toggles, and manifest/static-serving contracts.
+- Added tests/e2e_responsive_layout.mjs using Playwright and the built Vite CSS. It checks dock buttons and recording-manager layout at 390×844, 844×390, and 1440×900; CI installs Chromium and runs it after the frontend build.
+- test_instructions.json includes the browser installation and layout test commands.
+- Note: responsive Playwright coverage uses a DOM fixture styled by the production Vite CSS. It is not an authenticated real-host session test; production login and host-side workflows still require live E2E.
+- These commits require fresh main CI and a Render redeploy before any live-production PASS is claimed.
