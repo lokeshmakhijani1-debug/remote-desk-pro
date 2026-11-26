@@ -1038,3 +1038,5 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Limitations: the automated loopback test is not a substitute for geographically distributed WAN/TURN/NAT testing. The Windows GUI harness was added but not executed against a physical Windows desktop in this cloud-only run. No destructive production testing or database writes were performed.
 
 - Follow-up hardening: HSTS is enabled only when the ASGI scheme is HTTPS; arbitrary client-supplied forwarding headers cannot enable it. Gitleaks CI uses `GITLEAKS_LOG_OPTS=--all` to scan all available Git refs/history.
+
+- Gitleaks CI: Gitleaks Action scans the pushed commit and a separate pinned Gitleaks 8.24.3 CLI step scans all refs/history with `--log-opts=--all`. The Windows GUI launch is an opt-in platform-specific command and is not run by the generic non-interactive test command list.

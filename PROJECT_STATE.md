@@ -70,3 +70,5 @@ Updated: 2026-11-21 (IST)
 - This cloud-only change does not claim that a physical Windows desktop session, production-load test, real packet-loss path, or production database mutation was executed. Live production health/header verification is a separate read-only check.
 
 - Follow-up hardening: HSTS relies on the ASGI request scheme (set by trusted Uvicorn proxy-header handling), not a client-supplied forwarding header. Gitleaks CI is configured to scan all Git refs/history.
+
+- Gitleaks full-history verification uses a dedicated CLI scan with `--log-opts=--all`; the Gitleaks Action separately scans the pushed commit. The Windows GUI launch command is kept outside the cross-platform non-interactive command list as an opt-in Windows-only step.
