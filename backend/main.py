@@ -216,7 +216,9 @@ def devices(authorization: str | None = Header(default=None), db: Session = Depe
 
 @app.post("/api/devices/connect")
 def connect(data: ConnectIn, request: Request, authorization: str | None = Header(default=None), db: Session = Depends(db_session)):
-    enforce_rate_limit("connect:" + (request.client.host if request.client else "unknown"))
+    source_ip = request.client.host if request.client else "unknown"
+    enforce_rate_limit("connect:" + source_ip)
+    enforce_rate_limit("connect-device:" + source_ip + ":" + data.device_id)
     user = current_user(authorization, db)
     device = db.scalar(select(Device).where(Device.device_id == data.device_id))
     if not device:
@@ -416,6 +418,16 @@ hub = Hub()
 MAX_CLIPBOARD_CHARS = 64 * 1024
 MAX_FILE_BYTES = 50 * 1024 * 1024
 MAX_FILE_CHUNK_BYTES = 192 * 1024
+MAX_WS_TEXT_BYTES = 64 * 1024
+MAX_WS_BINARY_BYTES = 8 * 1024 * 1024
+
+
+def websocket_payload_within_limit(payload: str | bytes) -> bool:
+    if isinstance(payload, bytes):
+        return len(payload) <= MAX_WS_BINARY_BYTES
+    if isinstance(payload, str):
+        return len(payload.encode('utf-8')) <= MAX_WS_TEXT_BYTES
+    return False
 
 def validate_clipboard(event: dict) -> bool:
     value = event.get("text")
@@ -533,7 +545,7 @@ async def host_socket(ws: WebSocket, device_id: str):
         while True:
             packet = await ws.receive()
             raw = packet.get("bytes") if packet.get("bytes") is not None else packet.get("text")
-            if raw is None:
+            if raw is None or not websocket_payload_within_limit(raw):
                 continue
             if isinstance(raw, bytes):
                 await hub.relay(device_id, ws, raw)
@@ -541,6 +553,8 @@ async def host_socket(ws: WebSocket, device_id: str):
             try:
                 event = json.loads(raw)
             except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(event, dict):
                 continue
             kind = event.get("type")
             if kind == "host_disconnected":
