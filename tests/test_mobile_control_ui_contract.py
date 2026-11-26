@@ -32,7 +32,7 @@ def test_privacy_preview_and_native_overlay_are_pure_black():
     app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (ROOT / "frontend" / "src" / "styles.css").read_text(encoding="utf-8")
     overlay = (ROOT / "agent" / "privacy_overlay.py").read_text(encoding="utf-8")
-    assert '"privacy-enabled"' in app
+    assert '" privacy-enabled"' in app
     assert "background:#000" in css
     assert "SetLayeredWindowAttributes(hwnd, 0, 255" in overlay
     assert "0x00000004" in overlay  # SS_BLACKRECT
