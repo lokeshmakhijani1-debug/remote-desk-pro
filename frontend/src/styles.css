@@ -105,3 +105,11 @@ html,body,#root{width:100%;min-height:100%;overflow-x:hidden}
  .dock-fab{width:48px;height:48px}
  .screen{height:calc(100dvh - 190px);min-height:120px}
 }
+
+/* Prevent viewport-width units and nested grids from creating horizontal page scroll. */
+html,body,#root{width:100%;max-width:100%;overflow-x:hidden}
+.layout{width:100%;max-width:100%;min-width:0}
+.main,.content,.cards,.cards>* ,.panel,.viewer,.transfer-tools{min-width:0;max-width:100%}
+.cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:680px){.cards{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:900px){.layout{width:100%;max-width:100dvw;min-width:0}.main{width:100%;max-width:100%;min-width:0}.content{width:100%;max-width:100%;padding-left:clamp(10px,3vw,20px);padding-right:clamp(10px,3vw,20px)}}
