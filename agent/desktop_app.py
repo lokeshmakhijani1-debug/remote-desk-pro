@@ -165,6 +165,7 @@ class DesktopApp:
         self.config = load_config()
         self.server = self.config.get("server") or server or DEFAULT_SERVER
         self.running = False
+        self.session_live = False
         self.agent_thread = None
         self.agent_args = None
         self.stop_event = threading.Event()
@@ -300,7 +301,7 @@ class DesktopApp:
 
     def _set_session_recording(self):
         enabled = bool(self.session_recording_var.get())
-        if enabled and "connected (live)" not in self.status_var.get().lower():
+        if enabled and not self.session_live:
             self.session_recording_var.set(False)
             self.status_var.set("Connect and approve a live viewer session before starting recording.")
             return
@@ -664,6 +665,12 @@ class DesktopApp:
         self.root.after(0, update)
 
     def _agent_status(self, value: str):
+        normalized = value.lower()
+        if "connected (live)" in normalized:
+            self.session_live = True
+        elif any(marker in normalized for marker in ("waiting for a viewer", "host offline", "disconnected", "connection denied", "agent stopped")):
+            self.session_live = False
+            self.session_recording_var.set(False)
         self.root.after(0, lambda: self.status_var.set(value))
         logger.info("Status: %s", value)
 
