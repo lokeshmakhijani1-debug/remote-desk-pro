@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import inspect
 import asyncio
+import json
 import hashlib
 import os
 import sys
@@ -277,7 +278,7 @@ def test_t06_multi_chunk_download_reassembles_exact_sha256(tmp_path):
 
 
 def test_t10_max_duration_auto_stops_and_retention_evicts_oldest(tmp_path, monkeypatch):
-    writers = _install_recorder_fakes(monkeypatch, tmp_path)
+    frame_seen, ffmpeg = _install_recorder_fakes(monkeypatch, tmp_path)
     ticks = iter((100.0, 100.0, 102.0))
     monkeypatch.setattr(recorder_module, "time", types.SimpleNamespace(monotonic=lambda: next(ticks)))
     recorder = SessionRecorder("123456789", "viewer-1", max_duration_seconds=1)
