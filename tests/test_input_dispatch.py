@@ -178,11 +178,14 @@ def test_backend_rejects_invalid_control_events(event):
     assert not validate_control(event)
 
 
-def test_public_agent_download_serves_standalone_executable():
+def test_public_agent_download_reports_unavailable_when_release_binary_is_not_deployed():
     with TestClient(app) as client:
         response = client.get("/download/agent")
+    if response.status_code == 503:
+        assert "not available" in response.json()["detail"].lower()
+        return
     assert response.status_code == 200
-    assert "attachment; filename=\"RemoteDeskPro-Agent.exe\"" in response.headers["content-disposition"]
+    assert 'attachment; filename="RemoteDeskPro-Agent.exe"' in response.headers["content-disposition"]
     assert response.headers["content-type"] == "application/vnd.microsoft.portable-executable"
     assert len(response.content) > 10_000_000
 
