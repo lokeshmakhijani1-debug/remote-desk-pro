@@ -99,7 +99,7 @@ def test_clipboard_and_recording_protocol_payloads_are_bounded():
 @pytest.mark.parametrize("payload", [
     {"type": "mouse_move", "x": 999, "y": -1},
     {"type": "mouse_move", "x": float("nan"), "y": 0.5},
-    {"type": "key_down", "key": "not-a-valid-key"},
+    {"event": "key_down", "key": "k".repeat(33)},
 ])
 def test_invalid_control_payloads_are_rejected(payload):
     assert not validate_control(payload)
