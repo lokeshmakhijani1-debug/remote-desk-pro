@@ -454,6 +454,8 @@ def validate_control(event: dict) -> bool:
             return math.isfinite(dx) and math.isfinite(dy) and abs(dx) <= 2400 and abs(dy) <= 2400
         except (TypeError, ValueError):
             return False
+    if kind == "workflow_replay":
+        return set(event.keys()).issubset({"type", "event"})
     return False
 
 def validate_recording_control(event: dict) -> bool:
