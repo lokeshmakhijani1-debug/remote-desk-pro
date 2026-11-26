@@ -77,7 +77,7 @@ class SessionRecorder:
                   "device_id": self.device_id, "viewer_id": self.viewer_id,
                   "recording": self.path.name, **fields}
         with self.audit_path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\\n")
+            stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
             stream.flush()
             os.fsync(stream.fileno())
 
