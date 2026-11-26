@@ -791,3 +791,5 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Host `agent/host_agent.py`: receives workflow replay only over the authenticated, approved host WebSocket and replays the latest host-local workflow from the existing APPDATA workflow directory. The replay response is returned to the viewer as `workflow_replay_status`. Existing mutex and APPDATA paths are unchanged.
 - Tests: `tests/test_input_dispatch.py` now asserts the replay event is accepted only without arbitrary path/payload fields; `test_instructions.json` includes the focused remote-control, session-security, and fault-injection command.
 - Remaining verification: live browser automation is attempted against the supplied staging URL. Any browser-provider credit/availability failure is reported as not verified, never as a pass. GitHub Actions and Render status must be checked against the final pushed SHA.
+
+- Follow-up UI detail: the same draggable dock is now displayed on desktop as well as mobile; the full-width desktop toolbar remains available. The dock uses a three-column desktop grid and touch-friendly mobile grid.
