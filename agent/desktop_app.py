@@ -668,10 +668,14 @@ class DesktopApp:
         normalized = value.lower()
         if "connected (live)" in normalized:
             self.session_live = True
-        elif any(marker in normalized for marker in ("waiting for a viewer", "host offline", "disconnected", "connection denied", "agent stopped")):
+        disconnected = any(marker in normalized for marker in ("waiting for a viewer", "host offline", "disconnected", "connection denied", "agent stopped"))
+        if disconnected:
             self.session_live = False
-            self.session_recording_var.set(False)
-        self.root.after(0, lambda: self.status_var.set(value))
+        def update():
+            self.status_var.set(value)
+            if disconnected:
+                self.session_recording_var.set(False)
+        self.root.after(0, update)
         logger.info("Status: %s", value)
 
     def run(self):
