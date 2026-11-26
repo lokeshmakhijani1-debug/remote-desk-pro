@@ -20,6 +20,8 @@
     "gitleaks detect --source . --redact --verbose --log-opts=--all",
     "if [ -n \"$RDP_BASE_URL\" ]; then python -m pip install playwright && python -m playwright install --with-deps chromium && python tests/e2e_cloud_headless.py; else echo 'SKIP: configure RDP_BASE_URL to run live cloud E2E'; fi",
     "python -m pytest -q tests/test_production_scale_security.py",
-    "python -m pip install --upgrade pip-audit bandit && pip-audit -r requirements.txt -r agent/requirements.txt && bandit -q -r backend agent"
+    "python -m pip install --upgrade pip-audit bandit && pip-audit -r requirements.txt -r agent/requirements.txt && bandit -q -r backend agent",
+    "python -m pytest -q tests/test_websocket_security_bounds.py",
+    "python -m pip install bandit pip-audit && bandit -q -r backend agent && pip-audit -r requirements.txt -r agent/requirements.txt"
   ]
 }
