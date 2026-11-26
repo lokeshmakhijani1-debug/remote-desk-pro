@@ -237,7 +237,7 @@ def test_t01_manual_recording_full_lifecycle_writes_mp4_hash_and_timer_contract(
 
 
 def test_t04_manual_then_privacy_start_reuses_single_recorder(tmp_path, monkeypatch):
-    writers = _install_recorder_fakes(monkeypatch, tmp_path)
+    frame_seen, ffmpeg = _install_recorder_fakes(monkeypatch, tmp_path)
     created = []
     def factory():
         item = SessionRecorder("123456789", "viewer-1", fps=10)
@@ -246,7 +246,7 @@ def test_t04_manual_then_privacy_start_reuses_single_recorder(tmp_path, monkeypa
         return item
     manual, started = host_agent.start_recorder_once(None, factory)
     assert started is True
-    assert writers[0].frame_seen.wait(2)
+    assert frame_seen.wait(2)
     privacy, started_again = host_agent.start_recorder_once(manual, factory)
     assert privacy is manual and started_again is False
     assert len(created) == 1 and privacy._thread is manual._thread
