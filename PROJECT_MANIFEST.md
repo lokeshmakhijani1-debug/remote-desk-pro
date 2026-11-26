@@ -775,3 +775,7 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Tests: tests/test_session_recorder_settings.py covers off-by-default construction, bounded settings, retention cleanup, and symlink-safe deletion behavior. Existing fault-injection suite remains in tests/test_v2_fault_injection.py.
 - Recording destination limitation: MP4 recordings are currently saved locally only. Community Library publishing remains disabled for video assets; the UI explicitly communicates this rather than implying an upload endpoint exists. Existing Community Library workflow JSON publishing is separate.
 - Verification: GitHub source edits are committed on feature/v2-bidirectional-automation. No local laptop/desktop tools were used. Frontend build, Python tests, Windows packaged-agent validation, and live Render deployment must be confirmed by the branch CI/Render workflow before release.
+
+
+- Backend backend/main.py: validates recording-control action and resource caps, enforces the existing authenticated non-read-only viewer and host-approval gates, relays recording status acknowledgements, and records start/stop request audit events.
+- Security tests tests/test_recording_control_security.py: rejects community-upload mode, malformed actions, boolean-as-integer values, and out-of-range duration/retention/storage settings.
