@@ -23,6 +23,12 @@
     "python -m pip install --upgrade pip-audit bandit && pip-audit -r requirements.txt -r agent/requirements.txt && bandit -q -r backend agent",
     "python -m pytest -q tests/test_websocket_security_bounds.py",
     "python -m pytest -q tests/test_load_and_fault_injection.py",
-    "RDP_BASE_URL=https://remote-desk-pro-pj29.onrender.com python -m pytest -q tests/test_load_and_fault_injection.py -k live_health"
+    "RDP_BASE_URL=https://remote-desk-pro-pj29.onrender.com python -m pytest -q tests/test_load_and_fault_injection.py -k live_health",
+    "python scripts/verify_websocket_stress.py --clients 12 --rounds 2",
+    "python -m pytest -q tests/test_security_headers.py tests/test_windows_e2e_harness.py",
+    "python scripts/verify_windows_e2e.py",
+    "python scripts/verify_windows_e2e.py --execute  # Windows only; SHA-256 is checked before process launch",
+    "python -m pip install --upgrade pip-audit bandit && pip-audit -r requirements.txt -r agent/requirements.txt && bandit -q -r backend agent -lll",
+    "gitleaks detect --source . --redact --verbose --log-opts=--all"
   ]
 }

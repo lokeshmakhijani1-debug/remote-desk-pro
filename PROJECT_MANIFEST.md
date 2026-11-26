@@ -1025,3 +1025,14 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Publishing commit: `bea186d3ef33297211beb4e89c1d6999854d9bd3`.
 - Windows publishing now commits the binary and separate build metadata, then explicitly checks fetch/rebase/push results and retries concurrent fast-forward races. It no longer appends to this shared manifest during the binary push.
 - Build success confirms packaging and release upload only; it does not certify live Windows input, recording, file-transfer or device E2E behavior.
+
+
+## Phase 4/4 production certification hardening — 2026-11-27
+- `backend/main.py`: centralized HTTP security-header middleware (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, CSP framing/object/base directives, conditional HSTS).
+- `tests/test_security_headers.py`: verifies headers on responses and HSTS scheme/proxy behavior.
+- `scripts/verify_websocket_stress.py`: Uvicorn-backed real TCP loopback host/viewer concurrency, jitter, binary relay, abrupt disconnect, memory and FD leak checks against temporary SQLite.
+- `scripts/verify_windows_e2e.py`: SHA-256 and byte-size verification against published agent metadata; optional Windows-only launch is gated behind `--execute`.
+- `tests/test_windows_e2e_harness.py`: verifies successful checksum validation, rejects tampered binaries and malformed metadata before launch, and mocks successful launch behavior.
+- `.github/workflows/ci.yml`: separate network-stress and security jobs for pip-audit, Bandit high-severity findings, and full-history Gitleaks.
+- `test_instructions.json`: reproducible commands for dependency, regression, network stress, security scans, and opt-in Windows E2E.
+- Limitations: the automated loopback test is not a substitute for geographically distributed WAN/TURN/NAT testing. The Windows GUI harness was added but not executed against a physical Windows desktop in this cloud-only run. No destructive production testing or database writes were performed.

@@ -58,3 +58,13 @@ Updated: 2026-11-21 (IST)
 - Visibility resume: refresh device presence, immediate heartbeat, and WebSocket reattachment if the resume heartbeat does not return.
 - Local validation: 49 pytest passed, Python compilation PASS, frontend production build PASS, git diff --check PASS. Live Playwright/Render/Windows host E2E is pending.
 - Next gate: commit/push targeted changes to main, verify CI and the latest-agent Windows workflow, confirm Render deployment/health, update the Desktop EXE with verified SHA-256, then run the expanded headless 390x844/touch E2E and record its report. No Codespace was started.
+
+
+## Phase 4/4 production certification hardening — 2026-11-27
+- Added FastAPI response security headers: MIME sniffing protection, frame denial, strict referrer policy, scoped Permissions-Policy, a restrictive framing/object/base CSP, and one-year HSTS only on HTTPS (including the Render HTTPS proxy signal).
+- Added automated response-header tests for HTTP, HTTPS, and forwarded HTTPS.
+- Added a real TCP loopback stress harness that runs the actual FastAPI host/viewer WebSocket relay under Uvicorn with an isolated temporary SQLite database; it exercises concurrent sessions, deterministic jitter, binary relay, abrupt disconnects, reconnection rounds, memory growth and file-descriptor cleanup.
+- Added Windows agent verification/launch harness. It validates the build metadata size and SHA-256 before any optional GUI process launch. Added tests proving tampered binaries and malformed digests are rejected before execution.
+- CI now includes real-network WebSocket stress, pip-audit dependency scanning, high-severity Bandit analysis, and full-history Gitleaks scanning.
+- Windows GUI execution remains opt-in via `python scripts/verify_windows_e2e.py --execute`; the default command is verification-only and is safe on non-Windows CI.
+- This cloud-only change does not claim that a physical Windows desktop session, production-load test, real packet-loss path, or production database mutation was executed. Live production health/header verification is a separate read-only check.
