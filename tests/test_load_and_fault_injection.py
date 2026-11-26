@@ -256,8 +256,8 @@ def test_login_email_and_password_are_isolated_between_accounts(tmp_path, monkey
     factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     with factory() as db:
         db.add_all([
-            User(email="alpha@example.test", password_hash=hash_secret("Alpha account password 1!"), role="admin"),
-            User(email="beta@example.test", password_hash=hash_secret("Beta account password 2!"), role="technician"),
+            User(email="alpha@example.com", password_hash=hash_secret("Alpha account password 1!"), role="admin"),
+            User(email="beta@example.com", password_hash=hash_secret("Beta account password 2!"), role="technician"),
         ])
         db.commit()
     monkeypatch.setattr(backend_main, "SessionLocal", factory)
@@ -265,19 +265,19 @@ def test_login_email_and_password_are_isolated_between_accounts(tmp_path, monkey
     client = TestClient(backend_main.app)
     try:
         alpha = client.post("/api/auth/login", json={
-            "email": "ALPHA@example.test", "password": "Alpha account password 1!"
+            "email": "ALPHA@example.com", "password": "Alpha account password 1!"
         })
         assert alpha.status_code == 200
-        assert alpha.json()["user"]["email"] == "alpha@example.test"
+        assert alpha.json()["user"]["email"] == "alpha@example.com"
 
         cross_account = client.post("/api/auth/login", json={
-            "email": "beta@example.test", "password": "Alpha account password 1!"
+            "email": "beta@example.com", "password": "Alpha account password 1!"
         })
         wrong_email = client.post("/api/auth/login", json={
-            "email": "missing@example.test", "password": "Alpha account password 1!"
+            "email": "missing@example.com", "password": "Alpha account password 1!"
         })
         wrong_password = client.post("/api/auth/login", json={
-            "email": "alpha@example.test", "password": "wrong password"
+            "email": "alpha@example.com", "password": "wrong password"
         })
         assert cross_account.status_code == 401
         assert wrong_email.status_code == 401
