@@ -35,7 +35,7 @@ export default function App(){
  const socket=useRef<WebSocket|null>(null),canvas=useRef<HTMLCanvasElement>(null),screenContainer=useRef<HTMLDivElement>(null),fileInput=useRef<HTMLInputElement>(null),pendingFile=useRef<File|null>(null);
  const incomingTransfer=useRef<IncomingTransfer|null>(null);
  const [recordings,setRecordings]=useState<any[]>([]),[recordingsOpen,setRecordingsOpen]=useState(false),[savedRecording,setSavedRecording]=useState<any|null>(null);
- const recordingDownloadRef=useRef<{filename:string;chunks:Uint8Array[];offset:number;total:number;sha256:string}|null>(null),pendingRecordingPrompt=useRef(false);
+ const recordingDownloadRef=useRef<{filename:string;chunks:Uint8Array[];offset:number;total:number;sha256:string}|null>(null),pendingRecordingPrompt=useRef(false),recordingActiveRef=useRef(false);
  const pressedKeys=useRef<Set<string>>(new Set()),manualDisconnect=useRef(false),retryTimer=useRef<number|undefined>(undefined),heartbeatTimer=useRef<number|undefined>(undefined),resumeProbeTimer=useRef<number|undefined>(undefined),attemptRef=useRef(0),heartbeatSentAt=useRef(0);
  const [clipboardText,setClipboardText]=useState(""),[remoteClipboard,setRemoteClipboard]=useState(""),[transferStatus,setTransferStatus]=useState("");const [transferProgress,setTransferProgress]=useState(0),[transferPaused,setTransferPaused]=useState(false),[useZstd,setUseZstd]=useState(false),[transferVerified,setTransferVerified]=useState(false);const transferOffset=useRef(0),activeTransfer=useRef<ActiveTransfer|null>(null);
  const [keyboardOpen,setKeyboardOpen]=useState(false),[keyboardBuffer,setKeyboardBuffer]=useState(""),[zoom,setZoom]=useState(1),[panX,setPanX]=useState(0),[panY,setPanY]=useState(0);
@@ -116,7 +116,8 @@ export default function App(){
     if(m.type==="clipboard_ack")setTransferStatus(m.success?"Clipboard pasted successfully on host":String(m.detail||"Host clipboard paste failed"));
     if(m.type==="privacy_screen_ack"){setPrivacyEnabled(Boolean(m.enabled));setToast(m.enabled?"Black screen enabled on host":"Black screen disabled on host");}
     if(m.type==="recording_status"){
-      const wasActive=recordingActive;
+      const wasActive=recordingActiveRef.current;
+      recordingActiveRef.current=Boolean(m.active);
       setRecordingActive(Boolean(m.active));setRecordingReason(m.active&&m.reason==="privacy"?"privacy":null);
       if(m.detail)setToast(String(m.detail));
       if(wasActive&&!m.active){pendingRecordingPrompt.current=true;requestRecordings();}
