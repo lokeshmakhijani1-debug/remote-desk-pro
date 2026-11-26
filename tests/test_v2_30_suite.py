@@ -190,51 +190,42 @@ class _FastStopEvent:
         return self._event.wait(min(float(timeout or 0.001), 0.001))
 
 
-class _FakeWriter:
-    def __init__(self, path):
-        self.path = Path(path)
-        self.frames = []
-        self.frame_seen = threading.Event()
-    def send(self, frame):
-        if frame is not None:
-            self.frames.append(bytes(frame))
-            self.frame_seen.set()
-    def close(self):
-        self.path.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"".join(self.frames))
-
-
 class _FakeCapture:
-    monitors = [None, {"width": 2, "height": 2}]
+    monitors = [None, {"width": 32, "height": 32}]
+    def __init__(self, frame_seen):
+        self.frame_seen = frame_seen
     def __enter__(self):
         return self
     def __exit__(self, *_):
         return False
     def grab(self, _monitor):
-        return types.SimpleNamespace(rgb=bytes(range(12)))
+        self.frame_seen.set()
+        return types.SimpleNamespace(rgb=bytes(range(256)) * 12)
+
 
 
 def _install_recorder_fakes(monkeypatch, tmp_path):
-    writers = []
-    def make_writer(path, *_args, **_kwargs):
-        writer = _FakeWriter(path)
-        writers.append(writer)
-        return writer
+    import imageio_ffmpeg
+    frame_seen = threading.Event()
     monkeypatch.setattr(recorder_module, "RECORDING_DIR", tmp_path)
-    monkeypatch.setitem(sys.modules, "mss", types.SimpleNamespace(mss=_FakeCapture))
-    monkeypatch.setitem(sys.modules, "imageio_ffmpeg", types.SimpleNamespace(write_frames=make_writer))
-    return writers
-
+    monkeypatch.setitem(sys.modules, "mss", types.SimpleNamespace(mss=lambda: _FakeCapture(frame_seen)))
+    return frame_seen, imageio_ffmpeg
 
 def test_t01_manual_recording_full_lifecycle_writes_mp4_hash_and_timer_contract(tmp_path, monkeypatch):
-    writers = _install_recorder_fakes(monkeypatch, tmp_path)
+    frame_seen, ffmpeg = _install_recorder_fakes(monkeypatch, tmp_path)
     recorder = SessionRecorder("123456789", "viewer-1", fps=10)
     recorder._stop = _FastStopEvent()
     recorder.start()
     assert recorder.is_alive
-    assert writers[0].frame_seen.wait(2)
+    assert frame_seen.wait(2)
     recorder.stop()
     payload = recorder.path.read_bytes()
-    assert len(payload) > 12 and payload[4:12] == b"ftypmp42"
+    assert len(payload) > 100 and payload[4:8] == b"ftyp"
+    metadata_reader = ffmpeg.read_frames(str(recorder.path), pix_fmt="rgb24")
+    metadata = next(metadata_reader)
+    assert metadata["size"] == (32, 32)
+    assert len(next(metadata_reader)) == 32 * 32 * 3
+    metadata_reader.close()
     assert recorder.sha256 == hashlib.sha256(payload).hexdigest()
     audit = [json.loads(line) for line in recorder.audit_path.read_text().splitlines()]
     started = next(row for row in audit if row["event"] == "session_started")
@@ -259,7 +250,7 @@ def test_t04_manual_then_privacy_start_reuses_single_recorder(tmp_path, monkeypa
     privacy, started_again = host_agent.start_recorder_once(manual, factory)
     assert privacy is manual and started_again is False
     assert len(created) == 1 and privacy._thread is manual._thread
-    assert len(writers) == 1
+    assert len(created) == 1
     privacy.stop()
     events = [json.loads(line)["event"] for line in privacy.audit_path.read_text().splitlines()]
     assert events.count("session_started") == 1 and events.count("session_ended") == 1
@@ -287,15 +278,19 @@ def test_t06_multi_chunk_download_reassembles_exact_sha256(tmp_path):
 
 def test_t10_max_duration_auto_stops_and_retention_evicts_oldest(tmp_path, monkeypatch):
     writers = _install_recorder_fakes(monkeypatch, tmp_path)
-    ticks = iter((100.0, 102.0))
+    ticks = iter((100.0, 100.0, 102.0))
     monkeypatch.setattr(recorder_module, "time", types.SimpleNamespace(monotonic=lambda: next(ticks)))
     recorder = SessionRecorder("123456789", "viewer-1", max_duration_seconds=1)
     recorder._stop = _FastStopEvent()
     recorder.start()
     recorder._thread.join(timeout=3)
-    assert not recorder.is_alive and recorder.sha256 is not None and len(writers) == 1
+    assert not recorder.is_alive and recorder.sha256 is not None and frame_seen.is_set()
     events = [json.loads(line)["event"] for line in recorder.audit_path.read_text().splitlines()]
     assert "session_auto_stopped" in events and "session_ended" in events
+    metadata_reader = ffmpeg.read_frames(str(recorder.path), pix_fmt="rgb24")
+    assert next(metadata_reader)["size"] == (32, 32)
+    assert len(next(metadata_reader)) == 32 * 32 * 3
+    metadata_reader.close()
     oldest = tmp_path / "session_oldest.mp4"
     newest = tmp_path / "session_newest.mp4"
     oldest.write_bytes(b"x" * (60 * 1024 * 1024))
