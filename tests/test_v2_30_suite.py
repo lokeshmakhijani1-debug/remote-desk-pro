@@ -6,14 +6,30 @@ or cloud jobs; these tests assert the local contracts that can run in CI.
 from __future__ import annotations
 
 import inspect
+import asyncio
+import hashlib
+import os
+import sys
+import threading
+import types
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from agent import workflow_engine
 from agent.workflow_engine import WorkflowRecorder
 from backend import main as backend_main
+from backend.database import Base, User, Device, AuditEvent
+from backend.security import hash_secret, issue_token
+from agent import session_recorder as recorder_module
+from agent.session_recorder import SessionRecorder, read_recording_chunk, cleanup_recordings
+from agent import host_agent
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -162,3 +178,291 @@ def test_t29_workflow_recorder_stress_is_bounded_and_repeatable(tmp_path, monkey
     saved = json.loads(recorder.last_saved.read_text(encoding="utf-8"))
     assert saved["step_count"] <= workflow_engine.MAX_STEPS
     assert len(saved["steps"]) <= workflow_engine.MAX_STEPS
+
+class _FastStopEvent:
+    def __init__(self):
+        self._event = threading.Event()
+    def set(self):
+        self._event.set()
+    def is_set(self):
+        return self._event.is_set()
+    def wait(self, timeout=None):
+        return self._event.wait(min(float(timeout or 0.001), 0.001))
+
+
+class _FakeWriter:
+    def __init__(self, path):
+        self.path = Path(path)
+        self.frames = []
+        self.frame_seen = threading.Event()
+    def send(self, frame):
+        if frame is not None:
+            self.frames.append(bytes(frame))
+            self.frame_seen.set()
+    def close(self):
+        self.path.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"".join(self.frames))
+
+
+class _FakeCapture:
+    monitors = [None, {"width": 2, "height": 2}]
+    def __enter__(self):
+        return self
+    def __exit__(self, *_):
+        return False
+    def grab(self, _monitor):
+        return types.SimpleNamespace(rgb=bytes(range(12)))
+
+
+def _install_recorder_fakes(monkeypatch, tmp_path):
+    writers = []
+    def make_writer(path, *_args, **_kwargs):
+        writer = _FakeWriter(path)
+        writers.append(writer)
+        return writer
+    monkeypatch.setattr(recorder_module, "RECORDING_DIR", tmp_path)
+    monkeypatch.setitem(sys.modules, "mss", types.SimpleNamespace(mss=_FakeCapture))
+    monkeypatch.setitem(sys.modules, "imageio_ffmpeg", types.SimpleNamespace(write_frames=make_writer))
+    return writers
+
+
+def test_t01_manual_recording_full_lifecycle_writes_mp4_hash_and_timer_contract(tmp_path, monkeypatch):
+    writers = _install_recorder_fakes(monkeypatch, tmp_path)
+    recorder = SessionRecorder("123456789", "viewer-1", fps=10)
+    recorder._stop = _FastStopEvent()
+    recorder.start()
+    assert recorder.is_alive
+    assert writers[0].frame_seen.wait(2)
+    recorder.stop()
+    payload = recorder.path.read_bytes()
+    assert len(payload) > 12 and payload[4:12] == b"ftypmp42"
+    assert recorder.sha256 == hashlib.sha256(payload).hexdigest()
+    audit = [json.loads(line) for line in recorder.audit_path.read_text().splitlines()]
+    started = next(row for row in audit if row["event"] == "session_started")
+    ended = next(row for row in audit if row["event"] == "session_ended")
+    assert datetime.fromisoformat(ended["ended_at"]) >= datetime.fromisoformat(started["started_at"])
+    app = _source("frontend/src/App.tsx")
+    assert "setRecordingSeconds(Math.floor((Date.now()-started)/1000))" in app
+    assert "if(!recordingActive){setRecordingSeconds(0);return;}" in app
+
+
+def test_t04_manual_then_privacy_start_reuses_single_recorder(tmp_path, monkeypatch):
+    writers = _install_recorder_fakes(monkeypatch, tmp_path)
+    created = []
+    def factory():
+        item = SessionRecorder("123456789", "viewer-1", fps=10)
+        item._stop = _FastStopEvent()
+        created.append(item)
+        return item
+    manual, started = host_agent.start_recorder_once(None, factory)
+    assert started is True
+    assert writers[0].frame_seen.wait(2)
+    privacy, started_again = host_agent.start_recorder_once(manual, factory)
+    assert privacy is manual and started_again is False
+    assert len(created) == 1 and privacy._thread is manual._thread
+    assert len(writers) == 1
+    privacy.stop()
+    events = [json.loads(line)["event"] for line in privacy.audit_path.read_text().splitlines()]
+    assert events.count("session_started") == 1 and events.count("session_ended") == 1
+
+
+def test_t06_multi_chunk_download_reassembles_exact_sha256(tmp_path):
+    original = bytes(range(256)) * 2048 + b"remote-desk-pro-final-chunk"
+    path = tmp_path / "session_multichunk.mp4"
+    path.write_bytes(original)
+    expected = hashlib.sha256(original).hexdigest()
+    assembled = bytearray()
+    offset = 0
+    while True:
+        chunk = read_recording_chunk(path.name, offset=offset, length=131072, folder=tmp_path)
+        data = __import__("base64").b64decode(chunk["data_b64"], validate=True)
+        assembled.extend(data)
+        offset += len(data)
+        assert chunk["offset"] == offset - len(data)
+        if chunk["eof"]:
+            break
+        assert data
+    assert len(assembled) > 300_000 and bytes(assembled) == original
+    assert hashlib.sha256(assembled).hexdigest() == expected
+
+
+def test_t10_max_duration_auto_stops_and_retention_evicts_oldest(tmp_path, monkeypatch):
+    writers = _install_recorder_fakes(monkeypatch, tmp_path)
+    ticks = iter((100.0, 102.0))
+    monkeypatch.setattr(recorder_module, "time", types.SimpleNamespace(monotonic=lambda: next(ticks)))
+    recorder = SessionRecorder("123456789", "viewer-1", max_duration_seconds=1)
+    recorder._stop = _FastStopEvent()
+    recorder.start()
+    recorder._thread.join(timeout=3)
+    assert not recorder.is_alive and recorder.sha256 is not None and len(writers) == 1
+    events = [json.loads(line)["event"] for line in recorder.audit_path.read_text().splitlines()]
+    assert "session_auto_stopped" in events and "session_ended" in events
+    oldest = tmp_path / "session_oldest.mp4"
+    newest = tmp_path / "session_newest.mp4"
+    oldest.write_bytes(b"x" * (60 * 1024 * 1024))
+    newest.write_bytes(b"y" * (60 * 1024 * 1024))
+    os.utime(oldest, (100, 100))
+    os.utime(newest, (200, 200))
+    assert cleanup_recordings(tmp_path, keep_last=10, max_storage_mb=100) == [oldest]
+    assert not oldest.exists() and newest.exists()
+
+
+def test_t16_resolution_mapping_is_stable_across_dpi_scales():
+    from agent.adaptive_replay import resolve_target
+    normalized = {"x": 0.5, "y": 0.25}
+    for screen_size, expected in [
+        ((1920, 1080), (960, 270)),
+        ((2400, 1350), (1200, 337)),
+        ((2880, 1620), (1440, 405)),
+    ]:
+        result = resolve_target(normalized, screen_size)
+        assert (result["x"], result["y"]) == expected
+        assert result["strategy"] == "normalized"
+    mapped = resolve_target(normalized, (2880, 1620), (300, 120, 1500, 920))
+    assert (mapped["x"], mapped["y"]) == (900, 320)
+    assert mapped["strategy"] == "relative"
+
+
+@pytest.fixture()
+def v2_api_client():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    with Session() as db:
+        user = User(email="v2-suite@example.test", password_hash=hash_secret("test-password-not-used"), role="admin")
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        device_id = "987654321"
+        device = Device(device_id=device_id, owner_id=user.id, name="V2 test host",
+                        secret_hash=hash_secret("test-agent-secret"), password_hash=hash_secret("123456"),
+                        password_expires_at=datetime.now(timezone.utc) + timedelta(days=1))
+        db.add(device)
+        db.add(AuditEvent(user_id=user.id, device_id=device_id, action="device.unattended_pin_hash",
+                          detail=hash_secret("2580")))
+        db.commit()
+        token = issue_token(str(user.id), user.role)
+    def override_db():
+        with Session() as db:
+            yield db
+    backend_main.app.dependency_overrides[backend_main.db_session] = override_db
+    try:
+        with TestClient(backend_main.app) as client:
+            yield client, token, device_id
+    finally:
+        backend_main.app.dependency_overrides.pop(backend_main.db_session, None)
+        backend_main._attempts.pop("connect:testclient", None)
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_t21_public_workflow_publish_list_import_and_execute_replay(v2_api_client, tmp_path, monkeypatch):
+    client, token, _device_id = v2_api_client
+    headers = {"Authorization": "Bearer " + token}
+    workflow = {
+        "schema_version": 1, "coordinate_space": "normalized_0_to_1",
+        "name": "Safe community replay", "tags": ["verification"],
+        "notes": "Non-destructive mouse action fixture", "is_public": True,
+        "privacy": {"typed_text_recorded": False, "clipboard_recorded": False, "local_only": False},
+        "steps": [{"action": "mouse_down", "x": 0.5, "y": 0.25, "button": "left"}],
+    }
+    published = client.post("/api/workflows/publish", headers=headers, json={"workflow": workflow})
+    assert published.status_code == 200
+    workflow_id = published.json()["id"]
+    listed = client.get("/api/workflows/community", headers=headers)
+    assert listed.status_code == 200 and any(row["id"] == workflow_id for row in listed.json())
+    imported = client.post(f"/api/workflows/import/{workflow_id}", headers=headers)
+    assert imported.status_code == 200
+    local = imported.json()["workflow"]
+    assert local["is_public"] is False and local["privacy"]["local_only"] is True
+    clicks = []
+    fake_pyautogui = types.SimpleNamespace(
+        FAILSAFE=True, KEYBOARD_KEYS=set(),
+        size=lambda: types.SimpleNamespace(width=1920, height=1080),
+        click=lambda x, y, **kwargs: clicks.append((x, y, kwargs)),
+    )
+    monkeypatch.setitem(sys.modules, "pyautogui", fake_pyautogui)
+    local_path = tmp_path / "community_import.json"
+    local_path.write_text(json.dumps(local), encoding="utf-8")
+    result = workflow_engine.WorkflowReplayEngine(tmp_path).replay(local_path)
+    assert result["executed"] == 1 and result["warnings"] == []
+    assert clicks == [(960, 270, {"button": "left"})]
+
+
+def test_t23_valid_trusted_pin_connects_and_bypasses_manual_consent(v2_api_client, monkeypatch):
+    client, token, device_id = v2_api_client
+    monkeypatch.setenv("RDP_UNATTENDED_PIN", "2580")
+    monkeypatch.setattr(host_agent, "_CONSENT_CALLBACK",
+                        lambda *_: pytest.fail("manual consent must not be shown"))
+    response = client.post("/api/devices/connect", headers={"Authorization": "Bearer " + token},
+                           json={"device_id": device_id, "password": "2580"})
+    assert response.status_code == 200 and response.json()["session_token"]
+    assert asyncio.run(host_agent.approve_viewer_request(device_id, "unused")) is True
+
+
+def test_t24_invalid_trusted_pin_is_rejected_and_connect_endpoint_rate_limits(v2_api_client):
+    client, token, device_id = v2_api_client
+    headers = {"Authorization": "Bearer " + token}
+    for _ in range(8):
+        response = client.post("/api/devices/connect", headers=headers,
+                               json={"device_id": device_id, "password": "9999"})
+        assert response.status_code == 401
+    limited = client.post("/api/devices/connect", headers=headers,
+                          json={"device_id": device_id, "password": "9999"})
+    assert limited.status_code == 429
+
+
+def test_t29_two_hundred_host_input_events_and_rapid_recording_toggles(monkeypatch):
+    calls = []
+    fake_pyautogui = types.SimpleNamespace(
+        FAILSAFE=False, KEYBOARD_KEYS={"ctrl", "a"},
+        size=lambda: types.SimpleNamespace(width=1920, height=1080),
+        moveTo=lambda x, y, **kwargs: calls.append(("move", x, y)),
+        keyDown=lambda key, **kwargs: calls.append(("down", key)),
+        keyUp=lambda key, **kwargs: calls.append(("up", key)),
+        mouseDown=lambda button="left", **kwargs: calls.append(("mouse_down", button)),
+        mouseUp=lambda button="left", **kwargs: calls.append(("mouse_up", button)),
+    )
+    monkeypatch.setitem(sys.modules, "pyautogui", fake_pyautogui)
+    monkeypatch.setattr(host_agent, "_focus_target_at_cursor", lambda: None)
+    monkeypatch.setattr(host_agent, "_PRIMARY_CAPTURE_SIZE", (1920, 1080, 1920, 1080))
+    monkeypatch.setattr(host_agent, "_WORKFLOW_RECORDER", None)
+    host_agent._PRESSED_KEYS.clear()
+    host_agent._PRESSED_MOUSE_BUTTONS.clear()
+    events = []
+    for index in range(100):
+        events.append({"event": "mouse_move", "x": (index % 10) / 10, "y": (index % 7) / 7})
+        events.append({"event": "key_down" if index % 2 == 0 else "key_up", "key": "a"})
+    for event in events:
+        assert host_agent.apply_control(event) is True
+    assert len(calls) == 200
+
+    class ToggleRecorder:
+        def __init__(self):
+            self.is_alive = False
+        def start(self):
+            if self.is_alive:
+                raise AssertionError("duplicate start")
+            self.is_alive = True
+        def stop(self):
+            self.is_alive = False
+    created = []
+    active = None
+    for _ in range(100):
+        active, _ = host_agent.start_recorder_once(active, lambda: created.append(ToggleRecorder()) or created[-1])
+        active.stop()
+        active, _ = host_agent.start_recorder_once(active, lambda: created.append(ToggleRecorder()) or created[-1])
+        active.stop()
+    assert len(created) == 200 and active.is_alive is False
+    assert not host_agent._PRESSED_KEYS and not host_agent._PRESSED_MOUSE_BUTTONS
+
+
+def test_t30_manifest_exposes_render_git_sha_and_frontend_serving_is_build_aware(monkeypatch):
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "render-test-sha")
+    result = backend_main.manifest()
+    assert result["git_sha"] == "render-test-sha"
+    assert result["deployment"]["git_sha"] == "render-test-sha"
+    source = _source("backend/main.py")
+    assert 'Path(__file__).resolve().parent.parent / "frontend" / "dist"' in source
+    assert 'StaticFiles(directory=str(frontend_dist), html=True, check_dir=True)' in source
+    html = _source("frontend/index.html")
+    assert 'name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover"' in html
