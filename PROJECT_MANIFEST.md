@@ -743,3 +743,5 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Optional Windows dependencies: pywinauto and pytesseract. Tesseract OCR executable must be installed separately; absent optional tools degrade to coordinate anchors.
 - Added tests: tests/test_workflow_community.py (5 privacy/API tests) and tests/test_adaptive_replay_10_envs.py (10 environment simulations). Latest CI determines complete suite count.
 - No new network port. No Render deployment or production environment changes. Feature branch push triggers CI/security/Windows executable packaging.
+
+- CI: feature-branch workflow runs Python regression/privacy/10-environment tests, frontend build, full-history Gitleaks, and Windows PyInstaller. Live cloud E2E runs when repository secret RDP_BASE_URL is configured; otherwise it is explicitly skipped. No production secret is added by this change.

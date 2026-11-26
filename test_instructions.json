@@ -19,8 +19,8 @@
       "command": "npm --prefix frontend run build"
     },
     {
-      "name": "e2e",
-      "command": "if [ -n \"$RDP_BASE_URL\" ]; then python tests/e2e_cloud_headless.py; else echo 'SKIP: RDP_BASE_URL is not configured'; fi"
+      "name": "live_e2e_optional",
+      "command": "if [ -n \"$RDP_BASE_URL\" ]; then python -m pip install playwright && python -m playwright install --with-deps chromium && python tests/e2e_cloud_headless.py; else echo 'SKIP: configure RDP_BASE_URL to run live cloud E2E'; fi"
     },
     {
       "name": "stress",
