@@ -113,3 +113,8 @@ html,body,#root{width:100%;max-width:100%;overflow-x:hidden}
 .cards{grid-template-columns:repeat(2,minmax(0,1fr))}
 @media(max-width:680px){.cards{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:900px){.layout{width:100%;max-width:100dvw;min-width:0}.main{width:100%;max-width:100%;min-width:0}.content{width:100%;max-width:100%;padding-left:clamp(10px,3vw,20px);padding-right:clamp(10px,3vw,20px)}}
+
+.workflow-step-list{max-height:260px;overflow:auto;margin-top:14px;padding:12px;border:1px solid #dfe7f0;border-radius:10px;background:#f8fafc;color:#34445d}
+.workflow-step-list>b{display:block;margin-bottom:8px;font-size:12px}
+.workflow-step-list ol{display:grid;gap:6px;margin:0;padding-left:22px}
+.workflow-step-list li{font-size:11px;line-height:1.45;overflow-wrap:anywhere}
