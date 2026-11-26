@@ -231,14 +231,14 @@ def _consent_dialog(device_id: str, dynamic_password: str) -> bool:
 
 def is_unattended_auto_approve_enabled():
     env_pin = os.environ.get("RDP_UNATTENDED_PIN", "").strip()
-    if len(env_pin) >= 4 and env_pin.isdigit():
+    if 4 <= len(env_pin) <= 8 and env_pin.isdigit():
         return True
     try:
         cfg_path = Path(os.environ.get("APPDATA", Path.home())) / "RemoteDeskPro" / "config.json"
         if cfg_path.exists():
             data = json.loads(cfg_path.read_text(encoding="utf-8"))
             pin = str(data.get("unattended_pin", "")).strip()
-            if data.get("unattended_auto_approve") and len(pin) >= 4 and pin.isdigit():
+            if data.get("unattended_auto_approve") and 4 <= len(pin) <= 8 and pin.isdigit():
                 return True
     except Exception:
         pass
