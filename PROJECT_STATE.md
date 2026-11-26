@@ -8,8 +8,8 @@ Updated: 2026-11-21 (IST)
 - Phase 4 starting commit: 347dcd9a67bd630a64fc787956881e3a8d9f050e
 - Current main commit: d4b88e3 (pushed to origin/main; Render auto-deploy triggered).
 - Render service: srv-dc0917utlv9c739h7o30 (remote-desk-pro-pj29)
-- Verified live URL: https://remote-desk-pro-pj29.onrender.com
-- Requested alias https://desk-pro-pi29.onrender.com returns HTTP 404.
+- Verified live URL: ${RDP_SERVER}
+- Requested alias ${RDP_SERVER} returns HTTP 404.
 
 ## Phase 4 implementation
 - Native Tkinter GUI is the default double-click launch; optional CLI/headless arguments remain available.
@@ -34,13 +34,13 @@ Updated: 2026-11-21 (IST)
 - Python compileall: PASS.
 - Frontend TypeScript/Vite build: PASS.
 - git diff --check: PASS.
-- Live Render E2E: PASS against `https://remote-desk-pro-pj29.onrender.com` on deployed commit `2a08441`. Verified same-account registration/pairing, password rotation invalidation with viewer-token continuity, host approval, bidirectional clipboard relay, 185,000-byte chunked file transfer, one-viewer rejection event, heartbeat acknowledgement, and host reconnect while the viewer remained connected. Synthetic @example.com test accounts/devices remain in the database; they were not deleted.
+- Live Render E2E: PASS against `${RDP_SERVER}` on deployed commit `2a08441`. Verified same-account registration/pairing, password rotation invalidation with viewer-token continuity, host approval, bidirectional clipboard relay, 185,000-byte chunked file transfer, one-viewer rejection event, heartbeat acknowledgement, and host reconnect while the viewer remained connected. Synthetic @example.com test accounts/devices remain in the database; they were not deleted.
 - Audit persistence: PASS — read-only Supabase query confirmed 12 persisted `rdp_audit_events` rows for the successful E2E device. The synthetic account role is technician, so the admin-only API was skipped; direct DB read verified persistence.
 
 ## Release gate
 1. Phase 4 backend/frontend and viewer-handshake fixes are pushed in commit `2a08441` and deployed on Render; the final frozen-agent reconnect backoff fix is pushed in `d4b88e3`.
 2. Local validation: 10 Python tests passed; frontend build, GUI startup smoke and frozen EXE reconnect regression (3/3 handshakes) passed.
-3. Production E2E passed on `https://remote-desk-pro-pj29.onrender.com`; a read-only Supabase query independently confirmed 12 persisted audit rows for the successful synthetic device.
+3. Production E2E passed on `${RDP_SERVER}`; a read-only Supabase query independently confirmed 12 persisted audit rows for the successful synthetic device.
 4. Create private GitHub Release `v1.0.0` and upload the verified EXE plus SHA-256 checksum file. Repository is PRIVATE; release assets remain accessible only to repository collaborators. Do not change visibility.
 5. Record final release URL, tag, asset checksum and post-release Render health here and in PROJECT_MANIFEST.md.
 

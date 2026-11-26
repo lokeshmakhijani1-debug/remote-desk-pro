@@ -1,4 +1,5 @@
 import sys
+import os
 import json, time, urllib.request, subprocess
 from pathlib import Path
 from fastapi.testclient import TestClient
@@ -51,8 +52,11 @@ add(28, 'UI', ('Session chat UI is reserved' not in app_txt) and ('audio' in app
 
 try:
     t0 = time.perf_counter()
-    resp = urllib.request.urlopen('https://remote-desk-pro-pj29.onrender.com/api/health', timeout=25)
-    add(29, 'CLOUD', resp.status == 200, f'Render Live Health 200 OK ({(time.perf_counter()-t0)*1000:.0f} ms)')
+    base_url = os.getenv('RDP_BASE_URL', '').rstrip('/')
+    if not base_url:
+        raise RuntimeError('RDP_BASE_URL is not configured; live cloud check skipped')
+    resp = urllib.request.urlopen(base_url + '/api/health', timeout=25)
+    add(29, 'CLOUD', resp.status == 200, f'Configured cloud health 200 OK ({(time.perf_counter()-t0)*1000:.0f} ms)')
 except Exception as e:
     add(29, 'CLOUD', False, f'Render Live Health error: {e}')
 

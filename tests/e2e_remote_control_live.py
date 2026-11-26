@@ -22,7 +22,7 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENT_DIR = ROOT / "agent"
-SERVER = "https://remote-desk-pro-pj29.onrender.com"
+SERVER = os.getenv("RDP_BASE_URL", "").rstrip("/")
 CHROME = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
 STATE = Path(tempfile.gettempdir()) / "rdp-live-input-e2e-state.json"
 

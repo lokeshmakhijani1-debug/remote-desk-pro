@@ -1,5 +1,7 @@
 FROM node:24-alpine AS frontend-build
 WORKDIR /app/frontend
+ARG VITE_CONTACT_EMAIL
+ENV VITE_CONTACT_EMAIL=${VITE_CONTACT_EMAIL}
 COPY frontend/package*.json ./
 RUN npm install --no-audit --no-fund
 COPY frontend/ ./

@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import create_engine, String, DateTime, Boolean, ForeignKey, Integer, text
+from sqlalchemy import create_engine, String, DateTime, Boolean, ForeignKey, Integer, text, JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from .config import settings
 
@@ -75,3 +75,15 @@ def init_db():
     Base.metadata.create_all(bind=engine)
 
 
+
+
+class CommunityWorkflow(Base):
+    __tablename__ = "rdp_community_workflows"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("rdp_users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(1000), default="")
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    workflow: Mapped[dict] = mapped_column(JSON)
+    is_public: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))

@@ -1,4 +1,4 @@
-"""Visible-consent host bridge. Streaming starts only after explicit local approval."""
+"""Consent-gated host bridge with optional owner-authorized unattended sessions."""
 import argparse
 import asyncio
 import ctypes
@@ -10,16 +10,28 @@ import logging
 import os
 import sys
 import threading
+import queue
+import hashlib
+import uuid
 from pathlib import Path
-from resumable_transfer import EndpointFileReceiver, EndpointTransferError
+try:
+    from resumable_transfer import EndpointFileReceiver, EndpointTransferError
+except ModuleNotFoundError:
+    from agent.resumable_transfer import EndpointFileReceiver, EndpointTransferError
 try:
     from privacy_overlay import PrivacyBanner
-    from session_recorder import SessionRecorder
+    from session_recorder import SessionRecorder, list_recordings, delete_recording, read_recording_chunk
 except ModuleNotFoundError:
     from agent.privacy_overlay import PrivacyBanner
-    from agent.session_recorder import SessionRecorder
+    from agent.session_recorder import SessionRecorder, list_recordings, delete_recording, read_recording_chunk
 from logging.handlers import RotatingFileHandler
 from io import BytesIO
+try:
+    from workflow_engine import WorkflowRecorder, WorkflowReplayEngine
+    from telemetry import TelemetryTracker
+except ModuleNotFoundError:
+    from agent.workflow_engine import WorkflowRecorder, WorkflowReplayEngine
+    from agent.telemetry import TelemetryTracker
 
 APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "RemoteDeskPro")
 os.makedirs(APP_DIR, exist_ok=True)
@@ -33,11 +45,38 @@ _STATUS_CALLBACK = None
 _CONSENT_CALLBACK = None
 _FILE_CONSENT_CALLBACK = None
 _DIAGNOSTICS_CALLBACK = None
+_TELEMETRY_CALLBACK = None
+_WORKFLOW_RECORDER = None
+_WORKFLOW_RECORD_REQUESTED = False
+_PRIVACY_SCREEN_ACTIVE = False
 _LAST_ERROR = "None"
 _INSTANCE_MUTEX = None
 _PRESSED_KEYS = set()
 _PRESSED_MOUSE_BUTTONS = set()
 _PRIMARY_CAPTURE_SIZE = None
+_FILE_SEND_QUEUE = queue.Queue()
+_RECORDING_COMMAND_QUEUE = queue.Queue()
+_OUTGOING_TRANSFER_STATE = Path(APP_DIR) / "outgoing-transfer.json"
+
+def enqueue_file_send(path: str) -> None:
+    candidate = Path(path).expanduser().resolve()
+    if not candidate.is_file():
+        raise FileNotFoundError("Selected file does not exist.")
+    if candidate.stat().st_size <= 0 or candidate.stat().st_size > 50 * 1024 * 1024:
+        raise ValueError("Choose a file between 1 byte and 50 MB.")
+    _FILE_SEND_QUEUE.put(str(candidate))
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+def _save_outgoing_transfer(state: dict) -> None:
+    temporary = _OUTGOING_TRANSFER_STATE.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
+    os.replace(temporary, _OUTGOING_TRANSFER_STATE)
 _INPUT_LOCK = threading.RLock()
 
 
@@ -118,6 +157,37 @@ def set_diagnostics_callback(callback):
     global _DIAGNOSTICS_CALLBACK
     _DIAGNOSTICS_CALLBACK = callback
 
+def set_telemetry_callback(callback):
+    global _TELEMETRY_CALLBACK
+    _TELEMETRY_CALLBACK = callback
+
+def set_session_recording_requested(enabled: bool, settings: dict | None = None):
+    """Queue an explicit local-video recording command from the desktop UI."""
+    _RECORDING_COMMAND_QUEUE.put({"action": "start" if enabled else "stop", "settings": settings or {}})
+
+
+def set_workflow_recorder(recorder):
+    global _WORKFLOW_RECORDER
+    _WORKFLOW_RECORDER = recorder
+    _sync_workflow_recording_state()
+
+def set_workflow_recording_requested(enabled: bool):
+    global _WORKFLOW_RECORD_REQUESTED
+    _WORKFLOW_RECORD_REQUESTED = bool(enabled)
+    _sync_workflow_recording_state()
+
+def _sync_workflow_recording_state():
+    if _WORKFLOW_RECORDER is not None:
+        try:
+            _WORKFLOW_RECORDER.set_enabled(bool(_WORKFLOW_RECORD_REQUESTED and _PRIVACY_SCREEN_ACTIVE))
+        except Exception:
+            log.exception("Semantic workflow recorder state update failed")
+
+def _set_privacy_screen_active(enabled: bool):
+    global _PRIVACY_SCREEN_ACTIVE
+    _PRIVACY_SCREEN_ACTIVE = bool(enabled)
+    _sync_workflow_recording_state()
+
 def set_status(message: str):
     global _LAST_ERROR
     if "connected to relay" in message.lower() or message == "Connected (Live)":
@@ -144,7 +214,7 @@ def _consent_dialog(device_id: str, dynamic_password: str) -> bool:
     tk.Label(root, text="REMOTE ACCESS REQUEST", font=("Segoe UI", 14, "bold")).pack(pady=(20, 8))
     tk.Label(root, text="Device ID: " + device_id, font=("Segoe UI", 11)).pack(pady=3)
     tk.Label(root, text="Dynamic password: " + (dynamic_password or "Check the dashboard"), font=("Segoe UI", 11)).pack(pady=3)
-    tk.Label(root, text="A remote viewer is requesting access. Approved sessions are recorded locally for security and audit.", wraplength=360).pack(pady=12)
+    tk.Label(root, text="A remote viewer is requesting access. Video recording is OFF by default and starts only after an explicit Start Recording action.", wraplength=360).pack(pady=12)
     tk.Checkbutton(root, text="Unattended access (not available)", state="disabled").pack()
     decision = {"approved": False}
     buttons = tk.Frame(root)
@@ -288,9 +358,12 @@ def encode_screen() -> bytes:
         image.save(buffer, format="JPEG", quality=65, optimize=True)
         return buffer.getvalue()
 
-async def stream_screen(ws, running: asyncio.Event):
+async def stream_screen(ws, running: asyncio.Event, telemetry=None):
     while running.is_set():
-        await ws.send(encode_screen())
+        frame = encode_screen()
+        await ws.send(frame)
+        if telemetry is not None:
+            telemetry.frame_sent(len(frame))
         await asyncio.sleep(0.25)
 
 def _wheel_delta_units(delta: float) -> int:
@@ -428,6 +501,11 @@ def _apply_control_unlocked(message: dict):
             )
     else:
         return False
+    if _WORKFLOW_RECORDER is not None:
+        try:
+            _WORKFLOW_RECORDER.record_control(message)
+        except Exception:
+            log.exception("Semantic action recording failed")
     return True
 
 def apply_control(message: dict):
@@ -475,19 +553,150 @@ async def run_once(args, stop_event=None):
         clipboard_task = None
         incoming_file = None
         incoming_transfers: dict[str, EndpointFileReceiver] = {}
+        outgoing_transfers: dict[str, dict] = {}
+        try:
+            saved = json.loads(_OUTGOING_TRANSFER_STATE.read_text(encoding="utf-8"))
+            saved_path = Path(saved["path"])
+            if saved_path.is_file() and saved_path.stat().st_size == int(saved["total_size"]) and _sha256_file(saved_path) == saved["sha256"]:
+                outgoing_transfers[str(saved["transfer_id"])] = saved
+            else:
+                _OUTGOING_TRANSFER_STATE.unlink(missing_ok=True)
+        except FileNotFoundError:
+            pass
+        except Exception:
+            _OUTGOING_TRANSFER_STATE.unlink(missing_ok=True)
+            log.warning("Discarded invalid outgoing transfer checkpoint", exc_info=True)
         streaming = asyncio.Event()
         viewer_id = "unknown"
         recorder = None
         privacy_banner = None
+        telemetry = TelemetryTracker()
         stop_task = None
         latency_task = None
+        file_sender_task = None
         async def report_latency():
             while True:
                 await asyncio.sleep(5)
                 latency_seconds = getattr(ws, "latency", None)
+                ping_ms = round(latency_seconds * 1000) if latency_seconds is not None else None
+                telemetry.set_ping(ping_ms)
                 if _DIAGNOSTICS_CALLBACK:
-                    _DIAGNOSTICS_CALLBACK(_LAST_ERROR, round(latency_seconds * 1000) if latency_seconds is not None else None)
+                    _DIAGNOSTICS_CALLBACK(_LAST_ERROR, ping_ms)
+                metrics = telemetry.snapshot()
+                if _TELEMETRY_CALLBACK:
+                    _TELEMETRY_CALLBACK(metrics)
+                await ws.send(json.dumps({"type":"telemetry", **metrics}))
         latency_task = asyncio.create_task(report_latency())
+        async def send_outgoing_chunk(transfer_id: str, offset: int):
+            state = outgoing_transfers.get(transfer_id)
+            if not state:
+                return
+            size = int(state["total_size"]); chunk_size = int(state["chunk_size"])
+            if offset < 0 or offset > size:
+                await ws.send(json.dumps({"type":"transfer_error","transfer_id":transfer_id,"detail":"Invalid resume offset"}))
+                return
+            state["offset"] = offset
+            _save_outgoing_transfer(state)
+            if offset >= size:
+                await ws.send(json.dumps({"type":"transfer_complete","transfer_id":transfer_id,"sha256":state["sha256"]}))
+                return
+            def read_chunk():
+                with Path(state["path"]).open("rb") as stream:
+                    stream.seek(offset)
+                    return stream.read(min(chunk_size, size-offset))
+            chunk = await asyncio.to_thread(read_chunk)
+            if not chunk:
+                await ws.send(json.dumps({"type":"transfer_error","transfer_id":transfer_id,"detail":"Source file became unreadable"}))
+                return
+            await ws.send(json.dumps({"type":"transfer_chunk","transfer_id":transfer_id,"offset":offset,"data":base64.b64encode(chunk).decode("ascii")}))
+            telemetry.transfer_sent(len(chunk))
+        async def send_queued_files():
+            while True:
+                if not streaming.is_set() or outgoing_transfers:
+                    await asyncio.sleep(0.4)
+                    continue
+                try:
+                    path = Path(await asyncio.to_thread(_FILE_SEND_QUEUE.get, True, 1))
+                except queue.Empty:
+                    continue
+                try:
+                    size = path.stat().st_size
+                    if not 0 < size <= 50 * 1024 * 1024:
+                        set_status("Outgoing file rejected: maximum size is 50 MB")
+                        continue
+                    digest = await asyncio.to_thread(_sha256_file, path)
+                    transfer_id = uuid.uuid4().hex
+                    state = {"transfer_id":transfer_id,"path":str(path),"name":path.name[:180],"total_size":size,"sha256":digest,"chunk_size":256*1024,"compression":"none","offset":0}
+                    outgoing_transfers[transfer_id] = state
+                    _save_outgoing_transfer(state)
+                    await ws.send(json.dumps({"type":"transfer_init","transfer_id":transfer_id,"name":state["name"],"total_size":size,"sha256":digest,"chunk_size":state["chunk_size"],"compression":"none"}))
+                    set_status("Waiting for viewer to accept outgoing file…")
+                except Exception as exc:
+                    log.warning("Could not initialize outgoing file transfer: %s", exc)
+                    set_status("Outgoing file transfer could not start")
+        file_sender_task = asyncio.create_task(send_queued_files())
+        recording_timer_task = None
+        recording_reason = None
+
+        async def apply_recording_action(action: str, settings: dict | None = None):
+            nonlocal recorder, recording_timer_task, recording_reason
+            if action in ("stop", "privacy_stop"):
+                if recorder is not None and recording_reason == "privacy" and action == "stop" and _PRIVACY_SCREEN_ACTIVE:
+                    await ws.send(json.dumps({"type": "recording_status", "active": True, "reason": "privacy", "detail": "Privacy-triggered recording cannot be stopped while the host screen remains blanked."}))
+                    return
+                should_stop = recorder is not None and (action == "stop" or recording_reason == "privacy")
+                if should_stop:
+                    current, recorder = recorder, None
+                    previous_reason, recording_reason = recording_reason, None
+                    if recording_timer_task and recording_timer_task is not asyncio.current_task():
+                        recording_timer_task.cancel()
+                    await asyncio.to_thread(current.stop)
+                    await ws.send(json.dumps({"type": "recording_status", "active": False, "reason": None,
+                                              "detail": "Privacy security recording finalized locally." if previous_reason == "privacy" else "Recording saved locally."}))
+                elif recorder is not None and recorder.is_alive:
+                    await ws.send(json.dumps({"type": "recording_status", "active": True, "reason": recording_reason, "detail": "Manual recording continues after the privacy screen is removed."}))
+                else:
+                    await ws.send(json.dumps({"type": "recording_status", "active": False, "reason": None, "detail": "No active recording."}))
+                return
+            if action not in ("start", "privacy_start") or not streaming.is_set():
+                await ws.send(json.dumps({"type": "recording_status", "active": False, "reason": None, "detail": "Recording requires an approved live session."}))
+                return
+            if recorder is not None and recorder.is_alive:
+                await ws.send(json.dumps({"type": "recording_status", "active": True, "reason": recording_reason, "detail": "Recording is already active."}))
+                return
+            options = settings if isinstance(settings, dict) else {}
+            if options.get("save_mode", "local") != "local":
+                await ws.send(json.dumps({"type": "recording_status", "active": False, "reason": None, "detail": "Video publishing is not enabled; choose Save Locally."}))
+                return
+            max_duration = max(1, min(int(options.get("max_duration_seconds", 1800)), 14400))
+            keep_last = max(1, min(int(options.get("retention_count", 5)), 100))
+            storage_mb = max(100, min(int(options.get("max_storage_mb", 1024)), 20480))
+            candidate = SessionRecorder(args.device_id, viewer_id, max_duration_seconds=max_duration,
+                                        retention_count=keep_last, max_storage_mb=storage_mb)
+            await asyncio.to_thread(candidate.start)
+            recorder = candidate
+            recording_reason = "privacy" if action == "privacy_start" else "manual"
+            await ws.send(json.dumps({"type": "recording_status", "active": True, "reason": recording_reason,
+                                      "detail": "Auto-recording active while screen is blanked" if recording_reason == "privacy" else "Local recording started."}))
+
+            async def auto_stop(expected):
+                await asyncio.sleep(max_duration)
+                if recorder is expected:
+                    await apply_recording_action("privacy_stop" if recording_reason == "privacy" else "stop")
+                    await ws.send(json.dumps({"type": "recording_status", "active": False, "reason": None,
+                                              "detail": "Maximum recording duration reached; recording auto-stopped."}))
+
+            recording_timer_task = asyncio.create_task(auto_stop(candidate))
+
+        async def consume_recording_commands():
+            while True:
+                try:
+                    command = await asyncio.to_thread(_RECORDING_COMMAND_QUEUE.get, True, 1)
+                except queue.Empty:
+                    continue
+                await apply_recording_action(command.get("action", "stop"), command.get("settings"))
+
+        recording_command_task = asyncio.create_task(consume_recording_commands())
         if stop_event is not None:
             async def close_on_stop():
                 await asyncio.to_thread(stop_event.wait)
@@ -506,27 +715,57 @@ async def run_once(args, stop_event=None):
                     viewer_id = str(message.get("viewer_id") or "unknown")
                     set_status("Waiting for host approval...")
                     if stream_task and not stream_task.done():
-                        await ws.send(json.dumps({"type":"host_approved","recording":bool(recorder)}))
+                        await ws.send(json.dumps({"type":"host_approved","recording":bool(recorder and recorder.is_alive)}))
+                        for state in outgoing_transfers.values():
+                            await ws.send(json.dumps({"type":"transfer_init","transfer_id":state["transfer_id"],"name":state["name"],"total_size":state["total_size"],"sha256":state["sha256"],"chunk_size":state["chunk_size"],"compression":"none"}))
                         continue
                     if is_unattended_auto_approve_enabled() or await ask_host_consent(args.device_id, args.dynamic_password):
-                        try:
-                            recorder = SessionRecorder(args.device_id, viewer_id)
-                            recorder.start()
-                        except Exception:
-                            log.exception("Session recording could not start; refusing remote session")
-                            recorder = None
-                            await ws.send(json.dumps({"type":"host_denied","detail":"Local security recording could not start; session was not approved"}))
-                            set_status("Session denied — security recording unavailable")
-                            continue
                         streaming.set()
-                        await ws.send(json.dumps({"type":"host_approved","recording":True}))
-                        stream_task = asyncio.create_task(stream_screen(ws, streaming))
+                        await ws.send(json.dumps({"type":"host_approved","recording":False}))
+                        stream_task = asyncio.create_task(stream_screen(ws, streaming, telemetry))
                         clipboard_task = asyncio.create_task(clipboard_watch(ws, streaming))
-                        set_status("Connected (Live) · REC")
+                        for state in outgoing_transfers.values():
+                            await ws.send(json.dumps({"type":"transfer_init","transfer_id":state["transfer_id"],"name":state["name"],"total_size":state["total_size"],"sha256":state["sha256"],"chunk_size":state["chunk_size"],"compression":"none"}))
+                        set_status("Connected (Live) · Recording off")
                     else:
                         await ws.send(json.dumps({"type":"host_denied"}))
                         set_status("Connection denied by host")
+                elif message.get("type") == "recording_list" and streaming.is_set():
+                    try:
+                        recordings = await asyncio.to_thread(list_recordings)
+                        await ws.send(json.dumps({"type": "recording_list_result", "recordings": recordings}))
+                    except Exception:
+                        log.exception("Recording list request failed")
+                        await ws.send(json.dumps({"type": "recording_error", "detail": "Could not list host recordings"}))
+                elif message.get("type") == "recording_delete" and streaming.is_set():
+                    try:
+                        filename = str(message.get("filename", ""))
+                        await asyncio.to_thread(delete_recording, filename)
+                        recordings = await asyncio.to_thread(list_recordings)
+                        await ws.send(json.dumps({"type": "recording_deleted", "filename": filename, "recordings": recordings}))
+                    except (ValueError, OSError, FileNotFoundError):
+                        await ws.send(json.dumps({"type": "recording_error", "detail": "Recording could not be deleted"}))
+                    except Exception:
+                        log.exception("Recording delete request failed")
+                        await ws.send(json.dumps({"type": "recording_error", "detail": "Recording delete failed"}))
+                elif message.get("type") == "recording_download_chunk" and streaming.is_set():
+                    try:
+                        payload = await asyncio.to_thread(read_recording_chunk, str(message.get("filename", "")), message.get("offset", 0), message.get("length", 131072))
+                        await ws.send(json.dumps({"type": "recording_chunk_result", **payload}))
+                    except (ValueError, OSError, FileNotFoundError):
+                        await ws.send(json.dumps({"type": "recording_error", "detail": "Recording chunk request rejected"}))
+                    except Exception:
+                        log.exception("Recording chunk request failed")
+                        await ws.send(json.dumps({"type": "recording_error", "detail": "Recording download failed"}))
+                elif message.get("type") == "recording_control" and streaming.is_set():
+                    try:
+                        await apply_recording_action(str(message.get("action", "stop")), message.get("settings"))
+                    except Exception as exc:
+                        log.exception("Explicit recording command failed")
+                        await ws.send(json.dumps({"type": "recording_status", "active": False,
+                                                  "detail": "Recording command failed: " + str(exc)[:180]}))
                 elif message.get("type") == "viewer_left":
+                    _set_privacy_screen_active(False)
                     release_all_inputs()
                     streaming.clear()
                     if privacy_banner:
@@ -581,6 +820,14 @@ async def run_once(args, stop_event=None):
                                 await asyncio.to_thread(pyautogui.hotkey, "ctrl", "v", _pause=False)
                         except Exception:
                             log.warning("Incoming clipboard update failed", exc_info=True)
+                elif message.get("type") == "transfer_resume_req" and streaming.is_set():
+                    transfer_id = str(message.get("transfer_id", ""))
+                    if transfer_id in outgoing_transfers:
+                        await send_outgoing_chunk(transfer_id, int(message.get("next_offset", 0)))
+                elif message.get("type") == "transfer_ack" and streaming.is_set():
+                    transfer_id = str(message.get("transfer_id", ""))
+                    if transfer_id in outgoing_transfers:
+                        await send_outgoing_chunk(transfer_id, int(message.get("next_offset", 0)))
                 elif message.get("type") == "transfer_init" and streaming.is_set():
                     try:
                         transfer_id = str(message.get("transfer_id", ""))
@@ -610,6 +857,7 @@ async def run_once(args, stop_event=None):
                     if receiver:
                         try:
                             encoded = base64.b64decode(message.get("data", ""), validate=True)
+                            telemetry.transfer_received(len(encoded))
                             offset = receiver.append(int(message.get("offset", -1)), encoded)
                             await ws.send(json.dumps({"type":"transfer_ack","transfer_id":transfer_id,
                                                       "next_offset":offset}))
@@ -618,6 +866,13 @@ async def run_once(args, stop_event=None):
                                                       "detail":str(exc)[:200]}))
                 elif message.get("type") == "transfer_complete" and streaming.is_set():
                     transfer_id = str(message.get("transfer_id", ""))
+                    outgoing = outgoing_transfers.get(transfer_id)
+                    if outgoing:
+                        verified = bool(message.get("verified")) and str(message.get("sha256", "")).lower() == outgoing["sha256"]
+                        outgoing_transfers.pop(transfer_id, None)
+                        _OUTGOING_TRANSFER_STATE.unlink(missing_ok=True)
+                        set_status("Outgoing file delivered and SHA-256 verified" if verified else "Viewer did not verify the outgoing file")
+                        continue
                     receiver = incoming_transfers.get(transfer_id)
                     if receiver:
                         try:
@@ -629,6 +884,12 @@ async def run_once(args, stop_event=None):
                         except (ValueError, OSError) as exc:
                             await ws.send(json.dumps({"type":"transfer_error","transfer_id":transfer_id,
                                                       "detail":str(exc)[:200]}))
+                elif message.get("type") == "transfer_error" and streaming.is_set():
+                    transfer_id = str(message.get("transfer_id", ""))
+                    if transfer_id in outgoing_transfers:
+                        outgoing_transfers.pop(transfer_id, None)
+                        _OUTGOING_TRANSFER_STATE.unlink(missing_ok=True)
+                        set_status("Viewer rejected or could not receive the outgoing file")
                 elif message.get("type") == "file_offer" and streaming.is_set():
                     name = str(message.get("name", "received-file"))[:180]
                     size = int(message.get("size", 0))
@@ -660,7 +921,18 @@ async def run_once(args, stop_event=None):
                             log.warning("File transfer size mismatch; incomplete file retained.")
                 elif message.get("type") == "control" and streaming.is_set():
                     try:
-                        if message.get("event") == "privacy_screen":
+                        if message.get("event") == "workflow_replay":
+                            try:
+                                replay_engine = WorkflowReplayEngine()
+                                target = replay_engine.latest()
+                                if target is None:
+                                    raise FileNotFoundError("No saved host-local workflow is available.")
+                                result = await asyncio.to_thread(replay_engine.replay, target)
+                                detail = f"Workflow replayed: {int(result.get('executed', 0))} steps."
+                            except Exception as exc:
+                                detail = "Workflow replay failed: " + str(exc)[:180]
+                            await ws.send(json.dumps({"type":"workflow_replay_status","detail":detail}))
+                        elif message.get("event") == "privacy_screen":
                             mode = message.get("mode") if message.get("mode") in ("black", "banner") else "black"
                             if message.get("enabled") is True:
                                 if privacy_banner is None:
@@ -671,7 +943,21 @@ async def run_once(args, stop_event=None):
                                     privacy_banner.stop()
                                     privacy_banner = None
                                 applied = True
-                            await ws.send(json.dumps({"type":"privacy_screen_ack","enabled":bool(message.get("enabled")) and bool(applied),"mode":mode}))
+                            privacy_enabled = bool(message.get("enabled")) and bool(applied)
+                            if privacy_enabled:
+                                _set_privacy_screen_active(True)
+                                try:
+                                    await apply_recording_action("privacy_start")
+                                except Exception:
+                                    if privacy_banner:
+                                        privacy_banner.stop()
+                                        privacy_banner = None
+                                    _set_privacy_screen_active(False)
+                                    raise
+                            else:
+                                _set_privacy_screen_active(False)
+                                await apply_recording_action("privacy_stop")
+                            await ws.send(json.dumps({"type":"privacy_screen_ack","enabled":privacy_enabled,"mode":mode}))
                         else:
                             await asyncio.to_thread(apply_control, message)
                     except Exception as exc:
@@ -687,7 +973,14 @@ async def run_once(args, stop_event=None):
                 stop_task.cancel()
             if latency_task:
                 latency_task.cancel()
+            if recording_command_task:
+                recording_command_task.cancel()
+            if recording_timer_task:
+                recording_timer_task.cancel()
+            if file_sender_task:
+                file_sender_task.cancel()
             streaming.clear()
+            _set_privacy_screen_active(False)
             if privacy_banner:
                 privacy_banner.stop()
             if recorder:
@@ -701,6 +994,11 @@ async def run_once(args, stop_event=None):
                 clipboard_task.cancel()
             if incoming_file:
                 incoming_file["handle"].close()
+
+def calculate_backoff(attempt: int, base: int = 2, cap: int = 30) -> int:
+    """Bounded exponential reconnect delay; first retry waits two seconds."""
+    exponent = max(0, min(10, int(attempt) - 1))
+    return min(max(1, int(cap)), max(1, int(base)) * (2 ** exponent))
 
 async def run(args, stop_event=None):
     """Keep the host agent alive across transient relay/network interruptions."""
@@ -720,6 +1018,7 @@ async def run(args, stop_event=None):
         except Exception as exc:
             log.warning("Relay/network interruption (%s); reconnecting in %ss.", exc, retry_delay)
             set_status("Server waking up / unreachable — retrying...")
+        retry_delay = calculate_backoff(attempt)
         if stop_event is None:
             # The relay session and its async tasks have fully unwound here. A
             # synchronous wait is deliberate: the frozen Windows one-file build
@@ -733,11 +1032,20 @@ async def run(args, stop_event=None):
 
 def main():
     parser = argparse.ArgumentParser(description="Remote Desk Pro visible-consent host agent")
-    parser.add_argument("--server", default=os.getenv("RDP_SERVER", "https://remote-desk-pro-pj29.onrender.com"))
+    parser.add_argument("--server", default=os.getenv("RDP_SERVER", "http://127.0.0.1:8000"))
+    parser.add_argument("--viewer", action="store_true", help="Open the embedded viewer for this relay server.")
     parser.add_argument("--device-id", default=os.getenv("RDP_DEVICE_ID"))
     parser.add_argument("--secret", default=os.getenv("RDP_AGENT_SECRET"))
     parser.add_argument("--dynamic-password", default=os.getenv("RDP_DYNAMIC_PASSWORD", ""))
     args = parser.parse_args()
+    if args.viewer:
+        try:
+            import webview
+        except ImportError:
+            parser.error("Embedded viewer support is unavailable; rebuild with pywebview installed.")
+        webview.create_window("Remote Desk Pro — Viewer", args.server.rstrip("/") + "/", width=1360, height=900, min_size=(900, 600))
+        webview.start(gui="edgechromium")
+        return
     log.info("Startup mode: device_id_set=%s secret_set=%s", bool(args.device_id), bool(args.secret))
     set_windows_dpi_awareness()
     if not args.device_id and not args.secret:
