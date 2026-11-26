@@ -978,3 +978,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+
+## Phase 1–2 security audit update — 2026-11-27
+- Transfer limits: frontend selection, backend relay, and endpoint receiver enforce a maximum file size of 50 MiB (52,428,800 bytes). Backend relay chunks are capped at 1 MiB; endpoint receiver chunk size is 64 KiB–2 MiB. No extension/MIME allowlist is enforced: arbitrary filenames/extensions are accepted after basename sanitization and subject to the host OS save flow.
+- WebSocket hardening: inbound application text frames are now capped at 64 KiB and binary frames at 8 MiB before parsing/relay; JSON payloads must decode to an object before event dispatch. Device connection throttling now applies both per source IP and per source-IP/device pair.
+- Regression coverage: `tests/test_websocket_security_bounds.py` asserts both frame limits and rejects non-string/non-bytes payload values.
+- Known gaps not implemented/claimed as passing: password reset/recovery, OAuth/social login, account deletion/cascade, distributed rate limiting, TURN relay configuration validation and actual NAT fallback E2E, E2E media encryption, agent update signature verification, multi-monitor switching, audio sync, localization coverage, support/diagnostic export. Existing WebSocket relay uses TLS only when deployed behind correctly configured HTTPS/WSS termination; application-level E2E encryption is not evidenced.
+- Security observations: auth tokens are HS256-signed and expiry-checked; password and Trusted PIN hashes use Argon2; login and device-connect routes use in-process IP throttles. Recording filename validation uses a strict `session_*.mp4` pattern and bounded chunk reads; symlink rejection is covered by existing tests. File transfer format allowlisting and malware scanning are absent.
+- Audit scope: Phase 1 and Phase 2 source review only. Full SAST/dependency/secret scanners and test suites require GitHub Actions execution; no claim of 100% green until the workflow completes. Phase 3 load/stress testing intentionally deferred.
