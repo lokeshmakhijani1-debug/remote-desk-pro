@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { chromium } from "playwright";
+import { chromium } from "../frontend/node_modules/playwright/index.mjs";
 
 const dist = path.resolve("dist");
 const assets = path.join(dist, "assets");
