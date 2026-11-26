@@ -677,9 +677,6 @@ async def run_once(args, stop_event=None):
             if action not in ("start", "privacy_start") or not streaming.is_set():
                 await ws.send(json.dumps({"type": "recording_status", "active": False, "reason": None, "detail": "Recording requires an approved live session."}))
                 return
-            if recorder is not None and recorder.is_alive:
-                await ws.send(json.dumps({"type": "recording_status", "active": True, "reason": recording_reason, "detail": "Recording is already active."}))
-                return
             options = settings if isinstance(settings, dict) else {}
             if options.get("save_mode", "local") != "local":
                 await ws.send(json.dumps({"type": "recording_status", "active": False, "reason": None, "detail": "Video publishing is not enabled; choose Save Locally."}))
@@ -687,9 +684,17 @@ async def run_once(args, stop_event=None):
             max_duration = max(1, min(int(options.get("max_duration_seconds", 1800)), 14400))
             keep_last = max(1, min(int(options.get("retention_count", 5)), 100))
             storage_mb = max(100, min(int(options.get("max_storage_mb", 1024)), 20480))
-            candidate = SessionRecorder(args.device_id, viewer_id, max_duration_seconds=max_duration,
-                                        retention_count=keep_last, max_storage_mb=storage_mb)
-            await asyncio.to_thread(candidate.start)
+            candidate, started_new = await asyncio.to_thread(
+                start_recorder_once,
+                recorder,
+                lambda: SessionRecorder(args.device_id, viewer_id, max_duration_seconds=max_duration,
+                                        retention_count=keep_last, max_storage_mb=storage_mb),
+            )
+            if not started_new:
+                await ws.send(json.dumps({"type": "recording_status", "active": True,
+                                          "reason": recording_reason,
+                                          "detail": "Existing recording continues; duplicate start ignored."}))
+                return
             recorder = candidate
             recording_reason = "privacy" if action == "privacy_start" else "manual"
             await ws.send(json.dumps({"type": "recording_status", "active": True, "reason": recording_reason,
