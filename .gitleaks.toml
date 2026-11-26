@@ -2,8 +2,9 @@
 useDefault = true
 
 [[allowlists]]
-description = "Allow only the two documented public SHA-256 release digests previously flagged in PROJECT_MANIFEST.md; all other secret scanning remains enabled."
+description = "Allow only the two documented public SHA-256 release digest lines in PROJECT_MANIFEST.md at their original finding commits; all other default secret scanning remains enabled."
 condition = "AND"
+regexTarget = "line"
 commits = [
   "09bad163435de687eb0be82b4f0206cd25d21abb",
   "cb66a236aa4efa6671522d1d95052cb481b5a0b3",
@@ -12,5 +13,5 @@ paths = [
   "^PROJECT_MANIFEST\\.md$",
 ]
 regexes = [
-  "^[a-fA-F0-9]{64}$",
+  "(?i)sha-?256.{0,40}[a-f0-9]{64}",
 ]
