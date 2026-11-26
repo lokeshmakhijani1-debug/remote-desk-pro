@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import json
 import logging
 import os
@@ -32,6 +33,97 @@ def cleanup_recordings(folder: Path = RECORDING_DIR, keep_last: int = 5, max_sto
         total -= size
         removed.append(path)
     return removed
+
+
+_RECORDING_NAME = re.compile(r"^session_[A-Za-z0-9_.-]+\.mp4$")
+
+
+def _recording_target(filename: str, folder: Path) -> tuple[Path, Path]:
+    if not isinstance(filename, str) or not _RECORDING_NAME.fullmatch(filename):
+        raise ValueError("Invalid recording filename")
+    root = Path(folder).expanduser().resolve()
+    candidate = root / filename
+    if candidate.is_symlink():
+        raise ValueError("Recording symlinks are not allowed")
+    target = candidate.resolve()
+    if target.parent != root or target.is_symlink():
+        raise ValueError("Recording path escapes the recording folder")
+    return root, target
+
+
+def _sha256_path(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _audit_recording_event(root: Path, event: str, filename: str, **fields) -> None:
+    audit_path = root / "audit_log.jsonl"
+    record = {"event": event, "at": datetime.now(timezone.utc).isoformat(),
+              "recording": filename, **fields}
+    with audit_path.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def list_recordings(folder: Path = RECORDING_DIR) -> list[dict]:
+    """List completed, regular MP4 recordings without following symlinks."""
+    root = Path(folder).expanduser().resolve()
+    if not root.exists():
+        return []
+    results = []
+    for path in root.glob("session_*.mp4"):
+        try:
+            if path.is_symlink() or not path.is_file():
+                continue
+            resolved = path.resolve()
+            if resolved.parent != root or resolved.is_symlink():
+                continue
+            stat = resolved.stat()
+            results.append({"filename": resolved.name, "size_bytes": stat.st_size,
+                            "modified_at": int(stat.st_mtime), "sha256": _sha256_path(resolved)})
+        except (OSError, ValueError):
+            continue
+    return sorted(results, key=lambda item: item["modified_at"], reverse=True)
+
+
+def delete_recording(filename: str, folder: Path = RECORDING_DIR) -> bool:
+    """Delete one validated recording and append a durable audit event."""
+    root, target = _recording_target(filename, folder)
+    if not target.exists():
+        return False
+    if not target.is_file():
+        raise ValueError("Recording target is not a regular file")
+    digest = _sha256_path(target)
+    size = target.stat().st_size
+    target.unlink()
+    _audit_recording_event(root, "recording_deleted", filename, sha256=digest, size_bytes=size)
+    return True
+
+
+def read_recording_chunk(filename: str, offset: int = 0, length: int = 131072,
+                          folder: Path = RECORDING_DIR) -> dict:
+    """Read a bounded chunk from one validated recording."""
+    if type(offset) is not int or offset < 0:
+        raise ValueError("Invalid recording offset")
+    if type(length) is not int or not 1 <= length <= 262144:
+        raise ValueError("Invalid recording chunk length")
+    root, target = _recording_target(filename, folder)
+    if not target.exists() or not target.is_file():
+        raise FileNotFoundError(filename)
+    total = target.stat().st_size
+    if offset > total:
+        raise ValueError("Recording offset exceeds file size")
+    with target.open("rb") as stream:
+        stream.seek(offset)
+        chunk = stream.read(length)
+    return {"filename": filename, "offset": offset,
+            "data_b64": base64.b64encode(chunk).decode("ascii"),
+            "total_bytes": total, "eof": offset + len(chunk) >= total,
+            "sha256": _sha256_path(target)}
 
 
 class SessionRecorder:
