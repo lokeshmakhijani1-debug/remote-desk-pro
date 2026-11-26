@@ -967,3 +967,5 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Important gaps remain: process-local rate limiting, JWT revocation, password reset, account deletion, distributed WebSocket/resource limits, versioned DB migrations, and true 50+ concurrent live WebSocket / packet-loss / latency / disk-pressure / soak tests.
 - No hostile authentication guessing, destructive file/recording operation, production load test, Render deployment or physical Windows host action was performed. Core streaming, input, Trusted PIN, privacy, MP4 and workflow code paths were not modified.
 - Certification: NO-GO pending documented remediation and successful isolated load/fault-injection evidence.
+
+- Follow-up read-only production probe recovered: `/api/health` and `/api/manifest` both returned HTTP 200; manifest git_sha matched inspected baseline `da4a391a5bd49405455321bdffd7143cc9ffd8f6`, database dialect `postgresql`, capacity target 50. First probe returned 503; recovered endpoint fetch latencies were ~4.6 s and ~4.4 s.
