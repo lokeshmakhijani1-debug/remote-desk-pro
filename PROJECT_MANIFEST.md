@@ -817,3 +817,5 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Responsive overflow follow-up: `frontend/src/styles.css` constrains root/layout/content/grid/panel widths to the available viewport while retaining dynamic viewport units for the dock and screen sizing. This addresses the browser's reported horizontal-scroll concern; exact 390×844 / 844×390 / 1440×900 measurements were not available from the browser run.
 
 - The floating dock now labels Mouse Mode explicitly (ON · Trackpad + Tap / OFF), exposes a `Privacy ON · BLACK` active state via `aria-pressed`, and retains the live recording badge in the viewer header.
+
+- Workflow History now parses a user-selected JSON export locally in the browser and displays a bounded preview of up to 100 step labels before any publish action. The dashboard exposes Recording & Storage Settings before a host session exists; the same modal remains available from the live viewer dock. This allows the settings UI and local workflow preview to be checked without pairing a host.
