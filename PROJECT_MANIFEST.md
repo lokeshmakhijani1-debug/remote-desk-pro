@@ -764,3 +764,14 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - SHA-256: `967EE16823F4512261B765EE59F8999A24E1D0BE39ADAB1BACBED537B363F104`. The Windows build job's `Get-FileHash -Algorithm SHA256` output matches the GitHub Release API asset digest.
 - Checksum file: [RemoteDeskPro-Agent.exe.sha256](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/releases/download/v2.0.0-rc.46/RemoteDeskPro-Agent.exe.sha256).
 - Release assets are attached to the GitHub Release. No Render deployment was triggered.
+
+
+## V2 mobile control and explicit video recording update — 2026-11-26
+- Frontend frontend/src/App.tsx: persistent sidebar preference in localStorage; mobile/tablet slide-in drawer behavior; touch-friendly floating action dock with drag repositioning and grid actions for Mouse, Keyboard, Privacy, File Transfer, Start/Stop Recording, Recording Settings, and Disconnect; live REC mm:ss elapsed badge.
+- Frontend frontend/src/styles.css: responsive drawer overlay, mobile dock grid, safe-area-aware FAB placement, touch-sized controls, and recording settings modal styles. The full remote toolbar remains available on desktop.
+- Agent agent/host_agent.py: removed automatic MP4 recording from host approval. The host now reports recording=false on approval and accepts explicit recording_control start/stop messages; desktop-agent requests are queued and handled by the active host loop. Recording is finalized on stop, viewer departure, and disconnect.
+- Agent agent/session_recorder.py: duration cap (maximum four hours), retention count (1–100), storage cap (100–20,480 MB), oldest-first cleanup, and SHA-256 audit records. Recording construction alone does not start capture.
+- Desktop agent agent/desktop_app.py: explicit MP4 start/stop checkbox (off by default) and Recording & Storage Settings dialog for duration, retained count, and storage cap. Agent mutex acquisition/release code was not changed.
+- Tests: tests/test_session_recorder_settings.py covers off-by-default construction, bounded settings, retention cleanup, and symlink-safe deletion behavior. Existing fault-injection suite remains in tests/test_v2_fault_injection.py.
+- Recording destination limitation: MP4 recordings are currently saved locally only. Community Library publishing remains disabled for video assets; the UI explicitly communicates this rather than implying an upload endpoint exists. Existing Community Library workflow JSON publishing is separate.
+- Verification: GitHub source edits are committed on feature/v2-bidirectional-automation. No local laptop/desktop tools were used. Frontend build, Python tests, Windows packaged-agent validation, and live Render deployment must be confirmed by the branch CI/Render workflow before release.
