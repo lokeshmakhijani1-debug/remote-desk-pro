@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-import asyncio, json, logging, secrets, time, math
+import asyncio, json, logging, secrets, time, math, os
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -98,12 +98,14 @@ def health():
 
 @app.get("/api/manifest")
 def manifest():
+    git_sha = os.getenv("RENDER_GIT_COMMIT") or os.getenv("GITHUB_SHA") or "68f97796"
     return {
         "name":"Remote Desk Pro",
+        "git_sha":git_sha,
         "api_version":"0.1.0",
         "features":{"websocket_binary_relay":True,"webrtc_ice_config":True,"device_pairing":True,"rbac":["admin","technician","read_only"],"file_transfer":True,"clipboard_sync":True,"recording":True,"privacy_banner":True},
         "limits":{"max_concurrent_viewers":settings.max_concurrent_sessions,"one_viewer_per_device":True},
-        "deployment":{"environment":settings.app_env,"database_dialect":DATABASE_KIND,"database_table_prefix":"rdp_","persistent_disk_required_for_sqlite":True}
+        "deployment":{"environment":settings.app_env,"database_dialect":DATABASE_KIND,"database_table_prefix":"rdp_","persistent_disk_required_for_sqlite":True,"git_sha":git_sha}
     }
 
 @app.post("/api/auth/register")
@@ -787,7 +789,7 @@ async def viewer_socket(ws: WebSocket, device_id: str):
 
 @app.get("/")
 def index():
-    file = Path("frontend/dist/index.html")
+    file = Path(__file__).resolve().parent.parent / "frontend" / "dist" / "index.html"
     if file.exists():
         return FileResponse(file)
     return {"service":"Remote Desk Pro","docs":"/docs"}
@@ -805,6 +807,8 @@ def download_agent():
         headers={"Cache-Control": "public, max-age=300"},
     )
 
-frontend_dist = Path("frontend/dist")
-if frontend_dist.exists():
-    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if frontend_dist.is_dir() and (frontend_dist / "index.html").is_file():
+    # Register last so API/download routes keep precedence; Vite assets and SPA paths
+    # are served from the exact build directory copied into the Render image.
+    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True, check_dir=True), name="frontend")
