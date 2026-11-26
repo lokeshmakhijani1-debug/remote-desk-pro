@@ -237,3 +237,51 @@ def test_disk_full_during_chunk_write_can_be_cancelled_without_orphan_state(tmp_
     store.cancel(transfer_id)
     assert not (tmp_path / f"{transfer_id}.part").exists()
     assert not (tmp_path / f"{transfer_id}.json").exists()
+
+
+def test_login_email_and_password_are_isolated_between_accounts(tmp_path, monkeypatch):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from fastapi.testclient import TestClient
+    from backend import main as backend_main
+    from backend.database import Base, User
+
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    with factory() as db:
+        db.add_all([
+            User(email="alpha@example.test", password_hash=hash_secret("Alpha account password 1!"), role="admin"),
+            User(email="beta@example.test", password_hash=hash_secret("Beta account password 2!"), role="technician"),
+        ])
+        db.commit()
+    monkeypatch.setattr(backend_main, "SessionLocal", factory)
+    backend_main._attempts.pop("login:testclient", None)
+    client = TestClient(backend_main.app)
+    try:
+        alpha = client.post("/api/auth/login", json={
+            "email": "ALPHA@example.test", "password": "Alpha account password 1!"
+        })
+        assert alpha.status_code == 200
+        assert alpha.json()["user"]["email"] == "alpha@example.test"
+
+        cross_account = client.post("/api/auth/login", json={
+            "email": "beta@example.test", "password": "Alpha account password 1!"
+        })
+        wrong_email = client.post("/api/auth/login", json={
+            "email": "missing@example.test", "password": "Alpha account password 1!"
+        })
+        wrong_password = client.post("/api/auth/login", json={
+            "email": "alpha@example.test", "password": "wrong password"
+        })
+        assert cross_account.status_code == 401
+        assert wrong_email.status_code == 401
+        assert wrong_password.status_code == 401
+    finally:
+        backend_main._attempts.pop("login:testclient", None)
+        engine.dispose()
