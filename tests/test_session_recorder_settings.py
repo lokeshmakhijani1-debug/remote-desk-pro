@@ -50,6 +50,10 @@ def test_cleanup_does_not_follow_paths_outside_recording_folder(tmp_path):
     root.mkdir()
     outside = tmp_path / "outside.mp4"
     outside.write_bytes(b"keep")
-    (root / "session_link.mp4").symlink_to(outside)
+    try:
+        (root / "session_link.mp4").symlink_to(outside)
+    except OSError:
+        import pytest
+        pytest.skip("Symlink privilege unavailable on Windows")
     cleanup_recordings(root, keep_last=1, max_storage_mb=100)
     assert outside.read_bytes() == b"keep"

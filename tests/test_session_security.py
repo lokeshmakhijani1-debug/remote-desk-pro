@@ -20,6 +20,7 @@ def test_privacy_banner_is_disabled_off_windows(monkeypatch):
 
 def test_session_recorder_writes_mp4_and_audit_hash(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr("agent.session_recorder.RECORDING_DIR", tmp_path)
 
     class FakeWriter:
         def __init__(self, path):
