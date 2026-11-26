@@ -1015,3 +1015,13 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Test coverage includes 64 concurrent Hub host registrations and 64 viewer admission attempts (50 admitted / 14 rejected), 32 parallel 256 KiB transfer streams, 32 concurrent secret-verification operations, wrong-email/cross-account/wrong-password login rejection, >50 MiB rejection, malformed/truncated chunks, simulated disk-full cancellation cleanup, disconnect key/button release, and 500 ms–2 s async latency delays.
 - Limits: these are in-process Hub/storage/auth tests, not 64 real network WebSocket clients. Actual recording-encoder interruption, physical disk exhaustion, WAN packet loss, TURN/NAT traversal, and live remote-control E2E were not exercised. No destructive tests were run against production.
 - Production certification is therefore **CI-green / live-health-body-green, but not fully certified** until security headers are verified and real network/recording/device load tests are run in an isolated environment.
+
+
+## Windows agent build publication — Phase 3 final
+- Windows Agent Build #153 completed build, release publication, binary commit, and workflow artifact upload from GitHub Actions.
+- Build source recorded by the workflow: `37cbb7fea4aaa3e3a0d851996167fd7cdd985302`; application runtime code was unchanged in the later test/documentation commits.
+- Current tracked binary: `backend/downloads/RemoteDeskPro-Agent.exe`; size `68,503,755` bytes; SHA-256 `A4EE5CD70FDBB4D4FF957A08BC20C281EDC0D69068C4ED68D3F5EA85742C2070`.
+- Machine-readable metadata: `backend/downloads/agent-build.json`.
+- Publishing commit: `bea186d3ef33297211beb4e89c1d6999854d9bd3`.
+- Windows publishing now commits the binary and separate build metadata, then explicitly checks fetch/rebase/push results and retries concurrent fast-forward races. It no longer appends to this shared manifest during the binary push.
+- Build success confirms packaging and release upload only; it does not certify live Windows input, recording, file-transfer or device E2E behavior.
