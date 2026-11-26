@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import sys
 import socket
 import tempfile
 import threading
@@ -20,6 +21,9 @@ from datetime import datetime, timedelta, timezone
 import uvicorn
 import websockets
 from sqlalchemy import create_engine
+
+# Direct script execution puts scripts/ first on sys.path, not the repository root.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy.orm import sessionmaker
 
 from backend import main as app_module
