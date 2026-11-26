@@ -161,6 +161,7 @@ def test_invalid_input_is_rejected(fake_pyautogui):
     {"event": "key_up", "key": "a"},
     {"event": "text_input", "text": "mobile text"},
     {"event": "mouse_scroll", "deltaX": 0, "deltaY": 120},
+    {"type": "control", "event": "workflow_replay"},
 ])
 def test_backend_accepts_supported_control_events(event):
     assert validate_control(event)
