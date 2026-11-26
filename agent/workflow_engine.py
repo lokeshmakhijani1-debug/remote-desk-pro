@@ -97,7 +97,7 @@ class WorkflowRecorder:
     def __init__(self,root:Path|None=None)->None:
         self.root=Path(root) if root else workflow_directory(); self._lock=threading.RLock()
         self._enabled=False; self._steps:list[dict[str,Any]]=[]; self._last=0.0
-        self._screen={"width":0,"height":0}; self.last_saved:Path|None=None
+        self._screen={"width":0,"height":0}; self.last_saved:Path|None=None; self._pressed_keys:set[str]=set()
     @property
     def enabled(self)->bool:
         with self._lock: return self._enabled
@@ -143,8 +143,17 @@ class WorkflowRecorder:
             elif event in {"key_down","key_up"}:
                 key=str(message.get("key",""))[:32]
                 if not key:return
-                # Printable keys are deliberately not persisted.
-                if len(key)>1 or key.casefold() in {"ctrl","alt","shift","win"}:
+                normalized=key.casefold()
+                if event=="key_down":
+                    if normalized in {"ctrl","control","alt","shift","win"}:
+                        self._pressed_keys.add("ctrl" if normalized=="control" else normalized)
+                    elif normalized=="a" and "ctrl" in self._pressed_keys:
+                        step["action"]="clear_input"
+                else:
+                    if normalized in {"ctrl","control","alt","shift","win"}:
+                        self._pressed_keys.discard("ctrl" if normalized=="control" else normalized)
+                # Printable keys are deliberately not persisted; Ctrl+A becomes a safe clear action.
+                if len(key)>1 or normalized in {"ctrl","control","alt","shift","win"}:
                     step["key"]=key
                 step["input_state"]=_focused_input_state()
             else:
@@ -235,9 +244,7 @@ class WorkflowReplayEngine:
             elif action=="clear_input":
                 resolved=resolve_target(step,(width,height),bounds,uia_resolver=uia_resolver,ocr_resolver=ocr_resolver)
                 pyautogui.click(resolved["x"],resolved["y"])
-                focused=clear_input_and_verify(step.get("uia_control"),
-                    lambda: pyautogui.hotkey("ctrl","a"),
-                    lambda: bool(step.get("input_state",{}).get("focused",True)))
+                focused=clear_input_and_verify(None,lambda: pyautogui.hotkey("ctrl","a"))
                 if not focused:
                     warnings.append(f"Input focus could not be verified at step {index+1}")
                 adaptations.append({"step":index+1,"strategy":resolved["strategy"],"input_focus_verified":focused})

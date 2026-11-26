@@ -130,3 +130,27 @@ def clear_input_and_verify(control, key_sender: Callable[[],None], focus_verifie
         return bool(focus_verifier())
     except Exception:
         return False
+
+
+def clear_input_and_verify(control, key_sender: Callable[[],None], focus_verifier: Callable[[],bool] | None = None) -> bool:
+    """Focus current UIA control, send Ctrl+A, then verify focus remains."""
+    if control is None:
+        try:
+            from pywinauto import Desktop
+            control = Desktop(backend="uia").get_focus()
+        except Exception:
+            return False
+    try:
+        control.set_focus()
+        key_sender()
+        if focus_verifier is not None:
+            return bool(focus_verifier())
+        try:
+            return bool(control.has_keyboard_focus())
+        except Exception:
+            try:
+                return bool(control.element_info.has_keyboard_focus)
+            except Exception:
+                return False
+    except Exception:
+        return False
