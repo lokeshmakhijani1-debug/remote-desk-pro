@@ -636,26 +636,35 @@ async def run_once(args, stop_event=None):
                     set_status("Outgoing file transfer could not start")
         file_sender_task = asyncio.create_task(send_queued_files())
         recording_timer_task = None
+        recording_reason = None
 
         async def apply_recording_action(action: str, settings: dict | None = None):
-            nonlocal recorder, recording_timer_task
-            if action == "stop":
-                if recorder is not None:
+            nonlocal recorder, recording_timer_task, recording_reason
+            if action in ("stop", "privacy_stop"):
+                if recorder is not None and recording_reason == "privacy" and action == "stop" and _PRIVACY_SCREEN_ACTIVE:
+                    await ws.send(json.dumps({"type": "recording_status", "active": True, "reason": "privacy", "detail": "Privacy-triggered recording cannot be stopped while the host screen remains blanked."}))
+                    return
+                should_stop = recorder is not None and (action == "stop" or recording_reason == "privacy")
+                if should_stop:
                     current, recorder = recorder, None
+                    previous_reason, recording_reason = recording_reason, None
                     if recording_timer_task and recording_timer_task is not asyncio.current_task():
                         recording_timer_task.cancel()
                     await asyncio.to_thread(current.stop)
-                await ws.send(json.dumps({"type": "recording_status", "active": False, "detail": "Recording saved locally."}))
+                    await ws.send(json.dumps({"type": "recording_status", "active": False, "reason": None,
+                                              "detail": "Privacy security recording finalized locally." if previous_reason == "privacy" else "Recording saved locally."}))
+                else:
+                    await ws.send(json.dumps({"type": "recording_status", "active": False, "reason": None, "detail": "No active recording."}))
                 return
-            if action != "start" or not streaming.is_set():
-                await ws.send(json.dumps({"type": "recording_status", "active": False, "detail": "Recording requires an approved live session."}))
+            if action not in ("start", "privacy_start") or not streaming.is_set():
+                await ws.send(json.dumps({"type": "recording_status", "active": False, "reason": None, "detail": "Recording requires an approved live session."}))
                 return
             if recorder is not None and recorder.is_alive:
-                await ws.send(json.dumps({"type": "recording_status", "active": True, "detail": "Recording is already active."}))
+                await ws.send(json.dumps({"type": "recording_status", "active": True, "reason": recording_reason, "detail": "Recording is already active."}))
                 return
             options = settings if isinstance(settings, dict) else {}
             if options.get("save_mode", "local") != "local":
-                await ws.send(json.dumps({"type": "recording_status", "active": False, "detail": "Video publishing is not enabled; choose Save Locally."}))
+                await ws.send(json.dumps({"type": "recording_status", "active": False, "reason": None, "detail": "Video publishing is not enabled; choose Save Locally."}))
                 return
             max_duration = max(1, min(int(options.get("max_duration_seconds", 1800)), 14400))
             keep_last = max(1, min(int(options.get("retention_count", 5)), 100))
@@ -664,13 +673,15 @@ async def run_once(args, stop_event=None):
                                         retention_count=keep_last, max_storage_mb=storage_mb)
             await asyncio.to_thread(candidate.start)
             recorder = candidate
-            await ws.send(json.dumps({"type": "recording_status", "active": True, "detail": "Local recording started."}))
+            recording_reason = "privacy" if action == "privacy_start" else "manual"
+            await ws.send(json.dumps({"type": "recording_status", "active": True, "reason": recording_reason,
+                                      "detail": "Auto-recording active while screen is blanked" if recording_reason == "privacy" else "Local recording started."}))
 
             async def auto_stop(expected):
                 await asyncio.sleep(max_duration)
                 if recorder is expected:
-                    await apply_recording_action("stop")
-                    await ws.send(json.dumps({"type": "recording_status", "active": False,
+                    await apply_recording_action("privacy_stop" if recording_reason == "privacy" else "stop")
+                    await ws.send(json.dumps({"type": "recording_status", "active": False, "reason": None,
                                               "detail": "Maximum recording duration reached; recording auto-stopped."}))
 
             recording_timer_task = asyncio.create_task(auto_stop(candidate))
@@ -903,8 +914,21 @@ async def run_once(args, stop_event=None):
                                     privacy_banner.stop()
                                     privacy_banner = None
                                 applied = True
-                            _set_privacy_screen_active(bool(message.get("enabled")) and bool(applied))
-                            await ws.send(json.dumps({"type":"privacy_screen_ack","enabled":bool(message.get("enabled")) and bool(applied),"mode":mode}))
+                            privacy_enabled = bool(message.get("enabled")) and bool(applied)
+                            if privacy_enabled:
+                                _set_privacy_screen_active(True)
+                                try:
+                                    await apply_recording_action("privacy_start")
+                                except Exception:
+                                    if privacy_banner:
+                                        privacy_banner.stop()
+                                        privacy_banner = None
+                                    _set_privacy_screen_active(False)
+                                    raise
+                            else:
+                                _set_privacy_screen_active(False)
+                                await apply_recording_action("privacy_stop")
+                            await ws.send(json.dumps({"type":"privacy_screen_ack","enabled":privacy_enabled,"mode":mode}))
                         else:
                             await asyncio.to_thread(apply_control, message)
                     except Exception as exc:
