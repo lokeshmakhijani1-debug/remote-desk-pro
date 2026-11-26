@@ -1,15 +1,14 @@
 [extend]
 useDefault = true
 
-# Extend only the upstream generic-api-key detector. The default detector remains
-# active for every other value, file, commit, and rule.
+# Extend only the upstream generic-api-key detector; all other default rules stay active.
 [[rules]]
 id = "generic-api-key"
 
   [[rules.allowlists]]
-  description = "Only the two documented public SHA-256 digests in PROJECT_MANIFEST.md at their original finding commits."
+  description = "Only the two documented public SHA-256 digest matches in PROJECT_MANIFEST.md at their original finding commits."
   condition = "AND"
-  regexTarget = "secret"
+  regexTarget = "match"
   commits = [
     "09bad163435de687eb0be82b4f0206cd25d21abb",
     "cb66a236aa4efa6671522d1d95052cb481b5a0b3",
@@ -18,5 +17,5 @@ id = "generic-api-key"
     "^PROJECT_MANIFEST\\.md$",
   ]
   regexes = [
-    "^[a-fA-F0-9]{64}$",
+    "(?i)sha-?256.{0,40}[a-f0-9]{64}",
   ]
