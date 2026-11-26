@@ -26,3 +26,12 @@ def test_privacy_recording_cannot_be_manually_stopped_while_blanked():
 def test_viewer_discloses_privacy_auto_recording_state():
     assert 'recordingReason==="privacy"&&privacyEnabled' in VIEWER
     assert "Auto-recording active while screen is blanked" in VIEWER
+
+DESKTOP = (ROOT / "agent" / "desktop_app.py").read_text(encoding="utf-8")
+
+
+def test_trusted_pin_is_encrypted_at_rest_and_restored_for_host_gate():
+    assert '"unattended_pin_enc"' in DESKTOP
+    assert '_seal(str(data["unattended_pin"]))' in DESKTOP
+    assert '_unseal(data.pop("unattended_pin_enc"))' in DESKTOP
+    assert 'os.environ["RDP_UNATTENDED_PIN"] = saved_pin' in DESKTOP
