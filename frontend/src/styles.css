@@ -69,3 +69,12 @@ html,body,#root{width:100%;min-height:100%;overflow-x:hidden}
 .dock-grid{max-height:calc(100dvh - 110px);overflow-y:auto;overscroll-behavior:contain}
 @media(max-width:900px){.layout{width:100dvw;height:100dvh;min-height:100dvh;overflow:hidden}.main{height:100dvh;overflow:auto}.screen{height:min(60dvh,calc(100dvh - 250px));min-height:180px}.viewer{overflow:visible}.dock-grid{width:min(360px,calc(100dvw - 24px));grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:680px) and (orientation:landscape){.screen{height:calc(100dvh - 210px);min-height:120px}.content{padding:10px 12px 82px}.viewer-head{padding:8px 10px}.dock-grid{grid-template-columns:repeat(4,minmax(0,1fr));max-height:calc(100dvh - 84px)}.dock-fab{width:48px;height:48px}}
+
+/* Keep the same quick-action dock available on desktop and touch devices. */
+.mobile-action-dock{display:flex;position:fixed;right:20px;bottom:20px;z-index:120;align-items:flex-end;flex-direction:column;gap:10px;touch-action:none}
+.dock-fab{width:56px;height:56px;display:grid;place-items:center;border:0;border-radius:50%;background:#087d65;color:#fff;box-shadow:0 8px 28px #07142655;touch-action:none}
+.dock-grid{display:none;width:min(360px,calc(100dvw - 32px));grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:12px;border:1px solid #dce5ef;border-radius:16px;background:#fff;box-shadow:0 14px 42px #07142630}
+.dock-grid.open{display:grid}
+.dock-grid button{min-width:0;min-height:58px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;padding:8px 5px;border:1px solid #e2e8f0;border-radius:11px;background:#f8fafc;color:#34445d;font-size:11px;font-weight:650;text-align:center;overflow-wrap:anywhere}
+.dock-grid button:active{background:#e7f8f1;border-color:#a9ddca;color:#087d65}
+@media(min-width:901px){.dock-grid{width:380px;grid-template-columns:repeat(3,minmax(0,1fr))}.mobile-action-dock{right:24px;bottom:24px}}
