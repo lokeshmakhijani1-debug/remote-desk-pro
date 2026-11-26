@@ -67,7 +67,7 @@ class PrivacyBanner:
             vh = user32.GetSystemMetrics(79) or user32.GetSystemMetrics(1)
 
             ex_style = 0x00000008 | 0x00000080 | 0x00080000 | 0x00000020
-            style = 0x80000000 | 0x10000000 | 0x00000004
+            style = 0x80000000 | 0x10000000 | 0x00000004  # WS_POPUP | WS_VISIBLE | SS_BLACKRECT: opaque pure-black surface
 
             hwnd = user32.CreateWindowExW(
                 ex_style, "STATIC", "", style,
