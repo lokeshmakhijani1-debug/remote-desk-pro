@@ -20,10 +20,10 @@ except ModuleNotFoundError:
     from agent.resumable_transfer import EndpointFileReceiver, EndpointTransferError
 try:
     from privacy_overlay import PrivacyBanner
-    from session_recorder import SessionRecorder
+    from session_recorder import SessionRecorder, list_recordings, delete_recording, read_recording_chunk
 except ModuleNotFoundError:
     from agent.privacy_overlay import PrivacyBanner
-    from agent.session_recorder import SessionRecorder
+    from agent.session_recorder import SessionRecorder, list_recordings, delete_recording, read_recording_chunk
 from logging.handlers import RotatingFileHandler
 from io import BytesIO
 try:
@@ -730,6 +730,33 @@ async def run_once(args, stop_event=None):
                     else:
                         await ws.send(json.dumps({"type":"host_denied"}))
                         set_status("Connection denied by host")
+                elif message.get("type") == "recording_list" and streaming.is_set():
+                    try:
+                        recordings = await asyncio.to_thread(list_recordings)
+                        await ws.send(json.dumps({"type": "recording_list_result", "recordings": recordings}))
+                    except Exception:
+                        log.exception("Recording list request failed")
+                        await ws.send(json.dumps({"type": "recording_error", "detail": "Could not list host recordings"}))
+                elif message.get("type") == "recording_delete" and streaming.is_set():
+                    try:
+                        filename = str(message.get("filename", ""))
+                        await asyncio.to_thread(delete_recording, filename)
+                        recordings = await asyncio.to_thread(list_recordings)
+                        await ws.send(json.dumps({"type": "recording_deleted", "filename": filename, "recordings": recordings}))
+                    except (ValueError, OSError, FileNotFoundError):
+                        await ws.send(json.dumps({"type": "recording_error", "detail": "Recording could not be deleted"}))
+                    except Exception:
+                        log.exception("Recording delete request failed")
+                        await ws.send(json.dumps({"type": "recording_error", "detail": "Recording delete failed"}))
+                elif message.get("type") == "recording_download_chunk" and streaming.is_set():
+                    try:
+                        payload = await asyncio.to_thread(read_recording_chunk, str(message.get("filename", "")), message.get("offset", 0), message.get("length", 131072))
+                        await ws.send(json.dumps({"type": "recording_chunk_result", **payload}))
+                    except (ValueError, OSError, FileNotFoundError):
+                        await ws.send(json.dumps({"type": "recording_error", "detail": "Recording chunk request rejected"}))
+                    except Exception:
+                        log.exception("Recording chunk request failed")
+                        await ws.send(json.dumps({"type": "recording_error", "detail": "Recording download failed"}))
                 elif message.get("type") == "recording_control" and streaming.is_set():
                     try:
                         await apply_recording_action(str(message.get("action", "stop")), message.get("settings"))
