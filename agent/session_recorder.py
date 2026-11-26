@@ -60,7 +60,7 @@ def _sha256_path(path: Path) -> str:
 
 
 def _audit_recording_event(root: Path, event: str, filename: str, **fields) -> None:
-    audit_path = root / "audit_log.jsonl"
+    audit_path = root / "audit.jsonl"
     record = {"event": event, "at": datetime.now(timezone.utc).isoformat(),
               "recording": filename, **fields}
     with audit_path.open("a", encoding="utf-8") as stream:
@@ -74,10 +74,26 @@ def list_recordings(folder: Path = RECORDING_DIR) -> list[dict]:
     root = Path(folder).expanduser().resolve()
     if not root.exists():
         return []
+    completed = None
+    audit_path = root / "audit.jsonl"
+    if audit_path.is_file() and not audit_path.is_symlink():
+        completed = set()
+        try:
+            for line in audit_path.read_text(encoding="utf-8").splitlines():
+                try:
+                    event = json.loads(line)
+                    if event.get("event") == "session_ended" and isinstance(event.get("recording"), str):
+                        completed.add(event["recording"])
+                except (ValueError, TypeError):
+                    continue
+        except OSError:
+            return []
     results = []
     for path in root.glob("session_*.mp4"):
         try:
             if path.is_symlink() or not path.is_file():
+                continue
+            if completed is not None and path.name not in completed:
                 continue
             resolved = path.resolve()
             if resolved.parent != root or resolved.is_symlink():
@@ -134,7 +150,7 @@ class SessionRecorder:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         self.folder = RECORDING_DIR
         self.path = self.folder / ("session_" + safe_device + "_" + stamp + ".mp4")
-        self.audit_path = self.folder / "audit_log.jsonl"
+        self.audit_path = self.folder / "audit.jsonl"
         self.device_id = safe_device
         self.viewer_id = str(viewer_id)[:128]
         self.fps = max(1, min(int(fps), 10))
