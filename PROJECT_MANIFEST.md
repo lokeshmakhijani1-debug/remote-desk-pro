@@ -842,7 +842,7 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 | Recording | Manual start/stop remains available; this pass adds host-side MP4 auto-recording on successful privacy blank activation, finalization when privacy is disabled or the session ends, and a viewer disclosure badge. Manual recordings continue when privacy mode is disabled; a privacy-triggered recording cannot be manually stopped while the host remains blanked |
 | Recording caps and retention | Existing max-duration, retention-count, storage-cap settings and SHA-256 audit log remain active |
 | Responsive viewport | Dynamic viewport sizing, ResizeObserver, resize/orientationchange listeners, and safe-area-aware dock sizing are present |
-| Keep / Download / Delete recording manager | Implemented on the feature branch: authenticated host recording list/delete/chunk-download controls, strict filename and symlink validation, bounded 256 KiB chunks, SHA-256 verification before browser download, post-stop saved prompt, manager drawer, and responsive layout. Security/regression CI is pending; exact live viewport and real-host E2E remain unverified |
+| Keep / Download / Delete recording manager | Merged to `main` in PR #6; authenticated host recording list/delete/chunk-download controls, strict filename and symlink validation, bounded 256 KiB chunks, browser SHA-256 verification, post-stop saved prompt, manager drawer, and responsive styling. GitHub Actions code/security/Windows build checks passed; live authenticated host E2E and exact viewport measurements remain unverified |
 | Exact live viewport/device E2E | Not verified. The public staging landing page was inspected signed out; no test account was created, no host was connected, and exact 390×844 / 844×390 / 1440×900 measurements were not captured |
 
 ### Verification boundary
@@ -866,3 +866,14 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - `frontend/src/App.tsx` and `frontend/src/styles.css`: added the post-stop saved-recording prompt, manager controls in the viewer and floating dock, chunked download with browser SHA-256 verification, and responsive modal/banner styling.
 - `tests/test_recording_control_security.py`: covers listing order/hash, symlink exclusion, audited deletion, traversal/invalid filenames, bounded chunk reads, and control schema rejection.
 - Exact device viewport measurements and authenticated real-host E2E have not been run in this environment. Do not treat the manager as staging-verified until those checks are executed.
+
+
+### V2 production cutover — 2026-11-26
+- **Status:** PR #6 merged into `main`.
+- **Cutover timestamp (UTC):** 2026-11-26T17:05:56Z
+- **GitHub merge commit:** `98e7c0faf2a02a2234fe1600817e890fb13db27c`
+- **Source feature commit:** `8889ac6d57115890098d8a2d57850b46c2cbac3f`
+- **PR:** https://github.com/lokeshmakhijani1-debug/remote-desk-pro/pull/6
+- **Pre-merge CI:** GitHub Actions run [#45864163987](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/actions/runs/45864163987) completed successfully on the exact source commit. Python regression/frontend build PASS; full-history Gitleaks PASS; Windows V2 executable build and checksum/artifact verification PASS. Optional public prerelease was skipped. The separate live cloud E2E step was skipped because `RDP_BASE_URL` is not configured.
+- **Post-merge verification:** main-branch CI is expected to trigger on the merge and must be checked independently; do not infer its result from pre-merge checks.
+- **Verification boundary:** authenticated staging login/host E2E and exact 390×844, 844×390, and 1440×900 viewport measurements have not been performed. Merge and CI do not constitute live deployment verification.
