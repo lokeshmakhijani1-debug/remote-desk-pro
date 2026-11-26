@@ -249,6 +249,22 @@ async def ask_host_consent(device_id: str, dynamic_password: str) -> bool:
         return await _CONSENT_CALLBACK(device_id, dynamic_password)
     return await asyncio.to_thread(_consent_dialog, device_id, dynamic_password)
 
+
+async def approve_viewer_request(device_id: str, dynamic_password: str) -> bool:
+    """Honor an owner-configured unattended PIN before showing manual consent."""
+    if is_unattended_auto_approve_enabled():
+        return True
+    return await ask_host_consent(device_id, dynamic_password)
+
+
+def start_recorder_once(recorder, factory):
+    """Reuse a live recorder so manual and privacy starts cannot spawn duplicates."""
+    if recorder is not None and recorder.is_alive:
+        return recorder, False
+    candidate = factory()
+    candidate.start()
+    return candidate, True
+
 def _file_consent_dialog(name: str, size: int) -> bool:
     import tkinter as tk
     root = tk.Tk()
@@ -719,7 +735,7 @@ async def run_once(args, stop_event=None):
                         for state in outgoing_transfers.values():
                             await ws.send(json.dumps({"type":"transfer_init","transfer_id":state["transfer_id"],"name":state["name"],"total_size":state["total_size"],"sha256":state["sha256"],"chunk_size":state["chunk_size"],"compression":"none"}))
                         continue
-                    if is_unattended_auto_approve_enabled() or await ask_host_consent(args.device_id, args.dynamic_password):
+                    if await approve_viewer_request(args.device_id, args.dynamic_password):
                         streaming.set()
                         await ws.send(json.dumps({"type":"host_approved","recording":False}))
                         stream_task = asyncio.create_task(stream_screen(ws, streaming, telemetry))
