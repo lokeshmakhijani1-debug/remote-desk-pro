@@ -842,7 +842,7 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 | Recording | Manual start/stop remains available; this pass adds host-side MP4 auto-recording on successful privacy blank activation, finalization when privacy is disabled or the session ends, and a viewer disclosure badge. Manual recordings continue when privacy mode is disabled; a privacy-triggered recording cannot be manually stopped while the host remains blanked |
 | Recording caps and retention | Existing max-duration, retention-count, storage-cap settings and SHA-256 audit log remain active |
 | Responsive viewport | Dynamic viewport sizing, ResizeObserver, resize/orientationchange listeners, and safe-area-aware dock sizing are present |
-| Keep / Download / Delete recording manager | Not implemented in this pass. MP4 files remain host-local; the browser has no authenticated recording-list/download/delete API. Do not claim this requirement is complete |
+| Keep / Download / Delete recording manager | Implemented on the feature branch: authenticated host recording list/delete/chunk-download controls, strict filename and symlink validation, bounded 256 KiB chunks, SHA-256 verification before browser download, post-stop saved prompt, manager drawer, and responsive layout. Security/regression CI is pending; exact live viewport and real-host E2E remain unverified |
 | Exact live viewport/device E2E | Not verified. The public staging landing page was inspected signed out; no test account was created, no host was connected, and exact 390×844 / 844×390 / 1440×900 measurements were not captured |
 
 ### Verification boundary
@@ -857,3 +857,12 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Final code-and-test commit \`abd0ffff46081d4bd295e4b317f89160bf03ef6b\` passed GitHub Actions run [#111](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/actions/runs/45856782264): Python compile/regression suite PASS, frontend production build PASS, full-history Gitleaks PASS, Windows unified executable build and SHA-256 artifact verification PASS. Optional authenticated cloud E2E was skipped because \`RDP_BASE_URL\` is not configured.
 - The subsequent public staging responsive inspection confirmed the sign-in card and all form controls fit in the available default viewport without observed clipping or overflow. The browser provider could not set exact 390×844, 844×390, and 1440×900 viewport sizes, so those exact dimensions remain unverified. Browser left signed out and no host session was started.
 - Remaining release blockers: authenticated staging login/host E2E with a valid test account and connected test host; exact viewport-size measurements; and the Keep/Download/Delete MP4 recordings manager. No merge to \`main\` is authorized or performed.
+
+
+### Recording manager implementation — 2026-11-26
+- `agent/session_recorder.py`: added safe recording enumeration, audited deletion to `audit.jsonl`, bounded chunk reads (maximum 262144 bytes), strict basename validation, symlink rejection, and SHA-256 metadata.
+- `agent/host_agent.py`: added approved-session dispatch for recording list, delete, and download-chunk requests; errors are returned without exposing filesystem paths.
+- `backend/main.py`: added strict schemas for manager actions, retained the existing authenticated non-read-only viewer and approved-host gates, and relays only the manager response message types.
+- `frontend/src/App.tsx` and `frontend/src/styles.css`: added the post-stop saved-recording prompt, manager controls in the viewer and floating dock, chunked download with browser SHA-256 verification, and responsive modal/banner styling.
+- `tests/test_recording_control_security.py`: covers listing order/hash, symlink exclusion, audited deletion, traversal/invalid filenames, bounded chunk reads, and control schema rejection.
+- Exact device viewport measurements and authenticated real-host E2E have not been run in this environment. Do not treat the manager as staging-verified until those checks are executed.
