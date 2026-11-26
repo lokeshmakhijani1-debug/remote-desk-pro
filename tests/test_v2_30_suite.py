@@ -373,7 +373,7 @@ def test_t21_public_workflow_publish_list_import_and_execute_replay(v2_api_clien
     clicks = []
     fake_pyautogui = types.SimpleNamespace(
         FAILSAFE=True, KEYBOARD_KEYS=set(),
-        size=lambda: types.SimpleNamespace(width=1920, height=1080),
+        size=lambda: (1920, 1080),
         click=lambda x, y, **kwargs: clicks.append((x, y, kwargs)),
     )
     monkeypatch.setitem(sys.modules, "pyautogui", fake_pyautogui)
