@@ -458,6 +458,24 @@ def validate_control(event: dict) -> bool:
         return set(event.keys()).issubset({"type", "event"})
     return False
 
+def validate_recording_library_control(event: dict) -> bool:
+    kind = event.get("type")
+    if kind == "recording_list":
+        return set(event) == {"type"}
+    filename = event.get("filename")
+    if not isinstance(filename, str) or not __import__("re").fullmatch(r"session_[A-Za-z0-9_.-]+\.mp4", filename):
+        return False
+    if kind == "recording_delete":
+        return set(event).issubset({"type", "filename"})
+    if kind == "recording_download_chunk":
+        offset = event.get("offset", 0)
+        length = event.get("length", 131072)
+        return (type(offset) is int and offset >= 0 and type(length) is int
+                and 1 <= length <= 262144
+                and set(event).issubset({"type", "filename", "offset", "length"}))
+    return False
+
+
 def validate_recording_control(event: dict) -> bool:
     """Accept only explicit local recording actions with bounded resource settings."""
     action = event.get("action")
@@ -535,7 +553,7 @@ async def host_socket(ws: WebSocket, device_id: str):
             elif kind == "host_denied":
                 hub.approved.discard(device_id)
                 await hub.relay(device_id, ws, raw)
-            elif kind in ("clipboard_ack", "privacy_screen_ack", "recording_status") and hub.is_approved(device_id):
+            elif kind in ("clipboard_ack", "privacy_screen_ack", "recording_status", "recording_list_result", "recording_deleted", "recording_chunk_result", "recording_error") and hub.is_approved(device_id):
                 await hub.relay(device_id, ws, raw)
             elif kind == "recording_control" and hub.is_approved(device_id):
                 if validate_recording_control(event):
@@ -697,6 +715,12 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                     await ws.send_json({"type":"input_pending","operation":"recording","detail":"Waiting for host approval"})
                 elif validate_recording_control(event):
                     audit(db, "recording." + str(event.get("action")) + "_requested", user_id, device_id)
+                    await hub.relay(device_id, ws, raw)
+            elif kind in ("recording_list", "recording_delete", "recording_download_chunk") and user_role != "read_only":
+                if not hub.is_approved(device_id):
+                    await ws.send_json({"type":"input_pending","operation":"recording","detail":"Waiting for host approval"})
+                elif validate_recording_library_control(event):
+                    audit(db, "recording." + kind + "_requested", user_id, device_id)
                     await hub.relay(device_id, ws, raw)
             elif kind == "clipboard_paste" and user_role != "read_only":
                 if not hub.is_approved(device_id):
