@@ -754,3 +754,13 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - A rule-specific AND-scoped allowlist extends only the default `generic-api-key` rule and matches the exact `PROJECT_MANIFEST.md` path, the two historical finding commits (`09bad163435de687eb0be82b4f0206cd25d21abb`, `cb66a236aa4efa6671522d1d95052cb481b5a0b3`), and a Gitleaks finding match containing a SHA-256 label followed within 40 characters by exactly 64 hexadecimal characters (`regexTarget = "match"`). All other default rules and generic-api-key findings remain enabled.
 - This exception is limited to the two documented public SHA-256 digest findings. It does not disable general secret scanning or allow arbitrary API keys/tokens.
 - V2 prerelease build and public asset details will be recorded here only after the workflow, executable, and checksum are verified.
+
+
+## V2 public prerelease — verified (2026-11-26)
+- Release: [v2.0.0-rc.46](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/releases/tag/v2.0.0-rc.46) (public GitHub prerelease; not stable).
+- Workflow run: [#46](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/actions/runs/45810421042), dispatched on `feature/v2-bidirectional-automation` at commit `591c80b4733219ccbf0c06ebb882603f4c1d01a0` with `publish_prerelease=true`.
+- Verified jobs: Python regression/frontend build SUCCESS; full-history Gitleaks SUCCESS; Windows V2 executable SUCCESS; prerelease publish SUCCESS. Live cloud E2E was skipped because repository secret `RDP_BASE_URL` is not configured.
+- Executable: [RemoteDeskPro-Agent.exe](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/releases/download/v2.0.0-rc.46/RemoteDeskPro-Agent.exe) (69,468,639 bytes).
+- SHA-256: `967EE16823F4512261B765EE59F8999A24E1D0BE39ADAB1BACBED537B363F104`. The Windows build job's `Get-FileHash -Algorithm SHA256` output matches the GitHub Release API asset digest.
+- Checksum file: [RemoteDeskPro-Agent.exe.sha256](https://github.com/lokeshmakhijani1-debug/remote-desk-pro/releases/download/v2.0.0-rc.46/RemoteDeskPro-Agent.exe.sha256).
+- Release assets are attached to the GitHub Release. No Render deployment was triggered.
