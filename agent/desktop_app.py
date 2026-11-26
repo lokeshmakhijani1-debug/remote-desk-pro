@@ -225,8 +225,14 @@ class DesktopApp:
         workflow_card = tk.Frame(self.root, bg="white", highlightbackground="#e0e7ef", highlightthickness=1)
         workflow_card.pack(fill="x", padx=24, pady=6)
         self.workflow_record_var = tk.BooleanVar(value=False)
+        self.session_recording_var = tk.BooleanVar(value=False)
+        self.recording_duration_var = tk.IntVar(value=int(self.config.get("recording_max_minutes", 30)))
+        self.recording_retention_var = tk.IntVar(value=int(self.config.get("recording_retention_count", 5)))
+        self.recording_storage_var = tk.IntVar(value=int(self.config.get("recording_max_storage_mb", 1024)))
         tk.Checkbutton(workflow_card, text="Record semantic actions only while privacy blank-screen is active", variable=self.workflow_record_var, command=self._set_workflow_recording, bg="white", fg="#17243a", font=("Segoe UI", 8, "bold"), wraplength=390).pack(anchor="w", padx=12, pady=(8, 3))
         tk.Button(workflow_card, text="Workflow History", command=self._open_workflow_history, bg="#ffffff", fg="#52637a", relief="solid", bd=1).pack(fill="x", padx=12, pady=(2, 8))
+        tk.Checkbutton(workflow_card, text="Start / Stop MP4 session recording (off by default)", variable=self.session_recording_var, command=self._set_session_recording, bg="white", fg="#17243a", font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=12, pady=(2, 4))
+        tk.Button(workflow_card, text="Recording & Storage Settings", command=self._recording_settings_dialog, bg="#ffffff", fg="#52637a", relief="solid", bd=1).pack(fill="x", padx=12, pady=(0, 8))
         tk.Button(workflow_card, text="Replay latest saved workflow", command=self._replay_latest_workflow, bg="#ffffff", fg="#52637a", relief="solid", bd=1).pack(fill="x", padx=12, pady=(0, 8))
         self.diag = tk.Frame(self.root, bg="#f3f6fa")
         self.diag.pack(fill="x", padx=24, pady=6)
@@ -291,6 +297,52 @@ class DesktopApp:
             self.status_var.set("File queued; it will be offered to the next approved viewer session.")
         except Exception as exc:
             messagebox.showerror("File could not be queued", str(exc))
+
+    def _set_session_recording(self):
+        enabled = bool(self.session_recording_var.get())
+        if enabled and "connected (live)" not in self.status_var.get().lower():
+            self.session_recording_var.set(False)
+            self.status_var.set("Connect and approve a live viewer session before starting recording.")
+            return
+        try:
+            import host_agent
+        except ModuleNotFoundError:
+            from agent import host_agent
+        settings = {
+            "max_duration_seconds": max(1, min(240, self.recording_duration_var.get())) * 60,
+            "retention_count": max(1, min(100, self.recording_retention_var.get())),
+            "max_storage_mb": max(100, min(20480, self.recording_storage_var.get())),
+            "save_mode": "local",
+        }
+        host_agent.set_session_recording_requested(enabled, settings)
+        self.status_var.set("Recording start requested — saved locally only." if enabled else "Recording stop requested.")
+
+    def _recording_settings_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Recording & Storage Settings")
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        dialog.grab_set()
+        fields = [
+            ("Maximum duration (minutes)", self.recording_duration_var, 1, 240),
+            ("Keep last N recordings", self.recording_retention_var, 1, 100),
+            ("Storage cap (MB)", self.recording_storage_var, 100, 20480),
+        ]
+        tk.Label(dialog, text="Recording & Storage Settings", font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=16, pady=(14, 8))
+        for label, variable, minimum, maximum in fields:
+            tk.Label(dialog, text=label).pack(anchor="w", padx=16, pady=(8, 2))
+            tk.Spinbox(dialog, from_=minimum, to=maximum, textvariable=variable, width=12).pack(anchor="w", padx=16)
+        tk.Label(dialog, text="Destination: Save Locally. Community video publishing is disabled.", fg="#087d65").pack(anchor="w", padx=16, pady=12)
+        def save():
+            self.config.update({
+                "recording_max_minutes": max(1, min(240, self.recording_duration_var.get())),
+                "recording_retention_count": max(1, min(100, self.recording_retention_var.get())),
+                "recording_max_storage_mb": max(100, min(20480, self.recording_storage_var.get())),
+            })
+            save_config(self.config)
+            dialog.destroy()
+            self.status_var.set("Recording settings saved.")
+        tk.Button(dialog, text="Save Settings", command=save, bg="#087d65", fg="white", relief="flat").pack(fill="x", padx=16, pady=(0, 16))
 
     def _set_workflow_recording(self):
         enabled = bool(self.workflow_record_var.get())
