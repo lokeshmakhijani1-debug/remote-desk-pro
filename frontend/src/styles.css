@@ -118,3 +118,7 @@ html,body,#root{width:100%;max-width:100%;overflow-x:hidden}
 .workflow-step-list>b{display:block;margin-bottom:8px;font-size:12px}
 .workflow-step-list ol{display:grid;gap:6px;margin:0;padding-left:22px}
 .workflow-step-list li{font-size:11px;line-height:1.45;overflow-wrap:anywhere}
+
+
+.recording-auto-indicator{display:inline-flex;align-items:center;margin-left:8px;padding:4px 8px;border:1px solid #f0c36d;border-radius:999px;background:#fff8e6;color:#8a4b08;font-size:10px;font-weight:700;line-height:1.3}
+@media(max-width:680px){.recording-auto-indicator{max-width:calc(100vw - 36px);white-space:normal}}
