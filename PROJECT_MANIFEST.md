@@ -956,3 +956,14 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Distribution: backend/downloads/RemoteDeskPro-Agent.exe, served by Render /download/agent and /api/download/agent.
 - Release: latest-agent (private repository release asset; Render distribution uses the committed binary).
 - Local Windows remote-input and file-transfer E2E remains pending; cloud build success is not a live desktop certification.
+
+ 
+## Production readiness, security and scale audit — 2026-11-26
+- Added `docs/PRODUCTION_READINESS_AUDIT.md` with evidence-based status for all 30 requested failure vectors, security findings, limitations and NO-GO certification decision.
+- Added `tests/test_production_scale_security.py`: deterministic 50-viewer Hub capacity, cross-user takeover/reconnect, stale-host cleanup, rate-limit threshold, clipboard/recording payload bounds and invalid control tests.
+- Added dedicated test and SAST command entries to root `test_instructions.json` (pytest scale suite, pip-audit, Bandit).
+- Baseline main at audit start: `da4a391a5bd49405455321bdffd7143cc9ffd8f6`. Existing CI run `45870931397` passed backend and frontend jobs before the audit-specific tests were added; new audit test execution must be confirmed from the subsequent Actions run.
+- Production read-only probes returned HTTP 503 for both `/api/health` and `/api/manifest` during this audit. Treat live production availability as degraded/unverified until a fresh 200 response is recorded.
+- Important gaps remain: process-local rate limiting, JWT revocation, password reset, account deletion, distributed WebSocket/resource limits, versioned DB migrations, and true 50+ concurrent live WebSocket / packet-loss / latency / disk-pressure / soak tests.
+- No hostile authentication guessing, destructive file/recording operation, production load test, Render deployment or physical Windows host action was performed. Core streaming, input, Trusted PIN, privacy, MP4 and workflow code paths were not modified.
+- Certification: NO-GO pending documented remediation and successful isolated load/fault-injection evidence.
