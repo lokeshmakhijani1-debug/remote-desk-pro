@@ -1,0 +1,136 @@
+name: V2 Security, Tests and Windows Build
+on:
+  push:
+    branches: [feature/v2-bidirectional-automation]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish_prerelease:
+        description: Publish a public V2 prerelease after all CI and Windows build jobs pass
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: v2-ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    name: Python regression and frontend build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-dev.txt
+            agent/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt -r agent/requirements.txt
+      - name: Install frontend dependencies
+        run: npm --prefix frontend install --no-audit --no-fund
+      - name: Compile Python sources
+        run: python -m compileall -q agent backend tests
+      - name: Run regression and unit tests
+        run: python -m pytest -q tests/test_*.py
+      - name: Build frontend
+        run: npm --prefix frontend run build
+      - name: Run live cloud E2E when a target is configured
+        env:
+          RDP_BASE_URL: ${{ secrets.RDP_BASE_URL }}
+        if: ${{ env.RDP_BASE_URL != '' }}
+        run: |
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+          python tests/e2e_cloud_headless.py
+
+  security:
+    name: Full Git history secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks full-history scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  windows-exe:
+    name: Windows V2 executable
+    needs: [tests, security]
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: agent/requirements.txt
+      - name: Install packager dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r agent/requirements.txt pyinstaller
+      - name: Build unified host/viewer executable
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name RemoteDeskPro-Agent --collect-all mss --collect-all pyautogui --collect-all pyperclip --collect-all pywinauto --collect-all pytesseract --collect-all imageio_ffmpeg --collect-data certifi --collect-all webview --hidden-import workflow_engine --hidden-import adaptive_replay --hidden-import telemetry --hidden-import win32gui --hidden-import win32process --hidden-import psutil --hidden-import websockets.asyncio.client --hidden-import websockets.asyncio.connection agent/host_agent.py
+      - name: Verify and checksum executable
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/RemoteDeskPro-Agent.exe")) { throw "V2 executable missing" }
+          $hash = (Get-FileHash "dist/RemoteDeskPro-Agent.exe" -Algorithm SHA256).Hash
+          "$hash  RemoteDeskPro-Agent.exe" | Out-File -Encoding ascii "dist/RemoteDeskPro-Agent.exe.sha256"
+          Write-Host "RemoteDeskPro-Agent.exe SHA256=$hash"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RemoteDeskPro-Agent-Windows
+          path: |
+            dist/RemoteDeskPro-Agent.exe
+            dist/RemoteDeskPro-Agent.exe.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-prerelease:
+    name: Publish optional public V2 prerelease
+    needs: [tests, security, windows-exe]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_prerelease == true && github.ref == 'refs/heads/feature/v2-bidirectional-automation'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: RemoteDeskPro-Agent-Windows
+          path: release
+      - name: Publish downloadable prerelease asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v2.0.0-rc.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: Remote Desk Pro V2 RC ${{ github.run_number }}
+          prerelease: true
+          draft: false
+          generate_release_notes: true
+          files: |
+            release/RemoteDeskPro-Agent.exe
+            release/RemoteDeskPro-Agent.exe.sha256
