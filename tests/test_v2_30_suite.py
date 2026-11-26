@@ -30,12 +30,15 @@ def test_t01_recording_timer_state_is_tied_to_recording_activity():
     assert "formatRecordingTime(recordingSeconds)" in app
 
 
-def test_t09_recording_library_relay_is_approval_gated():
-    source = inspect.getsource(backend_main.host_socket)
-    for kind in ("recording_control", "recording_list_result", "recording_deleted", "recording_chunk_result"):
-        assert kind in source
-    assert "hub.is_approved(device_id)" in source
-    assert "kind == \"recording_control\" and hub.is_approved(device_id)" in source
+def test_t09_recording_library_commands_require_authenticated_approved_viewer_and_host():
+    viewer_source = inspect.getsource(backend_main.viewer_socket)
+    host_source = inspect.getsource(backend_main.host_socket)
+    for kind in ("recording_list", "recording_delete", "recording_download_chunk"):
+        assert kind in viewer_source
+    assert 'read_token(str(auth.get("session_token", "")))' in viewer_source
+    assert "kind in (\"recording_list\", \"recording_delete\", \"recording_download_chunk\") and user_role != \"read_only\"" in viewer_source
+    assert "elif kind == \"recording_control\" and hub.is_approved(device_id)" in host_source
+    assert "kind in (\"clipboard_ack\", \"privacy_screen_ack\", \"recording_status\", \"recording_list_result\", \"recording_deleted\", \"recording_chunk_result\", \"recording_error\") and hub.is_approved(device_id)" in host_source
 
 
 def test_t10_storage_cap_removes_oldest_recordings_first(tmp_path):
