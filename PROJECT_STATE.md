@@ -68,3 +68,5 @@ Updated: 2026-11-21 (IST)
 - CI now includes real-network WebSocket stress, pip-audit dependency scanning, high-severity Bandit analysis, and full-history Gitleaks scanning.
 - Windows GUI execution remains opt-in via `python scripts/verify_windows_e2e.py --execute`; the default command is verification-only and is safe on non-Windows CI.
 - This cloud-only change does not claim that a physical Windows desktop session, production-load test, real packet-loss path, or production database mutation was executed. Live production health/header verification is a separate read-only check.
+
+- Follow-up hardening: HSTS relies on the ASGI request scheme (set by trusted Uvicorn proxy-header handling), not a client-supplied forwarding header. Gitleaks CI is configured to scan all Git refs/history.

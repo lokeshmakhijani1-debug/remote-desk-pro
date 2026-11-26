@@ -30,7 +30,7 @@ def test_hsts_is_only_added_for_https_requests():
     assert secure.headers.get("strict-transport-security") == "max-age=31536000"
 
 
-def test_forwarded_https_from_render_proxy_enables_hsts():
-    with TestClient(app) as client:
+def test_untrusted_forwarded_header_cannot_enable_hsts():
+    with TestClient(app, base_url="http://testserver") as client:
         response = client.get("/", headers={"x-forwarded-proto": "https"})
-    assert response.headers.get("strict-transport-security") == "max-age=31536000"
+    assert "strict-transport-security" not in response.headers

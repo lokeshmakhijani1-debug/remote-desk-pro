@@ -50,8 +50,9 @@ async def security_headers(request: Request, call_next):
         "Content-Security-Policy",
         "frame-ancestors 'none'; object-src 'none'; base-uri 'self'",
     )
-    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip().lower()
-    if request.url.scheme == "https" or forwarded_proto == "https":
+    # Uvicorn's trusted proxy-header handling sets the ASGI scheme for HTTPS
+    # requests; do not trust an arbitrary client-supplied forwarding header here.
+    if request.url.scheme == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
     return response
 

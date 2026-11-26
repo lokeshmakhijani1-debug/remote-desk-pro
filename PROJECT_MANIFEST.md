@@ -1036,3 +1036,5 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - `.github/workflows/ci.yml`: separate network-stress and security jobs for pip-audit, Bandit high-severity findings, and full-history Gitleaks.
 - `test_instructions.json`: reproducible commands for dependency, regression, network stress, security scans, and opt-in Windows E2E.
 - Limitations: the automated loopback test is not a substitute for geographically distributed WAN/TURN/NAT testing. The Windows GUI harness was added but not executed against a physical Windows desktop in this cloud-only run. No destructive production testing or database writes were performed.
+
+- Follow-up hardening: HSTS is enabled only when the ASGI scheme is HTTPS; arbitrary client-supplied forwarding headers cannot enable it. Gitleaks CI uses `GITLEAKS_LOG_OPTS=--all` to scan all available Git refs/history.
