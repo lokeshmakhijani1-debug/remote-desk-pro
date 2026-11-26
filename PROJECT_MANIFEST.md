@@ -714,3 +714,10 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Verification added: APPDATA path selection, metadata sanitization/local-only defaults, and JSON-only history enumeration tests.
 - Explicit remaining implementation gates: public community publishing/import APIs and database schema are not implemented; current recording captures normalized mouse/key/scroll actions and foreground process/window context, not complete ARIA/OCR semantic anchors; replay still uses process/window context plus normalized/window-relative coordinates and does not yet implement full UIA → OCR → coordinate fallback, popup recovery, or dynamic readiness waits. These are not completed capabilities.
 - Release gate: the existing V2 Windows workflow produces a 14-day Actions artifact, not a public stable GitHub Release. Do not publish a release asset or deploy Render from this feature branch until full tests and separate release approval.
+
+
+## Windows V2 build and optional public prerelease
+- The feature-branch Windows build now names the binary `RemoteDeskPro-Agent.exe`, emits a SHA-256 sidecar, and retains the Actions artifact for 30 days.
+- A public prerelease is gated behind an explicit `workflow_dispatch` input `publish_prerelease=true`; it runs only from `feature/v2-bidirectional-automation` and only after unit/frontend/security and Windows packaging jobs pass.
+- The prerelease tag format is `v2.0.0-rc.<run_number>`; the downloadable executable and checksum are attached to the GitHub Release. This does not deploy Render and does not modify `main`.
+- Local Windows build entrypoint: `powershell -NoProfile -ExecutionPolicy Bypass -File agent/build_windows.ps1`. Windows PyInstaller is required for a Windows `.exe`; Google Colab/Linux cannot cross-compile a native Windows executable using PyInstaller.

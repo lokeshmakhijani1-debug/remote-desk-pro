@@ -5,9 +5,15 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      publish_prerelease:
+        description: Publish a public V2 prerelease after all CI and Windows build jobs pass
+        required: false
+        default: false
+        type: boolean
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: v2-ci-${{ github.ref }}
@@ -81,15 +87,42 @@ jobs:
       - name: Build unified host/viewer executable
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name RemoteDeskPro-V2 --collect-all mss --collect-all pyautogui --collect-all pyperclip --collect-all imageio_ffmpeg --collect-data certifi --collect-all webview --hidden-import workflow_engine --hidden-import telemetry --hidden-import win32gui --hidden-import win32process --hidden-import psutil --hidden-import websockets.asyncio.client --hidden-import websockets.asyncio.connection agent/host_agent.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name RemoteDeskPro-Agent --collect-all mss --collect-all pyautogui --collect-all pyperclip --collect-all imageio_ffmpeg --collect-data certifi --collect-all webview --hidden-import workflow_engine --hidden-import telemetry --hidden-import win32gui --hidden-import win32process --hidden-import psutil --hidden-import websockets.asyncio.client --hidden-import websockets.asyncio.connection agent/host_agent.py
       - name: Verify and checksum executable
         shell: pwsh
         run: |
-          if (-not (Test-Path "dist/RemoteDeskPro-V2.exe")) { throw "V2 executable missing" }
-          Get-FileHash "dist/RemoteDeskPro-V2.exe" -Algorithm SHA256 | Format-List
+          if (-not (Test-Path "dist/RemoteDeskPro-Agent.exe")) { throw "V2 executable missing" }
+          $hash = (Get-FileHash "dist/RemoteDeskPro-Agent.exe" -Algorithm SHA256).Hash
+          "$hash  RemoteDeskPro-Agent.exe" | Out-File -Encoding ascii "dist/RemoteDeskPro-Agent.exe.sha256"
+          Write-Host "RemoteDeskPro-Agent.exe SHA256=$hash"
       - uses: actions/upload-artifact@v4
         with:
-          name: RemoteDeskPro-V2-Windows
-          path: dist/RemoteDeskPro-V2.exe
+          name: RemoteDeskPro-Agent-Windows
+          path: |
+            dist/RemoteDeskPro-Agent.exe
+            dist/RemoteDeskPro-Agent.exe.sha256
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
+
+  publish-prerelease:
+    name: Publish optional public V2 prerelease
+    needs: [tests, security, windows-exe]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_prerelease == true && github.ref == 'refs/heads/feature/v2-bidirectional-automation'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: RemoteDeskPro-Agent-Windows
+          path: release
+      - name: Publish downloadable prerelease asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v2.0.0-rc.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: Remote Desk Pro V2 RC ${{ github.run_number }}
+          prerelease: true
+          draft: false
+          generate_release_notes: true
+          files: |
+            release/RemoteDeskPro-Agent.exe
+            release/RemoteDeskPro-Agent.exe.sha256
