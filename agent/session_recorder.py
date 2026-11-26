@@ -22,12 +22,16 @@ def cleanup_recordings(folder: Path = RECORDING_DIR, keep_last: int = 5, max_sto
     root.mkdir(parents=True, exist_ok=True)
     keep_last = max(1, min(int(keep_last), 100))
     max_bytes = max(100, min(int(max_storage_mb), 20480)) * 1024 * 1024
-    files = sorted((p for p in root.glob("session_*.mp4") if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True)
+    files = sorted(
+        (p for p in root.glob("session_*.mp4") if p.is_file() and not p.is_symlink()),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
     removed: list[Path] = []
     total = sum(p.stat().st_size for p in files)
-    for index, path in enumerate(files):
-        if index < keep_last and total <= max_bytes:
-            continue
+    # The list is newest-first; evict from its tail so the newest recordings survive.
+    while files and (len(files) > keep_last or total > max_bytes):
+        path = files.pop()
         size = path.stat().st_size
         path.unlink()
         total -= size
@@ -35,7 +39,7 @@ def cleanup_recordings(folder: Path = RECORDING_DIR, keep_last: int = 5, max_sto
     return removed
 
 
-_RECORDING_NAME = re.compile(r"^session_[A-Za-z0-9_.-]+\.mp4$")
+_RECORDING_NAME = re.compile(r"^session_[A-Za-z0-9_.-]+\\.mp4$")
 
 
 def _recording_target(filename: str, folder: Path) -> tuple[Path, Path]:
@@ -64,7 +68,7 @@ def _audit_recording_event(root: Path, event: str, filename: str, **fields) -> N
     record = {"event": event, "at": datetime.now(timezone.utc).isoformat(),
               "recording": filename, **fields}
     with audit_path.open("a", encoding="utf-8") as stream:
-        stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+        stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\\n")
         stream.flush()
         os.fsync(stream.fileno())
 
@@ -185,7 +189,7 @@ class SessionRecorder:
                   "device_id": self.device_id, "viewer_id": self.viewer_id,
                   "recording": self.path.name, **fields}
         with self.audit_path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+            stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\\n")
             stream.flush()
             os.fsync(stream.fileno())
 
