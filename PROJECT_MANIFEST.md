@@ -815,3 +815,5 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 
 - `tests/e2e_cloud_headless.py`: refreshed the cloud relay E2E lifecycle assertions to verify recording is OFF after host approval, starts only after an explicit local recording command, stops on disconnect, and requires a fresh explicit start after reconnect. Privacy E2E now exercises `mode=black`; the synthetic host doubles expose the recorder lifecycle used by the production path.
 - Responsive overflow follow-up: `frontend/src/styles.css` constrains root/layout/content/grid/panel widths to the available viewport while retaining dynamic viewport units for the dock and screen sizing. This addresses the browser's reported horizontal-scroll concern; exact 390×844 / 844×390 / 1440×900 measurements were not available from the browser run.
+
+- The floating dock now labels Mouse Mode explicitly (ON · Trackpad + Tap / OFF), exposes a `Privacy ON · BLACK` active state via `aria-pressed`, and retains the live recording badge in the viewer header.
