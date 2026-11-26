@@ -751,6 +751,6 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 
 ## V2 release security scan exception (2026-11-26)
 - Added `.gitleaks.toml` with default Gitleaks rules retained (`[extend] useDefault = true`).
-- A rule-specific AND-scoped allowlist extends only the default `generic-api-key` rule and matches the exact `PROJECT_MANIFEST.md` path, the two historical finding commits (`09bad163435de687eb0be82b4f0206cd25d21abb`, `cb66a236aa4efa6671522d1d95052cb481b5a0b3`), and a secret value consisting of exactly 64 hexadecimal characters (`regexTarget = "secret"`). All other default rules and generic-api-key findings remain enabled.
+- A rule-specific AND-scoped allowlist extends only the default `generic-api-key` rule and matches the exact `PROJECT_MANIFEST.md` path, the two historical finding commits (`09bad163435de687eb0be82b4f0206cd25d21abb`, `cb66a236aa4efa6671522d1d95052cb481b5a0b3`), and a Gitleaks finding match containing a SHA-256 label followed within 40 characters by exactly 64 hexadecimal characters (`regexTarget = "match"`). All other default rules and generic-api-key findings remain enabled.
 - This exception is limited to the two documented public SHA-256 digest findings. It does not disable general secret scanning or allow arbitrary API keys/tokens.
 - V2 prerelease build and public asset details will be recorded here only after the workflow, executable, and checksum are verified.
