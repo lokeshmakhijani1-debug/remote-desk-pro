@@ -35,3 +35,37 @@ def test_recorder_emits_context_checkpoints(tmp_path, monkeypatch):
     p=r.set_enabled(False)
     data=__import__("json").loads(p.read_text())
     assert any(step["action"]=="checkpoint" for step in data["steps"])
+
+
+
+def test_workflow_directory_defaults_to_appdata(monkeypatch, tmp_path):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.delenv("RDP_WORKFLOW_DIR", raising=False)
+    assert workflow_engine.workflow_directory() == tmp_path / "RemoteDeskPro" / "workflows"
+
+
+def test_workflow_metadata_is_local_and_sanitized(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setenv("RDP_WORKFLOW_DIR", str(tmp_path))
+    recorder = WorkflowRecorder(tmp_path)
+    recorder.set_enabled(True)
+    recorder.record_control({"event": "key_down", "key": "a"})
+    original = recorder.set_enabled(False)
+    saved = workflow_engine.annotate_workflow(original, "  Reset   Browser  ",
+                                               ["support", "support", "  browser  "],
+                                               "  Private technician note  ")
+    data = json.loads(saved.read_text(encoding="utf-8"))
+    assert data["name"] == "Reset Browser"
+    assert data["tags"] == ["support", "browser"]
+    assert data["notes"] == "Private technician note"
+    assert data["is_public"] is False
+    assert data["privacy"]["local_only"] is True
+    assert not original.exists()
+
+
+def test_workflow_history_lists_only_json_files(tmp_path):
+    import json
+    (tmp_path / "one.json").write_text(json.dumps({"name": "One"}), encoding="utf-8")
+    (tmp_path / "ignored.json.tmp").write_text("{}", encoding="utf-8")
+    (tmp_path / "two.json").write_text("{}", encoding="utf-8")
+    assert {p.name for p in workflow_engine.list_workflows(tmp_path)} == {"one.json", "two.json"}

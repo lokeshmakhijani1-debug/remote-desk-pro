@@ -11,8 +11,8 @@ MAX_STEPS=10_000
 def workflow_directory()->Path:
     override=os.getenv("RDP_WORKFLOW_DIR")
     if override: return Path(override).expanduser()
-    base=(Path(os.getenv("APPDATA",str(Path.home())))/"RemoteDeskPro") if getattr(sys,"frozen",False) else Path(__file__).resolve().parents[1]
-    return base/"project_memory"/"workflows"
+    base=Path(os.getenv("APPDATA",str(Path.home())))/"RemoteDeskPro"
+    return base/"workflows"
 
 def _active_context()->dict[str,Any]:
     context={"window_title":"","process_name":"","application":"","window_bounds":None}
@@ -83,7 +83,7 @@ class WorkflowRecorder:
         if not self._steps:return None
         self.root.mkdir(parents=True,exist_ok=True); stamp=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         target=self.root/f"workflow_{stamp}.json"
-        payload={"schema_version":1,"created_at":datetime.now(timezone.utc).isoformat(),"coordinate_space":"normalized_0_to_1","recorded_screen":self._screen,"step_count":len(self._steps),"steps":self._steps,"privacy":{"typed_text_recorded":False,"clipboard_recorded":False}}
+        payload={"schema_version":1,"created_at":datetime.now(timezone.utc).isoformat(),"coordinate_space":"normalized_0_to_1","recorded_screen":self._screen,"step_count":len(self._steps),"steps":self._steps,"name":"Untitled workflow","tags":[],"notes":"","is_public":False,"privacy":{"typed_text_recorded":False,"clipboard_recorded":False,"local_only":True}}
         temporary=target.with_suffix(".json.tmp"); temporary.write_text(json.dumps(payload,indent=2,ensure_ascii=False),encoding="utf-8")
         os.replace(temporary,target); self.last_saved=target; self._steps=[]; return target
 
@@ -158,3 +158,44 @@ class WorkflowReplayEngine:
                     ctypes.windll.user32.mouse_event(0x01000,0,0,ctypes.c_ulong(int(dx)).value,0)
             executed+=1
         return {"steps":len(steps),"executed":executed,"dry_run":False,"warnings":warnings}
+
+
+def annotate_workflow(path: Path, name: str, tags: list[str] | None = None, notes: str = "") -> Path:
+    """Name and annotate a locally saved workflow without publishing or uploading it."""
+    root = workflow_directory().resolve()
+    target = Path(path).expanduser().resolve()
+    if target.parent != root or target.suffix.lower() != ".json" or not target.is_file():
+        raise ValueError("Workflow must be an existing file in the local workflow directory.")
+    clean_name = " ".join(str(name).split())[:80]
+    if not clean_name:
+        raise ValueError("Workflow name is required.")
+    clean_tags = []
+    for tag in tags or []:
+        value = " ".join(str(tag).split())[:32]
+        if value and value.casefold() not in {item.casefold() for item in clean_tags}:
+            clean_tags.append(value)
+        if len(clean_tags) == 12:
+            break
+    clean_notes = str(notes or "").strip()[:1200]
+    data = json.loads(target.read_text(encoding="utf-8"))
+    if data.get("schema_version") != 1 or not isinstance(data.get("steps"), list):
+        raise ValueError("Unsupported workflow document.")
+    data.update({"name": clean_name, "tags": clean_tags, "notes": clean_notes,
+                 "is_public": False, "updated_at": datetime.now(timezone.utc).isoformat()})
+    safe_stem = re.sub(r"[^0-9A-Za-z_-]+", "-", clean_name).strip("-_").lower()[:48] or "workflow"
+    destination = root / f"{safe_stem}_{target.stem.rsplit('_', 1)[-1]}.json"
+    temporary = destination.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(temporary, destination)
+    if target != destination:
+        target.unlink(missing_ok=True)
+    return destination
+
+
+def list_workflows(root: Path | None = None) -> list[Path]:
+    """Return local workflow history, newest first; community workflows are not included."""
+    directory = Path(root) if root else workflow_directory()
+    if not directory.exists():
+        return []
+    return sorted((p for p in directory.glob("*.json") if p.is_file()),
+                  key=lambda p: p.stat().st_mtime, reverse=True)

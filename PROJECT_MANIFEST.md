@@ -702,3 +702,15 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Issue #2 records six runs failing with `runner_id: 0`, no runner name, no steps and no job logs. Runner labels are valid standard labels. Billing/minutes quota is a plausible cause but is not confirmed by available API evidence.
 - A targeted current-branch source/config/log scan found no high-severity credential-pattern matches in 55 inspected text files. This is not a complete all-commits/all-branches audit and is not public-release clearance.
 - Public visibility gate: **NO — keep the repository private** until full-history Gitleaks results and branch-history review are clean, and any exposed credential is rotated/revoked.
+
+
+## Phase 5/5 — local workflow history and privacy boundary (2026-11-26)
+- Workflow storage defaults to `%APPDATA%\\RemoteDeskPro\\workflows\\` on Windows for both frozen and source-run agents; `RDP_WORKFLOW_DIR` remains an explicit test/portable override.
+- A completed recording is detected by the desktop GUI and prompts for a workflow name, comma-separated tags and notes. The workflow is atomically renamed and annotated in local JSON; unnamed workflows can be retained.
+- Added a local Workflow History window with selection and replay. Local workflow metadata explicitly defaults to `is_public=false`; the UI states that nothing is uploaded or shared.
+- Added `annotate_workflow` and `list_workflows` APIs in `agent/workflow_engine.py`; metadata validation constrains names, tags and notes, and annotation refuses paths outside the configured workflow directory.
+- Local schema fields: `schema_version`, `created_at`, `updated_at`, `name`, `tags`, `notes`, `is_public`, `coordinate_space`, `recorded_screen`, `step_count`, `steps`, and privacy flags. Private workflow files remain excluded from Git by `.gitignore`.
+- Ports/endpoints: no new network endpoint or listening port is introduced by local workflow history.
+- Verification added: APPDATA path selection, metadata sanitization/local-only defaults, and JSON-only history enumeration tests.
+- Explicit remaining implementation gates: public community publishing/import APIs and database schema are not implemented; current recording captures normalized mouse/key/scroll actions and foreground process/window context, not complete ARIA/OCR semantic anchors; replay still uses process/window context plus normalized/window-relative coordinates and does not yet implement full UIA → OCR → coordinate fallback, popup recovery, or dynamic readiness waits. These are not completed capabilities.
+- Release gate: the existing V2 Windows workflow produces a 14-day Actions artifact, not a public stable GitHub Release. Do not publish a release asset or deploy Render from this feature branch until full tests and separate release approval.

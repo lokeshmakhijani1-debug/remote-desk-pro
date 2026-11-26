@@ -177,6 +177,7 @@ class DesktopApp:
             from agent.workflow_engine import WorkflowRecorder, WorkflowReplayEngine
         self.workflow_recorder = WorkflowRecorder()
         self.workflow_engine = WorkflowReplayEngine()
+        self._workflow_prompted_path = None
         self.telemetry_snapshot = {"fps": 0.0, "ping_ms": None, "upload_kbps": 0.0, "download_kbps": 0.0}
         self.status_var = tk.StringVar(value="Not connected")
         self.id_var = tk.StringVar(value=self.config.get("device_id", "Not paired"))
@@ -184,6 +185,7 @@ class DesktopApp:
         self._build()
         self.root.deiconify()
         self.root.lift()
+        self.root.after(750, self._poll_workflow_save)
         if self.config.get("device_id") and self.config.get("device_secret"):
             self.root.after(250, self._start_existing)
         else:
@@ -224,7 +226,8 @@ class DesktopApp:
         workflow_card.pack(fill="x", padx=24, pady=6)
         self.workflow_record_var = tk.BooleanVar(value=False)
         tk.Checkbutton(workflow_card, text="Record semantic actions only while privacy blank-screen is active", variable=self.workflow_record_var, command=self._set_workflow_recording, bg="white", fg="#17243a", font=("Segoe UI", 8, "bold"), wraplength=390).pack(anchor="w", padx=12, pady=(8, 3))
-        tk.Button(workflow_card, text="Replay latest saved workflow", command=self._replay_latest_workflow, bg="#ffffff", fg="#52637a", relief="solid", bd=1).pack(fill="x", padx=12, pady=(2, 8))
+        tk.Button(workflow_card, text="Workflow History", command=self._open_workflow_history, bg="#ffffff", fg="#52637a", relief="solid", bd=1).pack(fill="x", padx=12, pady=(2, 8))
+        tk.Button(workflow_card, text="Replay latest saved workflow", command=self._replay_latest_workflow, bg="#ffffff", fg="#52637a", relief="solid", bd=1).pack(fill="x", padx=12, pady=(0, 8))
         self.diag = tk.Frame(self.root, bg="#f3f6fa")
         self.diag.pack(fill="x", padx=24, pady=6)
         self.diag_visible = False
@@ -297,6 +300,97 @@ class DesktopApp:
             from agent import host_agent
         host_agent.set_workflow_recording_requested(enabled)
         self.status_var.set("Action recording is armed; it records only while the privacy screen is active." if enabled else "Semantic action recording disabled.")
+
+    def _poll_workflow_save(self):
+        try:
+            target = self.workflow_recorder.last_saved
+            if target and target.is_file() and str(target) != self._workflow_prompted_path:
+                self._workflow_prompted_path = str(target)
+                self._prompt_workflow_metadata(target)
+        except Exception:
+            logger.exception("Workflow save prompt failed")
+        finally:
+            if self.root.winfo_exists():
+                self.root.after(750, self._poll_workflow_save)
+
+    def _prompt_workflow_metadata(self, target):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Save recorded workflow")
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        dialog.grab_set()
+        tk.Label(dialog, text="Name this workflow", font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=16, pady=(14, 4))
+        name_var = tk.StringVar(value="Workflow " + time.strftime("%Y-%m-%d %H:%M"))
+        name_entry = tk.Entry(dialog, textvariable=name_var, width=48)
+        name_entry.pack(fill="x", padx=16)
+        tk.Label(dialog, text="Tags (comma-separated)", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=16, pady=(10, 3))
+        tags_var = tk.StringVar()
+        tk.Entry(dialog, textvariable=tags_var, width=48).pack(fill="x", padx=16)
+        tk.Label(dialog, text="Notes", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=16, pady=(10, 3))
+        notes = tk.Text(dialog, width=48, height=4, wrap="word")
+        notes.pack(fill="x", padx=16)
+        tk.Label(dialog, text="Saved locally on this device. Nothing is uploaded or shared.", fg="#087d65").pack(anchor="w", padx=16, pady=8)
+        def save():
+            try:
+                try:
+                    from workflow_engine import annotate_workflow
+                except ModuleNotFoundError:
+                    from agent.workflow_engine import annotate_workflow
+                saved = annotate_workflow(target, name_var.get(), tags_var.get().split(","), notes.get("1.0", "end").strip())
+                self._workflow_prompted_path = str(saved)
+                self.status_var.set("Workflow saved locally: " + saved.stem)
+                dialog.destroy()
+            except Exception as exc:
+                messagebox.showerror("Workflow could not be saved", str(exc), parent=dialog)
+        buttons = tk.Frame(dialog); buttons.pack(fill="x", padx=16, pady=(0, 14))
+        tk.Button(buttons, text="Save locally", command=save, bg="#087d65", fg="white", relief="flat").pack(side="right")
+        tk.Button(buttons, text="Keep unnamed", command=dialog.destroy, relief="flat").pack(side="right", padx=8)
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+        name_entry.focus_set()
+
+    def _open_workflow_history(self):
+        try:
+            try:
+                from workflow_engine import list_workflows
+            except ModuleNotFoundError:
+                from agent.workflow_engine import list_workflows
+            paths = list_workflows()
+            if not paths:
+                messagebox.showinfo("Workflow History", "No locally saved workflows yet.", parent=self.root)
+                return
+            dialog = tk.Toplevel(self.root); dialog.title("Local Workflow History"); dialog.geometry("520x360")
+            listing = tk.Listbox(dialog, height=12, activestyle="dotbox")
+            listing.pack(fill="both", expand=True, padx=12, pady=12)
+            for path in paths:
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    title = str(data.get("name") or path.stem)
+                    tags = ", ".join(data.get("tags", []))
+                    listing.insert("end", title + (("  |  " + tags) if tags else ""))
+                except Exception:
+                    listing.insert("end", path.stem + "  |  unreadable")
+            def replay_selected():
+                selected = listing.curselection()
+                if not selected:
+                    return
+                dialog.destroy()
+                self._replay_workflow_path(paths[selected[0]])
+            listing.bind("<Double-Button-1>", lambda _event: replay_selected())
+            tk.Button(dialog, text="Replay selected workflow", command=replay_selected).pack(pady=(0, 12))
+        except Exception as exc:
+            messagebox.showerror("Workflow History", str(exc), parent=self.root)
+
+    def _replay_workflow_path(self, target):
+        def replay():
+            try:
+                result = self.workflow_engine.replay(target)
+                message = f"Workflow replayed: {result['executed']} steps."
+                if result.get("warnings"):
+                    message += " Adaptation warnings: " + "; ".join(result["warnings"][:3])
+            except Exception as exc:
+                message = "Workflow replay failed: " + str(exc)
+            self.root.after(0, lambda: self.status_var.set(message))
+        threading.Thread(target=replay, daemon=True, name="RDPWorkflowReplay").start()
 
     def _replay_latest_workflow(self):
         target = self.workflow_engine.latest()
