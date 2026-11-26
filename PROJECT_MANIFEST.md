@@ -745,3 +745,5 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - No new network port. No Render deployment or production environment changes. Feature branch push triggers CI/security/Windows executable packaging.
 
 - CI: feature-branch workflow runs Python regression/privacy/10-environment tests, frontend build, full-history Gitleaks, and Windows PyInstaller. Live cloud E2E runs when repository secret RDP_BASE_URL is configured; otherwise it is explicitly skipped. No production secret is added by this change.
+
+- Production Supabase migration applied successfully to RemoteDeskPro project qxssuczpumsaqywifirv; recorded migration version 20261126094251. Verified public.rdp_community_workflows exists with RLS enabled, public-only CHECK constraint, 2 MiB row-size constraint, owner FK, and SELECT policy limited to is_public=true. Table was empty at verification. Render was not deployed.
