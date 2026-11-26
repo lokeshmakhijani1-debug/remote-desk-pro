@@ -6,7 +6,7 @@ Audit date: 2026-11-26
 
 ## Executive result
 
-**NOT PRODUCTION-CERTIFIED.** Existing backend/frontend CI is green on the inspected baseline, but that CI does not cover all 30 requested failure vectors. The read-only production HTTP fetch returned **503** for both `/api/health` and `/api/manifest` during this audit; treat production availability as unverified/degraded until a subsequent successful probe confirms recovery.
+**NOT PRODUCTION-CERTIFIED.** Existing backend/frontend CI is green on the inspected baseline, but that CI does not cover all 30 requested failure vectors. The first read-only production HTTP fetch returned **503** for both `/api/health` and `/api/manifest`; a repeat probe subsequently returned valid HTTP 200 responses for both endpoints. The recovered responses reported PostgreSQL and capacity target 50; measured fetch latencies were approximately 4.6 s and 4.4 s respectively. Treat the initial 503 as a transient availability/deployment event, not a persistent outage.
 
 Existing `audit_30.py` is not a valid substitute for this matrix: it checks file presence and feature flags, invokes a machine-specific Windows Python path, and its checked-in historical JSON contains failures. It does not assert the 30 vectors listed below.
 
