@@ -211,7 +211,7 @@ def _consent_dialog(device_id: str, dynamic_password: str) -> bool:
     tk.Label(root, text="REMOTE ACCESS REQUEST", font=("Segoe UI", 14, "bold")).pack(pady=(20, 8))
     tk.Label(root, text="Device ID: " + device_id, font=("Segoe UI", 11)).pack(pady=3)
     tk.Label(root, text="Dynamic password: " + (dynamic_password or "Check the dashboard"), font=("Segoe UI", 11)).pack(pady=3)
-    tk.Label(root, text="A remote viewer is requesting access. Approved sessions are recorded locally for security and audit.", wraplength=360).pack(pady=12)
+    tk.Label(root, text="A remote viewer is requesting access. Video recording is OFF by default and starts only after an explicit Start Recording action.", wraplength=360).pack(pady=12)
     tk.Checkbutton(root, text="Unattended access (not available)", state="disabled").pack()
     decision = {"approved": False}
     buttons = tk.Frame(root)
