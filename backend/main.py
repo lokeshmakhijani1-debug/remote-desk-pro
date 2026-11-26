@@ -466,7 +466,7 @@ def validate_recording_library_control(event: dict) -> bool:
     if not isinstance(filename, str) or not __import__("re").fullmatch(r"session_[A-Za-z0-9_.-]+\.mp4", filename):
         return False
     if kind == "recording_delete":
-        return set(event).issubset({"type", "filename"})
+        return set(event) == {"type", "filename"}
     if kind == "recording_download_chunk":
         offset = event.get("offset", 0)
         length = event.get("length", 131072)
