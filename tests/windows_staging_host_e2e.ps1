@@ -89,7 +89,7 @@ try {
     $results.checks["network_drop_recovery"] = "PASS"
 
     if ($process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force; $process.WaitForExit(15000) }
-    if (-not (Wait-DeviceState -DeviceId $paired.device_id -Headers $headers -ExpectedOnline $false -TimeoutSeconds 30)) { throw "Staging did not report host offline after Windows agent exited." }
+    if (-not (Wait-DeviceState -DeviceId $paired.device_id -Headers $headers -ExpectedOnline $false -TimeoutSeconds 75)) { throw "Staging did not report host offline after Windows agent exited within the 75-second heartbeat-expiry window." }
     $results.checks["agent_exit_offline_transition"] = "PASS"
     $results.status = "PASS"
 }
