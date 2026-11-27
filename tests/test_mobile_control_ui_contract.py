@@ -15,8 +15,8 @@ def test_remote_dock_exposes_all_core_actions_and_workflow_panels():
         assert label in app
     assert "Step preview (" in app
     assert 'function sendControl(data:Record<string,unknown>,force=false)' in app
-    assert 'sendControl({event:"mouse_down",button:2,x:0.5,y:0.5},true)' in app
-    assert 'sendControl({event:"mouse_scroll",deltaX:0,deltaY:-420},true)' in app
+    assert 'sendControl({event:"mouse_down",button:e.button,...p})' in app
+    assert 'sendControl({event:"mouse_scroll",deltaX:e.deltaX,deltaY:e.deltaY})' in app
 
 
 def test_remote_viewer_uses_safe_dynamic_viewport_and_rotation_observer():

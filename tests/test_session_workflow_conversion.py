@@ -56,7 +56,7 @@ def test_recording_converter_repeat_replays_with_existing_engine(tmp_path, monke
                            hotkey=lambda *a, **k: calls.__setitem__("hotkey", calls["hotkey"] + 1))
     monkeypatch.setitem(__import__("sys").modules, "pyautogui", fake)
     monkeypatch.setattr(workflow_engine, "resolve_target", lambda step, size, bounds, **kw: {"x": 200, "y": 300, "strategy": "test", "attempts": 1})
-    monkeypatch.setattr(workflow_engine, "clear_input_and_verify", lambda *a, **k: True)
+    monkeypatch.setattr(workflow_engine, "clear_input_and_verify", lambda control, key_sender, *a, **k: (key_sender() or True))
     monkeypatch.setattr(workflow_engine, "dismiss_known_popups", lambda *a, **k: False)
     monkeypatch.setattr(workflow_engine.time, "sleep", lambda *_: None)
     engine = WorkflowReplayEngine(workflow_dir)
