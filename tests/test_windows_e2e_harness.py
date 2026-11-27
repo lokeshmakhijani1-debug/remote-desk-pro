@@ -57,3 +57,9 @@ def test_agent_harness_launches_only_after_successful_verification(tmp_path):
     result = launch_verified_agent(executable, metadata, runner=fake_runner, require_windows=False)
     assert result == "launched"
     assert launches == [([str(executable)], {"close_fds": True})]
+
+
+def test_windows_staging_e2e_allows_backend_heartbeat_expiry_after_agent_exit():
+    script = (Path(__file__).resolve().parents[1] / "tests/windows_staging_host_e2e.ps1").read_text(encoding="utf-8")
+    assert "HOST_HEARTBEAT_TIMEOUT_SECONDS = 45" in (Path(__file__).resolve().parents[1] / "backend/main.py").read_text(encoding="utf-8")
+    assert "-ExpectedOnline $false -TimeoutSeconds 75" in script
