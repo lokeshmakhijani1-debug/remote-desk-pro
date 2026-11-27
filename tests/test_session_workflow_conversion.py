@@ -32,8 +32,9 @@ def test_recording_converter_repeat_replays_with_existing_engine(tmp_path, monke
     video.write_bytes(b"test-mp4-placeholder-bytes")
     video.with_suffix(".events.jsonl").write_text("\n".join([
         json.dumps({"event": "mouse_down", "elapsed_ms": 100, "x": 0.2, "y": 0.8, "button": "left"}),
+        json.dumps({"event": "mouse_scroll", "elapsed_ms": 180, "x": 0.2, "y": 0.8, "delta_x": 0, "delta_y": -120}),
         json.dumps({"event": "key_down", "elapsed_ms": 220, "key": "ctrl"}),
-        json.dumps({"event": "clear_input", "elapsed_ms": 250}),
+        json.dumps({"event": "clear_input", "elapsed_ms": 250, "x": 0.2, "y": 0.8}),
         json.dumps({"event": "key_up", "elapsed_ms": 300, "key": "ctrl"}),
     ]) + "\n", encoding="utf-8")
     converted = convert_session_recording_to_workflow(video.name, recording_dir, workflow_dir)
@@ -42,18 +43,22 @@ def test_recording_converter_repeat_replays_with_existing_engine(tmp_path, monke
     assert payload["source_recording"]["filename"] == video.name
     assert payload["privacy"]["typed_text_recorded"] is False
     assert payload["privacy"]["clipboard_recorded"] is False
-    assert [step["action"] for step in payload["steps"]] == ["mouse_down", "key_down", "clear_input", "key_up"]
+    assert [step["action"] for step in payload["steps"]] == ["mouse_down", "mouse_scroll", "key_down", "clear_input", "key_up"]
     assert payload["steps"][0]["delay_ms"] == 100 and payload["steps"][0]["x"] == 0.2
-    assert payload["steps"][2]["action"] == "clear_input"
-    assert payload["steps"][2]["x"] == 0.2 and payload["steps"][2]["y"] == 0.8
+    assert payload["steps"][1]["delta_y"] == -120
+    assert payload["steps"][2]["action"] == "key_down"
+    assert payload["steps"][3]["action"] == "clear_input"
+    assert payload["steps"][3]["x"] == 0.2 and payload["steps"][3]["y"] == 0.8
 
-    calls = {"click": 0, "key_down": 0, "key_up": 0, "hotkey": 0}
+    calls = {"click": 0, "key_down": 0, "key_up": 0, "hotkey": 0, "scroll": 0, "move": 0}
     fake = SimpleNamespace(FAILSAFE=True, KEYBOARD_KEYS={"ctrl", "enter", "tab"},
                            size=lambda: (1000, 800),
                            click=lambda *a, **k: calls.__setitem__("click", calls["click"] + 1),
                            keyDown=lambda *a, **k: calls.__setitem__("key_down", calls["key_down"] + 1),
                            keyUp=lambda *a, **k: calls.__setitem__("key_up", calls["key_up"] + 1),
-                           hotkey=lambda *a, **k: calls.__setitem__("hotkey", calls["hotkey"] + 1))
+                           hotkey=lambda *a, **k: calls.__setitem__("hotkey", calls["hotkey"] + 1),
+                           moveTo=lambda *a, **k: calls.__setitem__("move", calls["move"] + 1),
+                           scroll=lambda *a, **k: calls.__setitem__("scroll", calls["scroll"] + 1))
     monkeypatch.setitem(__import__("sys").modules, "pyautogui", fake)
     monkeypatch.setattr(workflow_engine, "resolve_target", lambda step, size, bounds, **kw: {"x": 200, "y": 300, "strategy": "test", "attempts": 1})
     monkeypatch.setattr(workflow_engine, "clear_input_and_verify", lambda control, key_sender, *a, **k: (key_sender() or True))
@@ -61,8 +66,8 @@ def test_recording_converter_repeat_replays_with_existing_engine(tmp_path, monke
     monkeypatch.setattr(workflow_engine.time, "sleep", lambda *_: None)
     engine = WorkflowReplayEngine(workflow_dir)
     first, second = engine.replay(converted), engine.replay(converted)
-    assert first["executed"] == second["executed"] == 4
-    assert calls == {"click": 4, "key_down": 2, "key_up": 2, "hotkey": 2}
+    assert first["executed"] == second["executed"] == 5
+    assert calls == {"click": 4, "key_down": 2, "key_up": 2, "hotkey": 2, "scroll": 2, "move": 2}
 
 
 def test_video_only_recording_is_not_falsely_converted(tmp_path):
