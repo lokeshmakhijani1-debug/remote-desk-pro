@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import asyncio, json, logging, secrets, time, math, os
+from urllib.parse import urlsplit
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -37,7 +38,7 @@ app.add_middleware(CORSMiddleware, allow_origins=settings.cors_list, allow_crede
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
-    """Apply browser-facing security headers without changing API payloads."""
+    """Apply a restrictive, deployment-aware browser security policy."""
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
@@ -46,12 +47,32 @@ async def security_headers(request: Request, call_next):
         "Permissions-Policy",
         "camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()",
     )
-    response.headers.setdefault(
-        "Content-Security-Policy",
-        "frame-ancestors 'none'; object-src 'none'; base-uri 'self'",
-    )
-    # Uvicorn's trusted proxy-header handling sets the ASGI scheme for HTTPS
-    # requests; do not trust an arbitrary client-supplied forwarding header here.
+    connect_sources = {"'self'"}
+    for configured in [settings.public_base_url, *settings.cors_list]:
+        parsed = urlsplit(configured)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
+            continue
+        connect_sources.add(f"{parsed.scheme}://{parsed.netloc}")
+        connect_sources.add(f"{'wss' if parsed.scheme == 'https' else 'ws'}://{parsed.netloc}")
+    request_host = request.url.hostname
+    if request_host:
+        host = request_host + (f":{request.url.port}" if request.url.port else "")
+        connect_sources.add(f"wss://{host}")
+        if request.url.scheme == "http":
+            connect_sources.add(f"ws://{host}")
+    csp = "; ".join([
+        "default-src 'self'", "script-src 'self'", "script-src-elem 'self'",
+        "script-src-attr 'none'", "style-src 'self'", "style-src-elem 'self'",
+        "style-src-attr 'unsafe-inline'", "img-src 'self' data: blob:",
+        "font-src 'self' data:", "connect-src " + " ".join(sorted(connect_sources)),
+        "media-src 'self' blob:", "worker-src 'self' blob:", "manifest-src 'self'",
+        "frame-src 'none'", "frame-ancestors 'none'", "object-src 'none'",
+        "base-uri 'self'", "form-action 'self'",
+    ])
+    response.headers.setdefault("Content-Security-Policy", csp)
+    response.headers.setdefault("Cross-Origin-Embedder-Policy", "credentialless")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
     if request.url.scheme == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
     return response
@@ -613,8 +634,20 @@ def websocket_payload_within_limit(payload: str | bytes) -> bool:
     if isinstance(payload, bytes):
         return len(payload) <= MAX_WS_BINARY_BYTES
     if isinstance(payload, str):
-        return len(payload.encode('utf-8')) <= MAX_WS_TEXT_BYTES
+        return len(payload.encode("utf-8")) <= MAX_WS_TEXT_BYTES
     return False
+
+
+def websocket_origin_allowed(origin: str | None) -> bool:
+    """Validate browser Origin against configured CORS origins; native clients may omit it."""
+    if not origin:
+        return True
+    parsed = urlsplit(origin)
+    if (parsed.scheme not in {"http", "https"} or not parsed.netloc
+            or parsed.username or parsed.password or parsed.path not in {"", "/"}
+            or parsed.query or parsed.fragment):
+        return False
+    return origin.rstrip("/") in {value.rstrip("/") for value in settings.cors_list}
 
 def validate_clipboard(event: dict) -> bool:
     value = event.get("text")
@@ -731,13 +764,18 @@ def safe_file_name(value: Any) -> str:
 
 @app.websocket("/ws/host/{device_id}")
 async def host_socket(ws: WebSocket, device_id: str):
+    if not websocket_origin_allowed(ws.headers.get("origin")):
+        await ws.close(code=4403, reason="WebSocket origin is not allowed")
+        return
     await ws.accept()
     db = SessionLocal()
     device = db.scalar(select(Device).where(Device.device_id == device_id))
     explicit_disconnect = False
     try:
         auth = await asyncio.wait_for(ws.receive_json(), timeout=10)
-        if not device or auth.get("type") != "auth" or not verify_secret(device.secret_hash, str(auth.get("secret",""))):
+        if (not isinstance(auth, dict) or auth.get("type") != "auth"
+                or not isinstance(auth.get("secret"), str) or not device
+                or not verify_secret(device.secret_hash, auth["secret"])):
             await ws.close(code=4401)
             return
         previous_host = await hub.register_host(device_id, ws)
@@ -772,6 +810,8 @@ async def host_socket(ws: WebSocket, device_id: str):
             if not isinstance(event, dict):
                 continue
             kind = event.get("type")
+            if not isinstance(kind, str):
+                continue
             if kind == "host_heartbeat":
                 await acknowledge_host_heartbeat(ws)
                 continue
@@ -868,6 +908,9 @@ async def host_socket(ws: WebSocket, device_id: str):
 
 @app.websocket("/ws/viewer/{device_id}")
 async def viewer_socket(ws: WebSocket, device_id: str):
+    if not websocket_origin_allowed(ws.headers.get("origin")):
+        await ws.close(code=4403, reason="WebSocket origin is not allowed")
+        return
     await ws.accept()
     logger.info("viewer websocket opened device=%s", device_id)
     await ws.send_json({"type":"relay_ready"})
@@ -881,17 +924,29 @@ async def viewer_socket(ws: WebSocket, device_id: str):
             await ws.close(code=4401, reason="Invalid viewer authentication frame")
             return
         logger.info("viewer auth frame received device=%s", device_id)
-        payload = read_token(str(auth.get("session_token", "")))
-        subject = payload.get("sub","").split(":")
+        payload = read_token(auth["session_token"]) if isinstance(auth.get("session_token"), str) else {}
+        subject_value = payload.get("sub")
+        if not isinstance(subject_value, str):
+            await ws.close(code=4401)
+            return
+        subject = subject_value.split(":")
         if len(subject) != 3 or subject[0] != "viewer" or subject[2] != device_id:
             await ws.close(code=4401)
             return
-        user_id = int(subject[1])
+        try:
+            user_id = int(subject[1])
+        except (TypeError, ValueError):
+            await ws.close(code=4401)
+            return
         device = db.scalar(select(Device).where(Device.device_id == device_id))
-        if not device or not db.get(User, user_id) or not db.get(User, user_id).active:
+        user = db.get(User, user_id)
+        if not device or not user or not user.active:
             await ws.close(code=4404)
             return
-        user_role = payload.get("role","read_only")
+        user_role = payload.get("role")
+        if user_role not in {"admin", "technician", "read_only"} or user_role != user.role:
+            await ws.close(code=4401, reason="Viewer session role is no longer valid")
+            return
         registered, active_count, total_count, previous_viewer = await hub.register_viewer(device_id, ws, settings.max_concurrent_sessions, user_id)
         if not registered:
             logger.warning("viewer rejected device=%s active_count=%s total_count=%s", device_id, active_count, total_count)
@@ -919,16 +974,20 @@ async def viewer_socket(ws: WebSocket, device_id: str):
         while True:
             packet = await ws.receive()
             raw = packet.get("bytes") if packet.get("bytes") is not None else packet.get("text")
-            if raw is None:
+            if raw is None or not websocket_payload_within_limit(raw):
                 continue
             if isinstance(raw, bytes):
                 # Viewer binary uploads are not accepted; screen frames flow host -> viewer.
                 continue
             try:
                 event = json.loads(raw)
-            except json.JSONDecodeError:
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(event, dict):
                 continue
             kind = event.get("type")
+            if not isinstance(kind, str):
+                continue
             if kind == "viewer_end":
                 hub.approved.discard(device_id)
                 active_host = hub.hosts.get(device_id)
