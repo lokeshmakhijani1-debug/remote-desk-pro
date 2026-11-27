@@ -564,7 +564,10 @@ async def run_once(args, stop_event=None):
     import certifi
     import websockets
     endpoint = args.server.rstrip("/") + f"/ws/host/{args.device_id}"
-    endpoint = endpoint.replace("https://", "wss://").replace("http://", "ws://")
+    if endpoint.startswith("https:"):
+        endpoint = "wss:" + endpoint[len("https:"):]
+    elif endpoint.startswith("http:"):
+        endpoint = "ws:" + endpoint[len("http:"):]
     tls_context = ssl.create_default_context(cafile=certifi.where()) if endpoint.startswith("wss://") else None
     async with websockets.connect(
         endpoint, ssl=tls_context, max_size=8 * 1024 * 1024,
@@ -1115,7 +1118,7 @@ def main():
         webview.create_window("Remote Desk Pro — Viewer", args.server.rstrip("/") + "/", width=1360, height=900, min_size=(900, 600))
         webview.start(gui="edgechromium")
         return
-    log.info("Startup mode: device_id_set=%s secret_set=%s", bool(args.device_id), bool(args.secret))
+    log.info("Startup mode: device_id_set=%s credential_configured=%s", bool(args.device_id), bool(args.secret))
     set_windows_dpi_awareness()
     if not args.device_id and not args.secret:
         log.info("Launching native desktop GUI")
