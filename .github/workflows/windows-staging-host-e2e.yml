@@ -72,10 +72,17 @@ jobs:
       - name: Build instrumented Windows agent from this branch
         shell: pwsh
         run: |
-          & "agent/build_windows.ps1"
-          if ($LASTEXITCODE -ne 0) { throw "Windows agent build failed." }
-          if (-not (Test-Path "agent/dist/RemoteDeskPro-Agent.exe")) { throw "Expected Windows executable was not produced." }
-          $hash = (Get-FileHash -LiteralPath "agent/dist/RemoteDeskPro-Agent.exe" -Algorithm SHA256).Hash
+          $repoRoot = $env:GITHUB_WORKSPACE
+          $exePath = Join-Path $repoRoot "agent/dist/RemoteDeskPro-Agent.exe"
+          Push-Location $repoRoot
+          try {
+            & (Join-Path $repoRoot "agent/build_windows.ps1")
+            if ($LASTEXITCODE -ne 0) { throw "Windows agent build failed." }
+          } finally {
+            Pop-Location
+          }
+          if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) { throw "Expected Windows executable was not produced at $exePath" }
+          $hash = (Get-FileHash -LiteralPath $exePath -Algorithm SHA256).Hash
           "E2E_AGENT_SHA256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append
           "New E2E executable SHA-256: $hash"
 
