@@ -58,7 +58,7 @@ jobs:
       - name: Semgrep SAST
         id: semgrep
         if: steps.semgrep_install.outcome == 'success'
-        run: semgrep scan --config auto --json --output reports/universal-qa/semgrep.json .
+        run: semgrep scan --config auto --error --json --output reports/universal-qa/semgrep.json .
         continue-on-error: true
       - name: Python dependency audit
         id: pip_audit
@@ -66,7 +66,6 @@ jobs:
         run: |
           shopt -s globstar nullglob
           files=(**/requirements*.txt)
-          if [[ -f pyproject.toml ]]; then files+=(pyproject.toml); fi
           if (( ${#files[@]} == 0 )); then echo '{"status":"skipped","reason":"No Python manifests"}' > reports/universal-qa/pip-audit.json; exit 0; fi
           python -m pip install --disable-pip-version-check pip-audit
           for file in "${files[@]}"; do
