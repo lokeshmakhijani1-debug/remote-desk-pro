@@ -1118,7 +1118,7 @@ def main():
         webview.create_window("Remote Desk Pro — Viewer", args.server.rstrip("/") + "/", width=1360, height=900, min_size=(900, 600))
         webview.start(gui="edgechromium")
         return
-    log.info("Startup mode: device_id_set=%s credential_configured=%s", bool(args.device_id), bool(args.secret))
+    log.info("Starting native host agent")
     set_windows_dpi_awareness()
     if not args.device_id and not args.secret:
         log.info("Launching native desktop GUI")
