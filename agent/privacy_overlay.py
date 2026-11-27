@@ -1,154 +1,101 @@
-"""Native Win32 reversible privacy curtain for an approved remote session."""
-from __future__ import annotations
-
 import ctypes
-import os
 import threading
-import time
-from ctypes import wintypes
+import tkinter as tk
+from typing import Callable, Optional
 
+WDA_EXCLUDEFROMCAPTURE = 0x00000011
 
 class PrivacyBanner:
-    """Topmost click-through Win32 black curtain excluded from screen capture."""
-
-    def __init__(self) -> None:
-        self._thread: threading.Thread | None = None
-        self._hwnd: int | None = None
+    def __init__(self, on_emergency_unlock: Optional[Callable[[], None]] = None, on_unlock: Optional[Callable[[], None]] = None, **kwargs):
+        self._on_unlock = on_emergency_unlock or on_unlock
+        self._active = False
+        self._mode = 'black'
+        self._root = None
+        self._thread = None
         self._ready = threading.Event()
-        self._stop_flag = threading.Event()
-        self._stopped = threading.Event()
-        self._error: BaseException | None = None
-        self._mode = "black"
+        self._lock = threading.Lock()
 
-    def start(self, mode: str = "black") -> bool:
-        if os.name != "nt":
-            return False
-        if mode not in {"black", "banner"}:
-            mode = "black"
-        if self._thread and self._thread.is_alive():
-            if self._mode == mode:
+    def start(self, mode: str = 'black', **kwargs) -> bool:
+        with self._lock:
+            self._mode = mode if mode in ('black', 'banner') else 'black'
+            if self._active:
                 return True
-            self.stop()
-        self._mode = mode
-        self._ready.clear()
-        self._stop_flag.clear()
-        self._stopped.clear()
-        self._error = None
-        self._thread = threading.Thread(target=self._run, name="rdp-win32-privacy", daemon=True)
-        self._thread.start()
-        if not self._ready.wait(5):
-            self.stop()
-            raise RuntimeError("Privacy screen did not initialize")
-        if self._error:
-            raise RuntimeError(f"Privacy screen failed: {self._error}") from self._error
+            self._active = True
+            self._ready.clear()
+            self._thread = threading.Thread(target=self._run_tk, daemon=True)
+            self._thread.start()
+        self._ready.wait(timeout=1.5)
         return True
 
-    def _run(self) -> None:
-        user32 = ctypes.WinDLL("user32", use_last_error=True)
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
-        user32.CreateWindowExW.argtypes = [
-            wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,
-            ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
-            wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, wintypes.LPVOID
-        ]
-        user32.CreateWindowExW.restype = wintypes.HWND
-        kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
-        kernel32.GetModuleHandleW.restype = wintypes.HMODULE
-        user32.SetLayeredWindowAttributes.argtypes = [wintypes.HWND, wintypes.COLORREF, wintypes.BYTE, wintypes.DWORD]
-        user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
-        user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
-        user32.DestroyWindow.argtypes = [wintypes.HWND]
-        user32.GetDC.argtypes = [wintypes.HWND]
-        user32.GetDC.restype = wintypes.HDC
-        user32.ReleaseDC.argtypes = [wintypes.HWND, wintypes.HDC]
-        gdi32.CreateSolidBrush.argtypes = [wintypes.COLORREF]
-        gdi32.CreateSolidBrush.restype = wintypes.HBRUSH
-        gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
-        user32.FillRect.argtypes = [wintypes.HDC, ctypes.POINTER(wintypes.RECT), wintypes.HBRUSH]
-        gdi32.GetDeviceGammaRamp.argtypes = [wintypes.HDC, ctypes.c_void_p]
-        gdi32.SetDeviceGammaRamp.argtypes = [wintypes.HDC, ctypes.c_void_p]
-        hwnd = None
-        hinstance = kernel32.GetModuleHandleW(None)
-        orig_gamma = (ctypes.c_ushort * (256 * 3))()
-        gamma_applied = False
-        try:
-            vx = user32.GetSystemMetrics(76)
-            vy = user32.GetSystemMetrics(77)
-            vw = user32.GetSystemMetrics(78) or user32.GetSystemMetrics(0)
-            vh = user32.GetSystemMetrics(79) or user32.GetSystemMetrics(1)
+    def enable(self, mode: str = 'black', **kwargs) -> bool:
+        return self.start(mode=mode, **kwargs)
 
-            ex_style = 0x00000008 | 0x00000080 | 0x00080000 | 0x00000020
-            style = 0x80000000 | 0x10000000 | 0x00000004  # WS_POPUP | WS_VISIBLE | SS_BLACKRECT: opaque pure-black surface
+    def show(self, mode: str = 'black', **kwargs) -> bool:
+        return self.start(mode=mode, **kwargs)
 
-            hwnd = user32.CreateWindowExW(
-                ex_style, "STATIC", "", style,
-                vx, vy, vw, vh, None, None, hinstance, None
-            )
-            if not hwnd:
-                raise ctypes.WinError(ctypes.get_last_error())
-            self._hwnd = hwnd
-
-            user32.SetLayeredWindowAttributes(hwnd, 0, 255, 0x00000002)
-            user32.ShowWindow(hwnd, 5)
-            user32.SetWindowPos(hwnd, -1, vx, vy, vw, vh, 0x0040 | 0x0010)
-            hdc = user32.GetDC(hwnd)
-            if hdc:
-                brush = gdi32.CreateSolidBrush(0x00000000)
-                rect = wintypes.RECT(0, 0, vw, vh)
-                user32.FillRect(hdc, ctypes.byref(rect), brush)
-                if brush:
-                    gdi32.DeleteObject(brush)
-                user32.ReleaseDC(hwnd, hdc)
-            user32.UpdateWindow(hwnd)
-
-            if not user32.SetWindowDisplayAffinity(hwnd, 0x00000011):
-                user32.SetWindowDisplayAffinity(hwnd, 0x00000001)
-
-            screen_dc = user32.GetDC(None)
-            if screen_dc:
-                if gdi32.GetDeviceGammaRamp(screen_dc, ctypes.byref(orig_gamma)):
-                    zero_gamma = (ctypes.c_ushort * (256 * 3))()
-                    if gdi32.SetDeviceGammaRamp(screen_dc, ctypes.byref(zero_gamma)):
-                        gamma_applied = True
-                user32.ReleaseDC(None, screen_dc)
-            user32.RegisterHotKey(None, 0x5244, 0x0002 | 0x0001 | 0x0004, ord("U"))
-            self._ready.set()
-
-            msg = wintypes.MSG()
-            while not self._stop_flag.is_set():
-                while user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
-                    if msg.message == 0x0312 and msg.wParam == 0x5244:
-                        self._stop_flag.set()
-                        break
-                    user32.TranslateMessage(ctypes.byref(msg))
-                    user32.DispatchMessageW(ctypes.byref(msg))
-                time.sleep(0.03)
-        except BaseException as exc:
-            self._error = exc
-            self._ready.set()
-        finally:
-            if gamma_applied:
-                try:
-                    screen_dc = user32.GetDC(None)
-                    if screen_dc:
-                        gdi32.SetDeviceGammaRamp(screen_dc, ctypes.byref(orig_gamma))
-                        user32.ReleaseDC(None, screen_dc)
-                except Exception:
-                    pass
+    def stop(self) -> bool:
+        with self._lock:
+            if not self._active:
+                return False
+            self._active = False
+            r = self._root
+            self._root = None
+        if r is not None:
             try:
-                user32.UnregisterHotKey(None, 0x5244)
+                r.after(0, r.destroy)
             except Exception:
                 pass
-            if hwnd:
-                try:
-                    user32.DestroyWindow(hwnd)
-                except Exception:
-                    pass
-            self._hwnd = None
-            self._stopped.set()
+        return True
 
-    def stop(self) -> None:
-        self._stop_flag.set()
-        if threading.current_thread() is not self._thread:
-            self._stopped.wait(2)
+    def disable(self) -> bool:
+        return self.stop()
+
+    def hide(self) -> bool:
+        return self.stop()
+
+    def close(self) -> bool:
+        return self.stop()
+
+    def is_enabled(self) -> bool:
+        return self._active
+
+    @property
+    def active(self) -> bool:
+        return self._active
+
+    def _trigger_unlock(self, _event=None):
+        self.stop()
+        if self._on_unlock:
+            try:
+                self._on_unlock()
+            except Exception:
+                pass
+
+    def _run_tk(self):
+        try:
+            root = tk.Tk()
+            self._root = root
+            root.overrideredirect(True)
+            root.attributes('-topmost', True)
+            root.configure(bg='#000000')
+            user32 = ctypes.windll.user32
+            vx = user32.GetSystemMetrics(76)
+            vy = user32.GetSystemMetrics(77)
+            vw = user32.GetSystemMetrics(78) or root.winfo_screenwidth()
+            vh = user32.GetSystemMetrics(79) or root.winfo_screenheight()
+            root.geometry(f'{vw}x{vh}+{vx}+{vy}')
+            root.update_idletasks()
+            try:
+                hwnd = user32.GetParent(root.winfo_id()) or root.winfo_id()
+                user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
+            except Exception:
+                pass
+            root.bind('<Control-Alt-Shift-U>', self._trigger_unlock)
+            root.bind('<Control-Alt-Shift-u>', self._trigger_unlock)
+            root.focus_force()
+            self._ready.set()
+            root.mainloop()
+        except Exception:
+            self._ready.set()
+
+PrivacyOverlayManager = PrivacyBanner
