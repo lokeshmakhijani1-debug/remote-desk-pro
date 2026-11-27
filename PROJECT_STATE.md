@@ -1,74 +1,45 @@
-# Remote Desk Pro - Project State
+# Remote Desk Pro — Project State
 
-Updated: 2026-11-21 (IST)
+**Updated:** 2026-11-27  
+**Working branch:** `feature/v2-bidirectional-automation`  
+**Repository:** `lokeshmakhijani1-debug/remote-desk-pro`
 
-## Current checkpoint
-- Repository: lokeshmakhijani1-debug/remote-desk-pro
-- Branch: main
-- Phase 4 starting commit: 347dcd9a67bd630a64fc787956881e3a8d9f050e
-- Current main commit: d4b88e3 (pushed to origin/main; Render auto-deploy triggered).
-- Render service: srv-dc0917utlv9c739h7o30 (remote-desk-pro-pj29)
-- Verified live URL: ${RDP_SERVER}
-- Requested alias ${RDP_SERVER} returns HTTP 404.
+## Scope delivered on this branch
+- Session recordings now have a companion event sidecar for replay-safe mouse clicks, scrolls, modifier/navigation keys, and clear-input actions.
+- Printable keystrokes, typed text, clipboard contents, passwords, and arbitrary control payloads are excluded from the sidecar.
+- Completed MP4 recordings with a matching sidecar convert into the existing schema-v1 workflow JSON format. Video-only MP4 files are rejected rather than guessed from pixels.
+- Converted JSON is streamed through bounded, validated WebSocket frames and saved to an authenticated, owner-scoped backend workflow library.
+- The API supports private save/list/delete and explicit publish/unpublish into the existing Community Library.
+- Workflow History exposes conversion, save, list, delete, publish, unpublish, and an explicit **Replay Latest on Host** action.
+- Replay continues through the existing host-side `WorkflowReplayEngine`; conversion and publication never execute a workflow automatically.
+- Root `PROJECT_MANIFEST.md` and `test_instructions.json` were updated.
 
-## Phase 4 implementation
-- Native Tkinter GUI is the default double-click launch; optional CLI/headless arguments remain available.
-- First-run account login/create -> authenticated device pairing -> persistent device ID and encrypted device secret/token/password.
-- Windows DPAPI protects credentials in %APPDATA%/RemoteDeskPro/config.json; rotating logs in %APPDATA%/RemoteDeskPro/agent.log.
-- GUI displays Your ID, Dynamic Password, Copy, Rotate Password, Disconnect, host approval prompt, connection status and diagnostics.
-- Dynamic password has a 24-hour idle TTL; successful viewer connection refreshes the inactivity window; restart or explicit rotation immediately invalidates the previous password.
-- Account and viewer session JWTs use configured 30-day lifetime; established WebSocket sessions remain alive until explicit disconnect, and viewer reconnect reuses the device-scoped token.
-- Host/viewer reconnect, WebSocket keepalive/heartbeat, latency diagnostics, host online/offline events and stale-host replacement handling implemented.
-- One active viewer per device; atomic registration/removal under the hub lock; explicit `relay_ready` and `viewer_rejected` protocol events with close code 4429. Visible host approval remains mandatory.
+## Validation snapshot
+| Area | Result | Evidence |
+|---|---|---|
+| Workflow conversion, sidecar privacy and malformed-timeline tests | PASS | Dedicated `workflow-pipeline` Actions job |
+| Repeated replay-engine execution simulation | PASS | Same converted workflow replayed twice with mocked host input hooks |
+| Saved workflow API owner isolation and lifecycle | PASS | Dedicated API tests |
+| WebSocket conversion/export relay validation | PASS | Dedicated transport tests and stress harness |
+| Frontend production build | PASS | Dedicated workflow-pipeline job |
+| WebSocket concurrency/disconnect stress | PASS | `scripts/verify_websocket_stress.py --clients 12 --rounds 2`, including conversion/export frames |
+| Fault-injection and load regression | PASS | `tests/test_load_and_fault_injection.py` and `tests/test_v2_fault_injection.py` |
+| Gitleaks full-history scan | PASS | GitHub Actions |
+| Windows agent packaging and checksum | PASS | Windows V2 executable job |
+| Full legacy Python regression suite | FAIL — 3 existing privacy-overlay tests | `test_privacy_preview_and_native_overlay_are_pure_black`, `test_privacy_banner_is_disabled_off_windows`, `test_t25_privacy_overlay_registers_emergency_unlock_hotkey`; privacy-overlay implementation was not changed in this task |
 
-## Final Windows build candidate
-- Path: E:/GitHub-Vault/remote-desk-pro-main/agent/dist/RemoteDeskPro-Agent.exe
-- Size: 21,580,391 bytes
-- SHA-256: 8B7432A861A1532234808F3A8CBBD5A16DE1A1D81974751CF78600C90AC9F778
-- PyInstaller 6.22.3; Python 3.14.0; Windows 10 build 19045.
-- Frozen reconnect regression: PASS, 3 authenticated handshakes and 3 connection-log entries.
-- GUI startup smoke: PASS — visible windows titled `Remote Desk Pro` and `Link this computer`; `%APPDATA%/RemoteDeskPro/agent.log` created. Existing Desktop shortcut targets the final EXE path.
+## Not performed / remaining approvals
+- No merge to `main`, production deployment, or release was performed.
+- Supabase migration `20261127120000_saved_workflows.sql` is committed but has **not** been applied to the live database. Apply it through the approved database migration process before using the new persistence endpoints in production.
+- The repository tree contained no MP4 or `.events.jsonl` recording assets. Host-local recordings could not be inspected through GitHub repository access. The converter/replay pipeline was validated with generated test fixtures, not a real user recording.
+- Live Render E2E was not run because the existing headless script registers a persistent synthetic user/device in the live service; that production data mutation was not included in the granted scope.
+- The Windows job built and checksummed the executable, but no physical Windows GUI/input replay was performed.
+- The separate Windows laptop/local clone could not be inspected through the GitHub connector; no claim is made about its local repository state.
+- No external API keys or new paid services were added. No new secrets are required; runtime configuration remains environment-gated.
 
-## Validation
-- pytest: 10 passed (one upstream Starlette/httpx deprecation warning).
-- Python compileall: PASS.
-- Frontend TypeScript/Vite build: PASS.
-- git diff --check: PASS.
-- Live Render E2E: PASS against `${RDP_SERVER}` on deployed commit `2a08441`. Verified same-account registration/pairing, password rotation invalidation with viewer-token continuity, host approval, bidirectional clipboard relay, 185,000-byte chunked file transfer, one-viewer rejection event, heartbeat acknowledgement, and host reconnect while the viewer remained connected. Synthetic @example.com test accounts/devices remain in the database; they were not deleted.
-- Audit persistence: PASS — read-only Supabase query confirmed 12 persisted `rdp_audit_events` rows for the successful E2E device. The synthetic account role is technician, so the admin-only API was skipped; direct DB read verified persistence.
-
-## Release gate
-1. Phase 4 backend/frontend and viewer-handshake fixes are pushed in commit `2a08441` and deployed on Render; the final frozen-agent reconnect backoff fix is pushed in `d4b88e3`.
-2. Local validation: 10 Python tests passed; frontend build, GUI startup smoke and frozen EXE reconnect regression (3/3 handshakes) passed.
-3. Production E2E passed on `${RDP_SERVER}`; a read-only Supabase query independently confirmed 12 persisted audit rows for the successful synthetic device.
-4. Create private GitHub Release `v1.0.0` and upload the verified EXE plus SHA-256 checksum file. Repository is PRIVATE; release assets remain accessible only to repository collaborators. Do not change visibility.
-5. Record final release URL, tag, asset checksum and post-release Render health here and in PROJECT_MANIFEST.md.
-
-## Safety and exclusions
-- No production account password, device secret or APP_SECRET_KEY is embedded in the EXE or committed.
-- No Codespace was used.
-- Temporary debug-build folders/specs and generated frontend/tsconfig.tsbuildinfo were removed after diagnosis; only source, tests and project documentation are intended for commit.
-
-## Phase 7 checkpoint — host keepalive, mobile input, file consent, and gesture fixes (2026-11-22)
-- Repository: lokeshmakhijani1-debug/remote-desk-pro; branch main. Local base commit: 6664c70.
-- Updated only the host agent, desktop GUI, FastAPI relay, React viewer styles/UI, focused input/file-transfer tests, live E2E harness, and project checkpoint documentation.
-- Host relay: 2-second fixed retry and 5-second ping/pong; Windows system execution state is held while the desktop GUI is open.
-- File transfer: visible top-most Accept/Decline prompt from the Tkinter main thread, accepted file saves to Downloads, resumable chunks and SHA-256 finalization.
-- Mobile viewer: validated text event schema, visible Gboard-compatible text input/IME handling, direct Ctrl+V paste, pinch zoom 1.0x–3.0x, clamped one-finger pan, and zoomed tap coordinate mapping.
-- Visibility resume: refresh device presence, immediate heartbeat, and WebSocket reattachment if the resume heartbeat does not return.
-- Local validation: 49 pytest passed, Python compilation PASS, frontend production build PASS, git diff --check PASS. Live Playwright/Render/Windows host E2E is pending.
-- Next gate: commit/push targeted changes to main, verify CI and the latest-agent Windows workflow, confirm Render deployment/health, update the Desktop EXE with verified SHA-256, then run the expanded headless 390x844/touch E2E and record its report. No Codespace was started.
-
-
-## Phase 4/4 production certification hardening — 2026-11-27
-- Added FastAPI response security headers: MIME sniffing protection, frame denial, strict referrer policy, scoped Permissions-Policy, a restrictive framing/object/base CSP, and one-year HSTS only on HTTPS (including the Render HTTPS proxy signal).
-- Added automated response-header tests for HTTP, HTTPS, and forwarded HTTPS.
-- Added a real TCP loopback stress harness that runs the actual FastAPI host/viewer WebSocket relay under Uvicorn with an isolated temporary SQLite database; it exercises concurrent sessions, deterministic jitter, binary relay, abrupt disconnects, reconnection rounds, memory growth and file-descriptor cleanup.
-- Added Windows agent verification/launch harness. It validates the build metadata size and SHA-256 before any optional GUI process launch. Added tests proving tampered binaries and malformed digests are rejected before execution.
-- CI now includes real-network WebSocket stress, pip-audit dependency scanning, high-severity Bandit analysis, and full-history Gitleaks scanning.
-- Windows GUI execution remains opt-in via `python scripts/verify_windows_e2e.py --execute`; the default command is verification-only and is safe on non-Windows CI.
-- This cloud-only change does not claim that a physical Windows desktop session, production-load test, real packet-loss path, or production database mutation was executed. Live production health/header verification is a separate read-only check.
-
-- Follow-up hardening: HSTS relies on the ASGI request scheme (set by trusted Uvicorn proxy-header handling), not a client-supplied forwarding header. Gitleaks CI is configured to scan all Git refs/history.
-
-- Gitleaks full-history verification uses a dedicated CLI scan with `--log-opts=--all`; the Gitleaks Action separately scans the pushed commit. The Windows GUI launch command is kept outside the cross-platform non-interactive command list as an opt-in Windows-only step.
+## Safety and compatibility notes
+- Host recording remains local-only. The server stores workflow JSON metadata, not the MP4 video.
+- Public access requires an explicit publish action. Unpublish removes the public Community Library copy while retaining the private saved workflow.
+- Workflow steps are restricted to replay-safe actions; printable keyboard keys and sensitive fields are rejected by the API.
+- A replay is a real host input action. The user must explicitly choose **Replay Latest on Host** while connected to an approved host session.
+- Existing privacy-overlay failures are recorded above and were intentionally left untouched to keep this feature change scoped.
