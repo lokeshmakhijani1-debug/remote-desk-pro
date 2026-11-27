@@ -107,9 +107,23 @@ catch {
 }
 finally {
     Get-NetFirewallRule -DisplayName $firewallRule -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
-    if ($process) { & taskkill.exe /PID $process.Id /T /F 2>&1 | Out-Null }
+    # Avoid a second taskkill after the successful process-tree termination check:
+    # taskkill returns a non-zero code when the bootstrap PID has already exited.
+    if ($process -and -not $results.checks.Contains("agent_process_tree_terminated")) {
+        $remainingProcess = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+        if ($remainingProcess) {
+            & taskkill.exe /PID $process.Id /T /F 2>&1 | Out-Null
+            $cleanupExitCode = $LASTEXITCODE
+            if ($cleanupExitCode -notin @(0,128)) {
+                $results.status = "FAIL"
+                $results.errors += "Emergency agent process-tree cleanup failed with taskkill exit $cleanupExitCode."
+            }
+        }
+    }
     $env:APPDATA = $previousAppData
     $results.finished_at_utc = [DateTime]::UtcNow.ToString("o")
     $results | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $ReportPath -Encoding utf8
     Write-Host ($results | ConvertTo-Json -Depth 12)
+    # GitHub's pwsh wrapper exits using LASTEXITCODE; do not leak a handled cleanup code.
+    $global:LASTEXITCODE = 0
 }
