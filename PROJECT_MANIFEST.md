@@ -1117,3 +1117,14 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - **No policy bridge implied:** FastAPI custom HS256 tokens are not Supabase Auth JWTs. Owner authorization remains enforced in authenticated FastAPI routes; no attempt is made to consume the FastAPI token via `auth.jwt()`.
 - **Physical Windows tests:** not executed in this session; pending local host validation. Existing local repo path was not accessible to this cloud execution environment; changes were applied through the GitHub API directly to the specified feature branch.
 - **Branch guard:** migration and manifest changes are confined to `feature/v2-bidirectional-automation`; `main` was not targeted.
+
+
+## Saved-workflows TRUNCATE privilege remediation — 2026-11-27
+
+- Scope: project `Remote-desktop-pro` (`qxssuczpumsaqywifirv`), table `public.rdp_saved_workflows` only; branch `feature/v2-bidirectional-automation`.
+- **Production SQL applied:** `REVOKE TRUNCATE ON TABLE public.rdp_saved_workflows FROM anon, authenticated;` completed successfully.
+- **Migration aligned:** `supabase/migrations/20261127120000_saved_workflows.sql` now includes the same targeted REVOKE immediately after enabling RLS. No other table privileges or tables are modified by this statement.
+- RLS remains enabled with no policies. Previously verified SELECT/INSERT/UPDATE/DELETE grants remain absent for `anon` and `authenticated`; this update additionally removes their TRUNCATE privilege. The verified backend `postgres` role has `BYPASSRLS` and retains its server-side SQLAlchemy access.
+- Verification is recorded separately after re-reading effective table privileges and RLS state. Windows physical-host tests remain pending; no local test pass is claimed.
+- This checkpoint supersedes any earlier manifest wording that said the RLS change or migration alignment was pending. The separate live-schema type mismatch remains unresolved and is not altered here.
+- Branch scope: feature branch only; `main` was not modified.
