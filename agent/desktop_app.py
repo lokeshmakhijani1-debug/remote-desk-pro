@@ -13,6 +13,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 from ctypes import wintypes
 from pathlib import Path
 import tkinter as tk
@@ -138,6 +139,11 @@ def save_config(data: dict) -> None:
     os.replace(temp, CONFIG_FILE)
 
 def api(server: str, path: str, body: dict | None = None, token: str | None = None) -> dict:
+    parsed_server = urlsplit(server)
+    if (parsed_server.scheme not in {"http", "https"} or not parsed_server.netloc
+            or parsed_server.username or parsed_server.password
+            or not path.startswith("/") or path.startswith("//")):
+        raise ValueError("Server URL must be absolute HTTP(S) and API path must be local")
     payload = None if body is None else json.dumps(body).encode("utf-8")
     headers = {"Accept": "application/json"}
     if payload is not None:
@@ -146,7 +152,7 @@ def api(server: str, path: str, body: dict | None = None, token: str | None = No
         headers["Authorization"] = "Bearer " + token
     req = urllib.request.Request(server.rstrip("/") + path, data=payload, headers=headers, method="POST" if payload is not None else "GET")
     try:
-        with urllib.request.urlopen(req, timeout=25) as response:
+        with urllib.request.urlopen(req, timeout=25) as response:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         try:
