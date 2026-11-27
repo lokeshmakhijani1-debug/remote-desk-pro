@@ -1285,3 +1285,11 @@ python -m pytest -q tests/test_v2_30_suite.py::test_t25_privacy_overlay_register
 - Phase 4 Actions runs are the evidence source for regression tests, frontend build, Semgrep, dependency audits, ZAP, Lighthouse, UI/UX, Windows packaged-agent E2E and stress tests.
 - Staging target: `https://remote-desk-pro-rtij.onrender.com`. Production Render remains out of scope and unchanged.
 - Certification is conditional on completed runs and downloadable artifacts. No Lighthouse, ZAP, Windows runtime or 100% certification claim is made without passing evidence.
+
+
+### Phase 4 follow-up — live-audit remediation
+- Latest staging audit before follow-up fixes: Semgrep 0 findings; Gitleaks, Python dependency audit, Node dependency audit and Playwright smoke passed. Lighthouse: performance 99, accessibility 94, best practices 96, SEO 100. UI/UX heuristic 100/100 (unauthenticated login view only).
+- Lighthouse identified three WCAG AA contrast failures on the login eyebrow, description and hint text. Updated those text colors to exceed 4.5:1 against the white login card; the follow-up Lighthouse run must confirm the score.
+- ZAP reported zero FAIL alerts but exited with three WARN alerts: cache-control review (10015), storable/cacheable content (10049) and Modern Web Application (10109). Added a no-store response policy to avoid caching remote-access content. The non-security crawler heuristic 10109 is retained as INFO in `zap-baseline.conf`; all other rules remain at the default WARN threshold.
+- Added regression assertions for `Cache-Control: no-store, max-age=0` and `Pragma: no-cache`.
+- Follow-up audit and Windows packaged-host E2E must complete before final certification. The earlier Windows E2E attempt failed before launching the agent due to the PowerShell working-directory path bug; that workflow was fixed and a fresh real-agent staging run is in progress.
