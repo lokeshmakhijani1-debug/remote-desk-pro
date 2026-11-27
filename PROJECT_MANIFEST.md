@@ -1266,3 +1266,13 @@ python -m pytest -q tests/test_v2_30_suite.py::test_t25_privacy_overlay_register
 - Added HTTP(S)-only URL validation before urllib requests in the desktop API and audit utility.
 - Scope: feature/v2-bidirectional-automation only. No main branch update or production Render deployment performed.
 - Follow-up verification: Python compilation, targeted security/WebSocket tests, Bandit, pip-audit, Semgrep, Docker build and universal staging audit.
+
+
+## Phase 3 — Frontend accessibility, product UI and Vercel configuration
+- Added explicit label/input associations, stable input IDs and accessible names for authentication, device pairing and partner connection fields.
+- Added a labelled workspace navigation landmark; retained the existing semantic application header and main landmarks. The authentication screen now uses a main landmark and labelled section.
+- Added visible keyboard focus indicators, stronger label/placeholder contrast, reduced-motion handling and clearer primary action emphasis.
+- Added live connection-state badges for Online, Reconnecting, Offline and pending/connecting states with polite screen-reader announcements.
+- Added root `vercel.json` for the monorepo layout: frontend install/build commands, `frontend/dist` output and SPA fallback rewrite. Vercel project settings were not changed and no deployment was triggered.
+- Existing remote-control, keyboard, mouse/scroll, privacy, recording, clipboard and file-transfer event handlers were preserved.
+- Verification is deferred to Phase 4; no Lighthouse score or successful Vercel deployment is claimed from source edits alone.
