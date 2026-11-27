@@ -237,8 +237,8 @@ class SessionRecorder:
                             px, py = pyautogui.position()
                             sw, sh = pyautogui.size()
                             if sw > 1 and sh > 1:
-                                self._event_last_pointer = (round(max(0, min(1, px / (sw - 1)), 6),
-                                                                   round(max(0, min(1, py / (sh - 1)), 6)))
+                                self._event_last_pointer = (round(max(0.0, min(1.0, px / (sw - 1))), 6),
+                                                                   round(max(0.0, min(1.0, py / (sh - 1))), 6))
                         except Exception:
                             pass
                     if self._event_last_pointer:
