@@ -35,7 +35,10 @@
     "python -m pytest -q tests/test_session_workflow_conversion.py -k repeat",
     "python -m pip install --upgrade pip-audit semgrep && pip-audit -r requirements.txt -r agent/requirements.txt && semgrep scan --config auto --error backend agent frontend",
     "python -m json.tool test_instructions.json > /dev/null",
-    "python -m pip install --upgrade yamllint && yamllint -d relaxed .github/workflows/universal-qa-audit.yml"
+    "python -m pip install --upgrade yamllint && yamllint -d relaxed .github/workflows/universal-qa-audit.yml",
+    "python -m json.tool test_instructions.json > /dev/null",
+    "python -m pip install --upgrade yamllint && yamllint -d relaxed .github/workflows/universal-qa-audit.yml",
+    "python -m pip install --upgrade playwright && python -m playwright install chromium && python -c \"from playwright.async_api import async_playwright; print('Playwright import OK')\""
   ],
   "optional_platform_commands": {
     "windows": [
@@ -44,6 +47,11 @@
     ],
     "cloud_audit": [
       "Dispatch .github/workflows/universal-qa-audit.yml with base_url set to the authorized QA target; download the universal-qa-audit-reports artifact and inspect audit-report.json and audit-report.md."
+    ],
+    "web_quality_audit": [
+      "Dispatch .github/workflows/universal-qa-audit.yml with base_url set to an authorized non-production HTTP(S) target.",
+      "Download universal-qa-audit-reports and inspect lighthouse.report.json, lighthouse.report.html, uiux-audit.json, uiux-audit.md, and uiux-homepage.png.",
+      "Review the heuristic score penalties and the three styling directions against the screenshot and rendered metrics; do not interpret the score as WCAG certification."
     ]
   }
 }
