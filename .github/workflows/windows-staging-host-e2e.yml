@@ -37,7 +37,6 @@ concurrency:
 
 jobs:
   windows-staging-host-e2e:
-    if: github.event_name == 'workflow_dispatch' || vars.RDP_STAGING_URL != ''
     runs-on: windows-latest
     timeout-minutes: 50
     steps:
@@ -83,7 +82,7 @@ jobs:
       - name: Run real packaged Windows host against V2 staging
         shell: pwsh
         env:
-          RDP_BASE_URL: ${{ inputs.target_url || vars.RDP_STAGING_URL }}
+          RDP_BASE_URL: ${{ inputs.target_url || vars.RDP_STAGING_URL || 'https://remote-desk-pro-rtij.onrender.com' }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:RDP_BASE_URL)) { throw "Provide target_url or configure the RDP_STAGING_URL repository variable." }
           New-Item -ItemType Directory -Force "tests/artifacts" | Out-Null
