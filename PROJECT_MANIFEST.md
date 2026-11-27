@@ -1234,3 +1234,12 @@ python -m pytest -q tests/test_v2_30_suite.py::test_t25_privacy_overlay_register
 - No new application runtime dependency, server, listening port, environment secret, Render deployment, database change, or production request was introduced by the code change. The audit uses runner-installed Lighthouse and the existing optional `base_url`/`QA_BASE_URL` target.
 - Updated `test_instructions.json` with YAML/JSON validation and instructions to inspect the Lighthouse and UI/UX evidence artifact.
 - Scope remains the V2 feature branch only. No changes to `main` or production Render. Actual Lighthouse scores, DOM metrics, screenshot evidence, and scanner execution are pending the dedicated Phase 4 workflow run.
+
+
+## V2 staging execution adapter — 2026-11-27
+
+- Added `.github/workflows/v2-staging-universal-qa.yml`, a narrow caller workflow that invokes the reusable universal audit with the V2 staging base URL. It is limited to the V2 feature branch and relevant workflow/application paths; the generic workflow itself remains project-agnostic.
+- Extended `.github/workflows/universal-qa-audit.yml` with `workflow_call` inputs for `base_url` and `fail_on_findings`, allowing other repositories/workflows to reuse it without copying scanner steps.
+- Triggered by a feature-branch push. Staging execution run: `46049417804` (GitHub Actions). It runs Gitleaks, Semgrep, Python/Node dependency checks, Playwright, OWASP ZAP, Lighthouse, DOM/CSS inspection, and artifact/report publication.
+- Run observation at documentation update: Gitleaks, Semgrep, Python dependency audit, Node dependency audit, and Playwright smoke/crawl completed successfully; ZAP baseline was still running. Lighthouse, DOM/CSS UI/UX inspection, consolidated artifact publication, and final run conclusion were not yet available. Do not treat Phase 4 as complete until run `46049417804` finishes and its evidence artifact is inspected.
+- No application code, database, Render service configuration, secrets, or production deployment was changed. The staging URL is supplied by the V2-specific caller; the universal audit remains reusable and configurable.
