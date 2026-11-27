@@ -1210,3 +1210,15 @@ python -m pytest -q tests/test_v2_30_suite.py::test_t25_privacy_overlay_register
 - Side-effect boundary: the current API has no safe device/account deletion endpoint. The harness creates a uniquely named test account and paired device and leaves the device offline after the run; no database deletion or cleanup endpoint is attempted. Run only against the dedicated V2 staging database.
 - Execution status at commit time: workflow and harness committed; cloud Windows execution still pending. A successful build artifact alone is not a 100% V2 certification.
 - External Vercel check: commit status reports a failed Vercel deployment link (`3moujcCRj1r2Me9iKxA5YT1VVo4X`). Its detailed deployment log is not accessible through the connected GitHub interface; no speculative Vercel config change was made.
+
+
+## Universal QA and security audit workflow — 2026-11-27
+
+- Added `.github/workflows/universal-qa-audit.yml`, a repository-agnostic GitHub Actions workflow with `workflow_dispatch` and all-branch push triggers. It does not contain Remote Desk Pro service names, fixed deployment URLs, project secrets, or project-specific assumptions.
+- Technology detection records whether Python dependency manifests, Node package manifests, and Dockerfiles are present. Gitleaks scans Git history; Semgrep runs generic SAST rules; pip-audit checks discovered `requirements*.txt` files; npm audit checks Node projects only when a lockfile is present.
+- Optional live checks accept a workflow-dispatch `base_url` or repository variable `QA_BASE_URL`. Playwright performs a generic same-origin crawl (up to 20 pages), captures page titles/statuses and JavaScript page errors; OWASP ZAP runs its baseline scan against the supplied target only. No live target is contacted when no URL is configured.
+- Reports are consolidated into `reports/universal-qa/audit-report.json` and `audit-report.md`, with individual scanner evidence uploaded as the `universal-qa-audit-reports` Actions artifact (30-day retention).
+- Scanner failures are non-blocking by default so the report can be generated; manual dispatch can enable `fail_on_findings` for a strict gate. Findings must be reviewed in scanner evidence; a baseline scan is not a penetration-test certification.
+- Existing tools/actions reused: GitHub-hosted Ubuntu runner, Gitleaks Action, Semgrep, pip-audit, npm audit, Playwright Chromium, OWASP ZAP stable container, and upload-artifact. No application runtime dependency, listening port, Render service, deployment, database, or environment secret was added or changed. Optional target configuration uses only `QA_BASE_URL`.
+- Updated root `test_instructions.json` with SAST/dependency, JSON validation, YAML lint, and manual cloud-artifact review instructions.
+- Scope: this workflow and documentation were committed only to `feature/v2-bidirectional-automation`; `main` and production Render remain untouched. The first cloud workflow run and its scanner findings are pending Phase 4.
