@@ -8,7 +8,9 @@ EXPECTED_HEADERS = {
     "x-frame-options": "DENY",
     "referrer-policy": "strict-origin-when-cross-origin",
     "permissions-policy": "camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()",
-    "content-security-policy": "frame-ancestors 'none'; object-src 'none'; base-uri 'self'",
+    "cross-origin-embedder-policy": "credentialless",
+    "cross-origin-opener-policy": "same-origin",
+    "cross-origin-resource-policy": "same-origin",
 }
 
 
@@ -18,6 +20,11 @@ def test_http_responses_include_security_headers_without_changing_payload():
     assert response.status_code == 200
     for name, value in EXPECTED_HEADERS.items():
         assert response.headers.get(name) == value
+    csp = response.headers["content-security-policy"]
+    for directive in ("default-src 'self'", "script-src 'self'", "form-action 'self'", "frame-ancestors 'none'", "object-src 'none'"):
+        assert directive in csp
+    script_policy = csp.split("script-src ", 1)[1].split(";", 1)[0]
+    assert "unsafe-inline" not in script_policy
 
 
 def test_hsts_is_only_added_for_https_requests():
