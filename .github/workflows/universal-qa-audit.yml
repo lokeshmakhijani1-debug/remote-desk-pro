@@ -1,0 +1,193 @@
+name: Universal QA and Security Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Optional deployed HTTP(S) URL for browser and ZAP checks
+        required: false
+        type: string
+      fail_on_findings:
+        description: Fail when a configured scanner fails
+        required: false
+        default: false
+        type: boolean
+  push:
+    branches: ["**"]
+
+permissions:
+  contents: read
+  actions: read
+  security-events: write
+
+concurrency:
+  group: universal-qa-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      QA_BASE_URL: ${{ inputs.base_url || vars.QA_BASE_URL || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Initialize reports and detect stack
+        run: |
+          mkdir -p reports/universal-qa
+          python - <<'PY'
+          import json, pathlib
+          r=pathlib.Path(".")
+          d={"python":any(r.glob("**/requirements*.txt")) or any(r.glob("**/pyproject.toml")),
+             "node":any(p.name=="package.json" and "node_modules" not in p.parts for p in r.rglob("package.json")),
+             "docker":(r/"Dockerfile").exists() or any(r.glob("**/Dockerfile"))}
+          pathlib.Path("reports/universal-qa/detected-stack.json").write_text(json.dumps(d,indent=2))
+          PY
+      - name: Gitleaks full-history secret scan
+        id: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+      - name: Install Semgrep
+        id: semgrep_install
+        run: python -m pip install --disable-pip-version-check semgrep
+        continue-on-error: true
+      - name: Semgrep SAST
+        id: semgrep
+        if: steps.semgrep_install.outcome == 'success'
+        run: semgrep scan --config auto --json --output reports/universal-qa/semgrep.json .
+        continue-on-error: true
+      - name: Python dependency audit
+        id: pip_audit
+        shell: bash
+        run: |
+          shopt -s globstar nullglob
+          files=(**/requirements*.txt)
+          if [[ -f pyproject.toml ]]; then files+=(pyproject.toml); fi
+          if (( ${#files[@]} == 0 )); then echo '{"status":"skipped","reason":"No Python manifests"}' > reports/universal-qa/pip-audit.json; exit 0; fi
+          python -m pip install --disable-pip-version-check pip-audit
+          for file in "${files[@]}"; do
+            safe=$(echo "$file" | tr '/.' '__')
+            pip-audit -r "$file" --format json > "reports/universal-qa/pip-audit-$safe.json"
+          done
+        continue-on-error: true
+      - name: Node dependency audit
+        id: npm_audit
+        shell: bash
+        run: |
+          mapfile -t manifests < <(find . -type f -name package.json -not -path '*/node_modules/*' -not -path '*/.git/*' | sort)
+          if (( ${#manifests[@]} == 0 )); then echo '{"status":"skipped","reason":"No package.json manifests"}' > reports/universal-qa/npm-audit.json; exit 0; fi
+          failed=0
+          for manifest in "${manifests[@]}"; do
+            dir=$(dirname "$manifest")
+            [[ -f "$dir/package-lock.json" || -f "$dir/npm-shrinkwrap.json" ]] || { echo "Skip $dir: no lockfile"; continue; }
+            name=$(echo "$dir" | sed 's#^\./##; s#[/]#_#g')
+            (cd "$dir" && npm audit --json) > "reports/universal-qa/npm-audit-${name:-root}.json" || failed=1
+          done
+          exit "$failed"
+        continue-on-error: true
+      - name: Install Playwright
+        id: playwright_install
+        if: env.QA_BASE_URL != ''
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+        continue-on-error: true
+      - name: Generic Playwright browser smoke and same-origin crawl
+        id: playwright
+        if: env.QA_BASE_URL != '' && steps.playwright_install.outcome == 'success'
+        run: |
+          python - <<'PY'
+          import asyncio,json,os
+          from urllib.parse import urlparse
+          from playwright.async_api import async_playwright
+          async def main():
+            base=os.environ["QA_BASE_URL"].strip(); parsed=urlparse(base)
+            if parsed.scheme not in ("http","https") or not parsed.netloc: raise SystemExit("QA_BASE_URL must be HTTP(S)")
+            seen=set(); queue=[base]; pages=[]; errors=[]
+            async with async_playwright() as p:
+              browser=await p.chromium.launch(); page=await browser.new_page()
+              page.on("pageerror",lambda e: errors.append(str(e)[:400]))
+              while queue and len(seen)<20:
+                url=queue.pop(0)
+                if url in seen: continue
+                seen.add(url)
+                try:
+                  response=await page.goto(url,wait_until="domcontentloaded",timeout=30000)
+                  status=response.status if response else None
+                  pages.append({"url":url,"status":status,"title":await page.title()})
+                  if status is None or status>=400: errors.append(f"HTTP {status}: {url}")
+                  links=await page.locator("a[href]").evaluate_all("(a)=>a.map(x=>x.href)")
+                  for link in links:
+                    if urlparse(link).netloc==parsed.netloc and link not in seen and link not in queue: queue.append(link.split("#",1)[0])
+                except Exception as e: errors.append(f"{url}: {str(e)[:400]}")
+              await browser.close()
+            report={"target":base,"pages_checked":len(pages),"pages":pages,"errors":errors}
+            open("reports/universal-qa/playwright-smoke.json","w").write(json.dumps(report,indent=2))
+            if not pages or errors: raise SystemExit(1)
+          asyncio.run(main())
+          PY
+        continue-on-error: true
+      - name: OWASP ZAP baseline
+        id: zap
+        if: env.QA_BASE_URL != ''
+        run: |
+          docker run --rm --network host -v "$PWD/reports/universal-qa:/zap/wrk/:rw" ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t "$QA_BASE_URL" -J zap-baseline.json -r zap-baseline.html
+        continue-on-error: true
+      - name: Consolidate JSON and Markdown reports
+        if: always()
+        env:
+          GITLEAKS: ${{ steps.gitleaks.outcome || 'skipped' }}
+          SEMGREP: ${{ steps.semgrep.outcome || 'skipped' }}
+          PIP_AUDIT: ${{ steps.pip_audit.outcome || 'skipped' }}
+          NPM_AUDIT: ${{ steps.npm_audit.outcome || 'skipped' }}
+          PLAYWRIGHT: ${{ steps.playwright.outcome || 'skipped' }}
+          ZAP: ${{ steps.zap.outcome || 'skipped' }}
+          REPOSITORY: ${{ github.repository }}
+          REF_NAME: ${{ github.ref }}
+          COMMIT_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import json,os,pathlib
+          p=pathlib.Path("reports/universal-qa")
+          keys=["GITLEAKS","SEMGREP","PIP_AUDIT","NPM_AUDIT","PLAYWRIGHT","ZAP"]
+          status={k:os.getenv(k,"skipped") for k in keys}
+          stack=json.loads((p/"detected-stack.json").read_text()) if (p/"detected-stack.json").exists() else {}
+          report={"schema_version":1,"repository":os.getenv("REPOSITORY"),"ref":os.getenv("REF_NAME"),
+            "commit":os.getenv("COMMIT_SHA"),"run_id":os.getenv("RUN_ID"),
+            "target_url":os.getenv("QA_BASE_URL") or None,"detected_stack":stack,
+            "scanner_step_outcomes":status,"evidence_files":sorted(x.name for x in p.iterdir()),
+            "limitations":["Browser and ZAP checks require QA_BASE_URL or workflow_dispatch base_url.",
+              "npm audit requires lockfiles; Python audit requires dependency manifests.",
+              "Baseline scans do not replace an authorized penetration test."]}
+          (p/"audit-report.json").write_text(json.dumps(report,indent=2))
+          lines=["# Universal QA and Security Audit","","Repository: "+str(report["repository"]),
+            "Ref: "+str(report["ref"]),"Commit: "+str(report["commit"]),
+            "Target: "+str(report["target_url"] or "Not configured; live checks skipped"),
+            "","## Scanner outcomes","","| Scanner | Result |","|---|---|"]
+          lines += [f"| {k} | {v} |" for k,v in status.items()]
+          lines += ["","## Detected stack","","\x60\x60\x60json",json.dumps(stack,indent=2),"\x60\x60\x60",
+            "","## Limitations"]+["- "+x for x in report["limitations"]]
+          (p/"audit-report.md").write_text("\n".join(lines)+"\n")
+          PY
+      - name: Publish workflow summary
+        if: always()
+        run: cat reports/universal-qa/audit-report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload complete audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: universal-qa-audit-reports
+          path: reports/universal-qa/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Optional strict scanner gate
+        if: always() && inputs.fail_on_findings == true
+        run: |
+          for result in "${{ steps.gitleaks.outcome }}" "${{ steps.semgrep.outcome }}" "${{ steps.pip_audit.outcome }}" "${{ steps.npm_audit.outcome }}" "${{ steps.playwright.outcome }}" "${{ steps.zap.outcome }}"; do
+            [[ "$result" != "failure" ]] || { echo "A configured scanner failed"; exit 1; }
+          done
