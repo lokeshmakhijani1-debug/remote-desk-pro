@@ -58,8 +58,10 @@ class PrivacyBanner:
                     daemon=True,
                 )
                 self._hotkey_thread.start()
-        self._ready.wait(timeout=1.5)
-        return True
+        if not self._ready.wait(timeout=1.5):
+            self.stop()
+            return False
+        return self._active
 
     def enable(self, mode: str = "black", **kwargs) -> bool:
         return self.start(mode=mode, **kwargs)
