@@ -20,6 +20,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  workflow-pipeline:
+    name: Session recording workflow E2E and stress
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-dev.txt
+            agent/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install workflow pipeline dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt -r agent/requirements.txt
+          npm --prefix frontend install --no-audit --no-fund
+      - name: Run recording conversion, owner API, relay and UI tests
+        run: python -m pytest -q tests/test_session_workflow_conversion.py tests/test_saved_workflows.py tests/test_workflow_transport_security.py tests/test_workflow_ui_contract.py
+      - name: Build frontend bundle
+        run: npm --prefix frontend run build
+      - name: Run WebSocket concurrency and disconnect stress
+        run: python scripts/verify_websocket_stress.py --clients 12 --rounds 2
+      - name: Run fault-injection and load regression
+        run: python -m pytest -q tests/test_load_and_fault_injection.py tests/test_v2_fault_injection.py
+
   tests:
     name: Python regression and frontend build
     runs-on: ubuntu-latest
