@@ -37,8 +37,9 @@ def open_fd_count() -> int | None:
 
 
 async def exercise_pair(base_url: str, device_id: str, secret: str, token: str, index: int) -> None:
-    host_uri = base_url.replace("http://", "ws://") + f"/ws/host/{device_id}"
-    viewer_uri = base_url.replace("http://", "ws://") + f"/ws/viewer/{device_id}"
+    websocket_base = base_url.replace("https:", "wss:", 1).replace("http:", "ws:", 1)
+    host_uri = websocket_base + f"/ws/host/{device_id}"
+    viewer_uri = websocket_base + f"/ws/viewer/{device_id}"
     async with websockets.connect(host_uri, ping_interval=10, close_timeout=2, max_size=2**20) as host:
         await host.send(json.dumps({"type": "auth", "secret": secret}))
         connected = json.loads(await asyncio.wait_for(host.recv(), timeout=5))
