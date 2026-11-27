@@ -65,6 +65,12 @@ def test_windows_staging_e2e_allows_backend_heartbeat_expiry_after_agent_exit():
     assert "-ExpectedOnline $false -TimeoutSeconds 75" in script
 
 
+def test_windows_staging_harness_does_not_leak_cleanup_taskkill_exit_code():
+    script = (Path(__file__).resolve().parents[1] / "tests/windows_staging_host_e2e.ps1").read_text(encoding="utf-8")
+    assert 'if ($process -and -not $results.checks.Contains("agent_process_tree_terminated"))' in script
+    assert "$global:LASTEXITCODE = 0" in script
+
+
 def test_windows_staging_workflow_uses_report_as_certification_source_of_truth():
     workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/windows-staging-host-e2e.yml").read_text(encoding="utf-8")
     assert '$report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json' in workflow
