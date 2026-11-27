@@ -57,6 +57,28 @@ async def exercise_pair(base_url: str, device_id: str, secret: str, token: str, 
             approval = json.loads(await asyncio.wait_for(viewer.recv(), timeout=5))
             assert approval.get("type") == "host_approved"
 
+            # Exercise the real approved viewer→host conversion request and validated
+            # host→viewer JSON export relay as part of each concurrent stress pair.
+            joined = json.loads(await asyncio.wait_for(host.recv(), timeout=5))
+            assert joined.get("type") == "viewer_joined"
+            recording_name = f"session_stress_{index}.mp4"
+            await viewer.send(json.dumps({"type": "recording_convert_workflow", "filename": recording_name}))
+            convert_request = json.loads(await asyncio.wait_for(host.recv(), timeout=5))
+            assert convert_request == {"type": "recording_convert_workflow", "filename": recording_name}
+            export_id = f"{index:024x}"
+            export_data = json.dumps({"schema_version": 1, "steps": [{"action": "checkpoint"}]})
+            await host.send(json.dumps({"type": "workflow_export_start", "export_id": export_id,
+                                        "filename": "workflow_20261127T120000000000Z.json",
+                                        "total_bytes": len(export_data.encode("utf-8"))}))
+            start_frame = json.loads(await asyncio.wait_for(viewer.recv(), timeout=5))
+            assert start_frame.get("type") == "workflow_export_start" and start_frame.get("export_id") == export_id
+            await host.send(json.dumps({"type": "workflow_export_chunk", "export_id": export_id, "data": export_data}))
+            chunk_frame = json.loads(await asyncio.wait_for(viewer.recv(), timeout=5))
+            assert chunk_frame.get("type") == "workflow_export_chunk" and chunk_frame.get("data") == export_data
+            await host.send(json.dumps({"type": "workflow_export_end", "export_id": export_id}))
+            end_frame = json.loads(await asyncio.wait_for(viewer.recv(), timeout=5))
+            assert end_frame == {"type": "workflow_export_end", "export_id": export_id}
+
             payload = bytes([index % 251]) * (16 * 1024)
             await host.send(payload)
             received = await asyncio.wait_for(viewer.recv(), timeout=5)
