@@ -12,6 +12,17 @@ on:
         required: false
         default: false
         type: boolean
+  workflow_call:
+    inputs:
+      base_url:
+        description: Optional deployed HTTP(S) URL for browser and ZAP checks
+        required: false
+        type: string
+      fail_on_findings:
+        description: Fail when a configured scanner fails
+        required: false
+        default: false
+        type: boolean
   push:
     branches: ["**"]
 
