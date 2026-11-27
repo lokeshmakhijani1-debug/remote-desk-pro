@@ -40,6 +40,8 @@ app.add_middleware(CORSMiddleware, allow_origins=settings.cors_list, allow_crede
 async def security_headers(request: Request, call_next):
     """Apply a restrictive, deployment-aware browser security policy."""
     response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
