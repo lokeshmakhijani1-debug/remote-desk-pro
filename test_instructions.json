@@ -53,7 +53,9 @@
     "python -m compileall -q agent backend tests",
     "python -m json.tool vercel.json > /dev/null",
     "npm --prefix frontend run build",
-    "semgrep scan --config auto --error --json --output reports/semgrep-phase4.json ."
+    "mkdir -p reports && semgrep scan --config auto --error --json --output reports/semgrep-phase4.json .",
+    "python -m pytest -q tests/test_security_headers.py tests/test_accessibility_contract.py",
+    "python -m json.tool test_instructions.json > /dev/null"
   ],
   "optional_platform_commands": {
     "windows": [
@@ -90,6 +92,11 @@
     "phase4_certification": [
       "Use the V2 Staging Universal QA Audit run on feature/v2-bidirectional-automation; confirm QA_BASE_URL is https://remote-desk-pro-rtij.onrender.com and inspect semgrep.json, zap-baseline.json/html, lighthouse JSON/HTML, playwright-smoke.json and uiux-audit.json/md.",
       "Do not certify until Python regression, frontend build, workflow stress/fault-injection, Semgrep, pip-audit, ZAP and Lighthouse/UIUX evidence is complete."
+    ],
+    "web_audit": [
+      "Dispatch .github/workflows/universal-qa-audit.yml with base_url=https://remote-desk-pro-rtij.onrender.com; inspect semgrep.json, zap-baseline.json/html, lighthouse.report.json/html and uiux-audit.json/md.",
+      "Require Semgrep findings=0, ZAP FAIL=0 and no WARN-level cache-control findings; rule 10109 is informational because it identifies a modern client-rendered SPA rather than a security defect.",
+      "Require Lighthouse accessibility >=95 and UI/UX heuristic >=92; review actual audit details rather than treating heuristic score as WCAG certification."
     ]
   }
 }
