@@ -1,0 +1,113 @@
+name: Windows Staging Host E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: "Dedicated V2 staging URL"
+        required: true
+        type: string
+        default: "https://remote-desk-pro-rtij.onrender.com"
+      source_run_id:
+        description: "Actions run containing the previously built Windows agent"
+        required: true
+        type: string
+        default: "46046835808"
+      artifact_name:
+        description: "Existing Windows agent artifact name"
+        required: true
+        type: string
+        default: "RemoteDeskPro-Agent-Windows"
+  push:
+    branches:
+      - feature/v2-bidirectional-automation
+    paths:
+      - "agent/host_agent.py"
+      - "agent/**"
+      - "tests/windows_staging_host_e2e.ps1"
+      - ".github/workflows/windows-staging-host-e2e.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: windows-staging-host-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-staging-host-e2e:
+    if: github.event_name == 'workflow_dispatch' || vars.RDP_STAGING_URL != ''
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout V2 feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/v2-bidirectional-automation
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download previously built Windows agent artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name || 'RemoteDeskPro-Agent-Windows' }}
+          run-id: ${{ inputs.source_run_id || '46046835808' }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          path: prior-windows-agent
+
+      - name: Verify prior executable and calculate SHA-256
+        shell: pwsh
+        run: |
+          $agent = Get-ChildItem -Path "prior-windows-agent" -Filter "RemoteDeskPro-Agent.exe" -Recurse | Select-Object -First 1
+          if (-not $agent) { throw "The selected Actions artifact does not contain RemoteDeskPro-Agent.exe." }
+          $hash = (Get-FileHash -LiteralPath $agent.FullName -Algorithm SHA256).Hash
+          "PRIOR_AGENT_SHA256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "Prior artifact executable: $($agent.FullName)"
+          "Prior artifact executable SHA-256: $hash"
+
+      - name: Build instrumented Windows agent from this branch
+        shell: pwsh
+        run: |
+          & "agent/build_windows.ps1"
+          if ($LASTEXITCODE -ne 0) { throw "Windows agent build failed." }
+          if (-not (Test-Path "agent/dist/RemoteDeskPro-Agent.exe")) { throw "Expected Windows executable was not produced." }
+          $hash = (Get-FileHash -LiteralPath "agent/dist/RemoteDeskPro-Agent.exe" -Algorithm SHA256).Hash
+          "E2E_AGENT_SHA256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "New E2E executable SHA-256: $hash"
+
+      - name: Run real packaged Windows host against V2 staging
+        shell: pwsh
+        env:
+          RDP_BASE_URL: ${{ inputs.target_url || vars.RDP_STAGING_URL }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:RDP_BASE_URL)) { throw "Provide target_url or configure the RDP_STAGING_URL repository variable." }
+          New-Item -ItemType Directory -Force "tests/artifacts" | Out-Null
+          & "tests/windows_staging_host_e2e.ps1" -BaseUrl $env:RDP_BASE_URL -ExePath "agent/dist/RemoteDeskPro-Agent.exe" -ReportPath "tests/artifacts/windows_staging_host_e2e.json"
+          if ($LASTEXITCODE -ne 0) { throw "Windows staging host E2E failed." }
+
+      - name: Write Windows certification summary
+        if: always()
+        shell: pwsh
+        run: |
+          "## Windows V2 staging host E2E" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "Prior artifact SHA-256: $env:PRIOR_AGENT_SHA256" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "E2E executable SHA-256: $env:E2E_AGENT_SHA256" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          if (Test-Path "tests/artifacts/windows_staging_host_e2e.json") {
+            Get-Content "tests/artifacts/windows_staging_host_e2e.json" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          }
+
+      - name: Upload Windows E2E evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-staging-host-e2e-evidence
+          path: |
+            tests/artifacts/windows_staging_host_e2e.json
+            agent/dist/RemoteDeskPro-Agent.exe
+          if-no-files-found: warn
+          retention-days: 30
