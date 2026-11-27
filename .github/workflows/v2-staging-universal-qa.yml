@@ -1,0 +1,26 @@
+name: V2 Staging Universal QA Audit
+
+on:
+  push:
+    branches:
+      - feature/v2-bidirectional-automation
+    paths:
+      - ".github/workflows/v2-staging-universal-qa.yml"
+      - ".github/workflows/universal-qa-audit.yml"
+      - "frontend/**"
+      - "backend/**"
+      - "agent/**"
+      - "tests/**"
+
+permissions:
+  contents: read
+  actions: read
+  security-events: write
+
+jobs:
+  staging-audit:
+    name: Run reusable universal audit against V2 staging
+    uses: ./.github/workflows/universal-qa-audit.yml
+    with:
+      base_url: https://remote-desk-pro-rtij.onrender.com
+      fail_on_findings: false
