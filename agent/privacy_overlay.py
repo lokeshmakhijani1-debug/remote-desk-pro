@@ -46,6 +46,7 @@ class PrivacyBanner:
     def _run(self) -> None:
         user32 = ctypes.WinDLL("user32", use_last_error=True)
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
         user32.CreateWindowExW.argtypes = [
             wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,
             ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
@@ -58,8 +59,19 @@ class PrivacyBanner:
         user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
         user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
         user32.DestroyWindow.argtypes = [wintypes.HWND]
+        user32.GetDC.argtypes = [wintypes.HWND]
+        user32.GetDC.restype = wintypes.HDC
+        user32.ReleaseDC.argtypes = [wintypes.HWND, wintypes.HDC]
+        gdi32.CreateSolidBrush.argtypes = [wintypes.COLORREF]
+        gdi32.CreateSolidBrush.restype = wintypes.HBRUSH
+        gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
+        user32.FillRect.argtypes = [wintypes.HDC, ctypes.POINTER(wintypes.RECT), wintypes.HBRUSH]
+        gdi32.GetDeviceGammaRamp.argtypes = [wintypes.HDC, ctypes.c_void_p]
+        gdi32.SetDeviceGammaRamp.argtypes = [wintypes.HDC, ctypes.c_void_p]
         hwnd = None
         hinstance = kernel32.GetModuleHandleW(None)
+        orig_gamma = (ctypes.c_ushort * (256 * 3))()
+        gamma_applied = False
         try:
             vx = user32.GetSystemMetrics(76)
             vy = user32.GetSystemMetrics(77)
@@ -80,11 +92,26 @@ class PrivacyBanner:
             user32.SetLayeredWindowAttributes(hwnd, 0, 255, 0x00000002)
             user32.ShowWindow(hwnd, 5)
             user32.SetWindowPos(hwnd, -1, vx, vy, vw, vh, 0x0040 | 0x0010)
+            hdc = user32.GetDC(hwnd)
+            if hdc:
+                brush = gdi32.CreateSolidBrush(0x00000000)
+                rect = wintypes.RECT(0, 0, vw, vh)
+                user32.FillRect(hdc, ctypes.byref(rect), brush)
+                if brush:
+                    gdi32.DeleteObject(brush)
+                user32.ReleaseDC(hwnd, hdc)
             user32.UpdateWindow(hwnd)
 
             if not user32.SetWindowDisplayAffinity(hwnd, 0x00000011):
                 user32.SetWindowDisplayAffinity(hwnd, 0x00000001)
 
+            screen_dc = user32.GetDC(None)
+            if screen_dc:
+                if gdi32.GetDeviceGammaRamp(screen_dc, ctypes.byref(orig_gamma)):
+                    zero_gamma = (ctypes.c_ushort * (256 * 3))()
+                    if gdi32.SetDeviceGammaRamp(screen_dc, ctypes.byref(zero_gamma)):
+                        gamma_applied = True
+                user32.ReleaseDC(None, screen_dc)
             user32.RegisterHotKey(None, 0x5244, 0x0002 | 0x0001 | 0x0004, ord("U"))
             self._ready.set()
 
@@ -101,6 +128,14 @@ class PrivacyBanner:
             self._error = exc
             self._ready.set()
         finally:
+            if gamma_applied:
+                try:
+                    screen_dc = user32.GetDC(None)
+                    if screen_dc:
+                        gdi32.SetDeviceGammaRamp(screen_dc, ctypes.byref(orig_gamma))
+                        user32.ReleaseDC(None, screen_dc)
+                except Exception:
+                    pass
             try:
                 user32.UnregisterHotKey(None, 0x5244)
             except Exception:
