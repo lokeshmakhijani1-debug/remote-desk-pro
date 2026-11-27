@@ -1315,3 +1315,10 @@ python -m pytest -q tests/test_v2_30_suite.py::test_t25_privacy_overlay_register
 - Corrected the Windows workflow to treat the generated JSON report as the certification source of truth: it now requires report status `PASS` and every check value `PASS`, instead of reading the stale native process exit code. Added a regression test for this workflow gate. A fresh Windows workflow run must pass before final certification.
 - Closed historical GitHub issues #2 (runner allocation) and #7 (privacy-overlay contract test) after confirming current Actions execution and the 190-pass Python suite.
 - Production Render service `srv-dc0917utlv9c739h7o30` and `main` remain untouched. No production deployment or cutover has been performed.
+
+## Phase 4 Windows E2E wrapper correction — 2026-11-27
+- The real packaged Windows staging report from run `46056918339` recorded **9/9 checks PASS**, including online registration, heartbeat acknowledgements, network interruption/recovery, process-tree termination and server-reported offline after exit. The workflow job itself returned exit code 1 because the PowerShell cleanup ran a duplicate `taskkill.exe` after the process had already exited, leaking its native exit code to the GitHub Actions PowerShell wrapper.
+- Updated `tests/windows_staging_host_e2e.ps1` to avoid duplicate cleanup after the process-tree check passes, preserve emergency cleanup on earlier failure, and reset handled `$LASTEXITCODE` after report generation. Added a regression test in `tests/test_windows_e2e_harness.py` and updated root `test_instructions.json`.
+- Fix commits: `3b91f42`, `5589a19`, `8f3788e` (all on `feature/v2-bidirectional-automation`). A fresh Windows workflow run is required to verify the job itself concludes successfully.
+- Latest staging universal audit run `46056923103` completed successfully: Gitleaks, Semgrep, Python/Node dependency audits, Playwright, ZAP, Lighthouse and UI/UX steps all succeeded. Inspect uploaded reports before asserting individual metrics.
+- Production `main` and Render service `srv-dc0917utlv9c739h7o30` remain untouched; no cutover.
