@@ -80,7 +80,7 @@ try {
     $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $isAdmin) { throw "Windows runner is not elevated; refusing to claim network-drop recovery without a controlled firewall test." }
 
-    New-NetFirewallRule -DisplayName $firewallRule -Direction Outbound -Action Block -Protocol TCP -RemotePort 443 -RemoteAddress $remoteIps -Profile Any | Out-Null
+    New-NetFirewallRule -DisplayName $firewallRule -Direction Outbound -Action Block -Program $resolvedExe -Protocol TCP -RemotePort 443 -RemoteAddress $remoteIps -Profile Any | Out-Null
     if (-not (Wait-DeviceState -DeviceId $paired.device_id -Headers $headers -ExpectedOnline $false -TimeoutSeconds 75)) { throw "Staging did not report host offline after controlled network interruption." }
     $results.checks["network_drop_offline_transition"] = "PASS"
 
