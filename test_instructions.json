@@ -36,7 +36,8 @@
   ],
   "optional_platform_commands": {
     "windows": [
-      "python scripts/verify_windows_e2e.py --execute"
+      "python scripts/verify_windows_e2e.py --execute",
+      "powershell -NoProfile -ExecutionPolicy Bypass -File tests/windows_staging_host_e2e.ps1 -BaseUrl $env:RDP_BASE_URL -ExePath agent/dist/RemoteDeskPro-Agent.exe -ReportPath tests/artifacts/windows_staging_host_e2e.json"
     ]
   }
 }
