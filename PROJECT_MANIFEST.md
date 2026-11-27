@@ -1276,3 +1276,12 @@ python -m pytest -q tests/test_v2_30_suite.py::test_t25_privacy_overlay_register
 - Added root `vercel.json` for the monorepo layout: frontend install/build commands, `frontend/dist` output and SPA fallback rewrite. Vercel project settings were not changed and no deployment was triggered.
 - Existing remote-control, keyboard, mouse/scroll, privacy, recording, clipboard and file-transfer event handlers were preserved.
 - Verification is deferred to Phase 4; no Lighthouse score or successful Vercel deployment is claimed from source edits alone.
+
+
+## Phase 4 — Verification remediation and certification evidence
+- Corrected the V2 recording-library source-contract test to assert the current strict viewer-auth frame and string token validation, rather than the superseded `auth.get(...)` expression.
+- Fixed the Windows staging E2E workflow working-directory defect: `agent/build_windows.ps1` changes the PowerShell current directory to its own folder, so the caller now restores the repository root and verifies/uses the executable via an absolute path.
+- Semgrep on the first Phase 4 audit found three blocking findings: one credential-presence log heuristic and two request Host-header-derived CSP URL findings. Removed the credential-state log and removed request-host-derived CSP entries; configured trusted origins remain the CSP connect sources.
+- Phase 4 Actions runs are the evidence source for regression tests, frontend build, Semgrep, dependency audits, ZAP, Lighthouse, UI/UX, Windows packaged-agent E2E and stress tests.
+- Staging target: `https://remote-desk-pro-rtij.onrender.com`. Production Render remains out of scope and unchanged.
+- Certification is conditional on completed runs and downloadable artifacts. No Lighthouse, ZAP, Windows runtime or 100% certification claim is made without passing evidence.
