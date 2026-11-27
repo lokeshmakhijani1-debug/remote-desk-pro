@@ -321,15 +321,17 @@ def convert_session_recording_to_workflow(filename: str, recordings_folder: Path
     import hashlib
     import re
     try:
-        from session_recorder import RECORDING_DIR, _recording_target
+        from session_recorder import RECORDING_DIR, _recording_target, list_recordings
     except ModuleNotFoundError:
-        from agent.session_recorder import RECORDING_DIR, _recording_target
+        from agent.session_recorder import RECORDING_DIR, _recording_target, list_recordings
     root = Path(recordings_folder or RECORDING_DIR).expanduser().resolve()
     if not re.fullmatch(r"session_[A-Za-z0-9_.-]+\.mp4", str(filename or "")):
         raise ValueError("Invalid recording filename")
     _, video = _recording_target(filename, root)
     if not video.is_file() or video.is_symlink():
         raise FileNotFoundError("Completed MP4 recording was not found")
+    if filename not in {row["filename"] for row in list_recordings(root)}:
+        raise ValueError("Recording has not been finalized")
     sidecar = video.with_suffix(".events.jsonl")
     if sidecar.is_symlink() or not sidecar.is_file():
         raise ValueError("Video-only recording has no control-event sidecar and cannot be converted reliably")
@@ -337,6 +339,7 @@ def convert_session_recording_to_workflow(filename: str, recordings_folder: Path
         raise ValueError("Recording event sidecar exceeds the conversion limit")
     steps = []
     previous_ms = 0
+    last_pointer = None
     allowed = {"mouse_down", "key_down", "key_up", "mouse_scroll", "clear_input"}
     for line in sidecar.read_text(encoding="utf-8").splitlines():
         if not line.strip():
@@ -356,7 +359,8 @@ def convert_session_recording_to_workflow(filename: str, recordings_folder: Path
             x, y = event.get("x"), event.get("y")
             if not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or not (0 <= x <= 1 and 0 <= y <= 1):
                 raise ValueError("Recording contains invalid pointer coordinates")
-            step.update({"x": round(float(x), 6), "y": round(float(y), 6),
+            last_pointer = (round(float(x), 6), round(float(y), 6))
+            step.update({"x": last_pointer[0], "y": last_pointer[1],
                          "coordinate_mode": "screen", "button": event.get("button", "left")})
         elif action in {"key_down", "key_up"}:
             key = event.get("key")
@@ -373,6 +377,10 @@ def convert_session_recording_to_workflow(filename: str, recordings_folder: Path
                          "delta_y": max(-2400, min(2400, float(dy)))})
             if "x" in event and "y" in event:
                 step.update({"x": float(event["x"]), "y": float(event["y"])})
+            elif last_pointer:
+                step.update({"x": last_pointer[0], "y": last_pointer[1]})
+        elif action == "clear_input" and last_pointer:
+            step.update({"x": last_pointer[0], "y": last_pointer[1], "coordinate_mode": "screen"})
         steps.append(step)
     if not steps:
         raise ValueError("No replayable control events were captured for this recording")

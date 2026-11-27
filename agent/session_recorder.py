@@ -174,6 +174,7 @@ class SessionRecorder:
         self._event_lock = threading.Lock()
         self._event_count = 0
         self._event_pressed: set[str] = set()
+        self._event_last_pointer: tuple[float, float] | None = None
 
     @property
     def is_alive(self) -> bool:
@@ -207,10 +208,16 @@ class SessionRecorder:
         event = message.get("event")
         elapsed = max(0, round((time.monotonic() - self.started_monotonic) * 1000))
         item = {"elapsed_ms": elapsed}
+        if event == "mouse_move":
+            x, y = message.get("x"), message.get("y")
+            if isinstance(x, (int, float)) and isinstance(y, (int, float)) and 0 <= x <= 1 and 0 <= y <= 1:
+                self._event_last_pointer = (round(float(x), 6), round(float(y), 6))
+            return False
         if event == "mouse_down":
             x, y = message.get("x"), message.get("y")
             if not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or not (0 <= x <= 1 and 0 <= y <= 1):
                 return False
+            self._event_last_pointer = (round(float(x), 6), round(float(y), 6))
             item.update({"event": "mouse_down", "x": round(float(x), 6), "y": round(float(y), 6),
                          "button": {0: "left", 1: "middle", 2: "right"}.get(message.get("button"), "left")})
         elif event in {"key_down", "key_up"}:
@@ -224,6 +231,8 @@ class SessionRecorder:
             if key not in safe_keys:
                 if key == "a" and event == "key_down" and "ctrl" in self._event_pressed:
                     item["event"] = "clear_input"
+                    if self._event_last_pointer:
+                        item.update({"x": self._event_last_pointer[0], "y": self._event_last_pointer[1]})
                 else:
                     return False
             else:
@@ -238,6 +247,8 @@ class SessionRecorder:
                 return False
             item.update({"event": "mouse_scroll", "delta_x": float(dx), "delta_y": float(dy)})
             x, y = message.get("x"), message.get("y")
+            if (not isinstance(x, (int, float)) or not isinstance(y, (int, float))) and self._event_last_pointer:
+                x, y = self._event_last_pointer
             if isinstance(x, (int, float)) and isinstance(y, (int, float)) and 0 <= x <= 1 and 0 <= y <= 1:
                 item.update({"x": round(float(x), 6), "y": round(float(y), 6)})
         else:

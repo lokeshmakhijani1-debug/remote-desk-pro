@@ -277,6 +277,40 @@ def audit_logs(authorization: str | None = Header(default=None), db: Session = D
     return [{"action":r.action,"user_id":r.user_id,"device_id":r.device_id,"detail":r.detail,"at":r.created_at.isoformat()} for r in rows]
 
 
+def _validate_workflow_steps(steps: list[dict[str, Any]]) -> None:
+    allowed_actions = {"mouse_down", "key_down", "key_up", "mouse_scroll", "clear_input", "checkpoint"}
+    safe_keys = {"ctrl", "alt", "shift", "win", "enter", "tab", "esc", "backspace",
+                 "delete", "up", "down", "left", "right", "home", "end", "pageup", "pagedown", "space"}
+    for step in steps:
+        if not isinstance(step, dict) or step.get("action") not in allowed_actions:
+            raise HTTPException(422, "Workflow contains an unsupported action")
+        delay = step.get("delay_ms", 0)
+        if type(delay) is not int or not 0 <= delay <= 30000:
+            raise HTTPException(422, "Workflow delay must be an integer between 0 and 30000 ms")
+        action = step["action"]
+        if action == "mouse_down":
+            x, y = step.get("x"), step.get("y")
+            if not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or not (math.isfinite(x) and math.isfinite(y) and 0 <= x <= 1 and 0 <= y <= 1):
+                raise HTTPException(422, "Workflow pointer coordinates must be normalized")
+            if step.get("button", "left") not in {"left", "middle", "right"}:
+                raise HTTPException(422, "Workflow mouse button is invalid")
+        elif action in {"key_down", "key_up"} and step.get("key") not in safe_keys:
+            raise HTTPException(422, "Printable or unsupported keyboard keys are not permitted in workflows")
+        elif action == "mouse_scroll":
+            dx, dy = step.get("delta_x", 0), step.get("delta_y", 0)
+            if not isinstance(dx, (int, float)) or not isinstance(dy, (int, float)) or not (math.isfinite(dx) and math.isfinite(dy) and abs(dx) <= 2400 and abs(dy) <= 2400):
+                raise HTTPException(422, "Workflow scroll values are invalid")
+            if ("x" in step) != ("y" in step):
+                raise HTTPException(422, "Workflow scroll coordinates must include both axes")
+            if "x" in step and (not isinstance(step["x"], (int, float)) or not isinstance(step["y"], (int, float)) or not (0 <= step["x"] <= 1 and 0 <= step["y"] <= 1)):
+                raise HTTPException(422, "Workflow scroll coordinates must be normalized")
+        elif action == "clear_input":
+            if ("x" in step) != ("y" in step):
+                raise HTTPException(422, "Workflow input focus coordinates must include both axes")
+            if "x" in step and (not isinstance(step["x"], (int, float)) or not isinstance(step["y"], (int, float)) or not (0 <= step["x"] <= 1 and 0 <= step["y"] <= 1)):
+                raise HTTPException(422, "Workflow input focus coordinates must be normalized")
+
+
 def _private_workflow_payload(source: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(source, dict) or source.get("schema_version") != 1:
         raise HTTPException(422, "Unsupported workflow schema")
@@ -300,13 +334,7 @@ def _private_workflow_payload(source: dict[str, Any]) -> dict[str, Any]:
         elif isinstance(value, list):
             for item in value: inspect(item)
     inspect(source)
-    for step in steps:
-        if not isinstance(step, dict) or step.get("action") not in allowed_actions:
-            raise HTTPException(422, "Workflow contains an unsupported action")
-        if step.get("action") == "mouse_down":
-            x, y = step.get("x"), step.get("y")
-            if not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or not (0 <= x <= 1 and 0 <= y <= 1):
-                raise HTTPException(422, "Workflow pointer coordinates must be normalized")
+    _validate_workflow_steps(steps)
     clean = json.loads(encoded)
     clean["name"] = " ".join(str(clean.get("name") or "Untitled workflow").split())[:120] or "Untitled workflow"
     clean["tags"] = [str(tag).strip()[:32] for tag in clean.get("tags", [])[:12] if str(tag).strip()] if isinstance(clean.get("tags"), list) else []
@@ -430,6 +458,7 @@ def _public_workflow_payload(source: dict[str, Any]) -> dict[str, Any]:
         elif isinstance(value, list):
             for item in value: inspect(item)
     inspect(source)
+    _validate_workflow_steps(steps)
     clean = json.loads(encoded)
     clean["name"] = " ".join(str(clean.get("name") or "Community workflow").split())[:120]
     tags = clean.get("tags", [])
@@ -912,11 +941,17 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                 elif validate_recording_control(event):
                     audit(db, "recording." + str(event.get("action")) + "_requested", user_id, device_id)
                     await hub.relay(device_id, ws, raw)
-            elif kind in ("recording_list", "recording_delete", "recording_download_chunk", "recording_convert_workflow") and user_role != "read_only":
+            elif kind in ("recording_list", "recording_delete", "recording_download_chunk") and user_role != "read_only":
                 if not hub.is_approved(device_id):
                     await ws.send_json({"type":"input_pending","operation":"recording","detail":"Waiting for host approval"})
                 elif validate_recording_library_control(event):
                     audit(db, "recording." + kind + "_requested", user_id, device_id)
+                    await hub.relay(device_id, ws, raw)
+            elif kind == "recording_convert_workflow" and user_role != "read_only":
+                if not hub.is_approved(device_id):
+                    await ws.send_json({"type":"input_pending","operation":"recording","detail":"Waiting for host approval"})
+                elif validate_recording_library_control(event):
+                    audit(db, "recording.workflow_conversion_requested", user_id, device_id)
                     await hub.relay(device_id, ws, raw)
             elif kind == "clipboard_paste" and user_role != "read_only":
                 if not hub.is_approved(device_id):

@@ -44,6 +44,8 @@ def test_recording_converter_repeat_replays_with_existing_engine(tmp_path, monke
     assert payload["privacy"]["clipboard_recorded"] is False
     assert [step["action"] for step in payload["steps"]] == ["mouse_down", "key_down", "clear_input", "key_up"]
     assert payload["steps"][0]["delay_ms"] == 100 and payload["steps"][0]["x"] == 0.2
+    assert payload["steps"][2]["action"] == "clear_input"
+    assert payload["steps"][2]["x"] == 0.2 and payload["steps"][2]["y"] == 0.8
 
     calls = {"click": 0, "key_down": 0, "key_up": 0, "hotkey": 0}
     fake = SimpleNamespace(FAILSAFE=True, KEYBOARD_KEYS={"ctrl", "enter", "tab"},
