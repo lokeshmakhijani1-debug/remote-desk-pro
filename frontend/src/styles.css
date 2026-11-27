@@ -159,3 +159,9 @@ button:disabled { opacity: .62; }
 @media (prefers-reduced-motion: reduce) {
   *,*::before,*::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+
+/* WCAG AA contrast fixes verified against the live login page */
+.eyebrow { color: #53657a; }
+.auth-card p { color: #586a80; }
+.hint { color: #5f7086; }
