@@ -1091,3 +1091,16 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Viewer verifies the reassembled UTF-8 byte count before saving the JSON to the authenticated private library.
 - Conversion does not run the workflow. The operator must explicitly click **Replay Latest on Host**; replay executes on the approved host using `WorkflowReplayEngine`.
 - Video-only historical recordings cannot be converted reliably. No MP4 or event-sidecar assets were found in the repository tree; recordings stored under the host's local AppData folder are not accessible through GitHub repository operations.
+
+## Supabase saved-workflows RLS remediation checkpoint — 2026-11-27
+
+- Scope: Supabase project `Remote-desktop-pro` (`qxssuczpumsaqywifirv`), table `public.rdp_saved_workflows` only; repository branch `feature/v2-bidirectional-automation`.
+- Live schema inspection: `id INTEGER`, `owner_id INTEGER NOT NULL` referencing `public.rdp_users(id)`, `name VARCHAR(120)`, `description VARCHAR(1000)`, `tags JSON`, `workflow JSON`, nullable `source_recording VARCHAR(255)`, nullable `community_workflow_id INTEGER`, `is_public BOOLEAN`, and `created_at/updated_at TIMESTAMP WITHOUT TIME ZONE`. Live table contains zero rows.
+- Live security state at inspection: RLS disabled; no policies. This was a critical exposure to Supabase Data API roles. Existing explicit table grants to `anon` and `authenticated` include non-DML privileges; no row-level protection existed.
+- Migration `supabase/migrations/20261127120000_saved_workflows.sql` currently defines JSONB columns and timestamptz columns, while the live table uses JSON and timestamp without time zone. Because it uses `CREATE TABLE IF NOT EXISTS`, it does not reconcile those existing type differences.
+- Identity verification: Remote Desk Pro's FastAPI issues custom HS256 tokens signed with `APP_SECRET_KEY`; the token `sub` is the numeric `rdp_users.id` serialized as text. Supabase Auth currently contains zero users. Supabase Auth JWT `sub` is UUID-based and is not the same claim context as the application's custom FastAPI token.
+- The migration's current `(auth.jwt() ->> 'sub')::integer` policy predicate is therefore not validated for Supabase Auth and must not be applied as-is. No trusted Supabase-Auth-UUID-to-`rdp_users.id` mapping or server-controlled `app_metadata` claim exists in this project.
+- **Production SQL status: NOT APPLIED.** RLS remains disabled; no policy or grant changes were made. This is intentionally blocked rather than installing an owner policy that can cast a UUID or authorize the wrong identity.
+- **Migration alignment status: BLOCKED.** The migration was not rewritten or applied because the correct authorization bridge is not present. Next prerequisite: define and implement a trusted identity mapping (for example, a Supabase Custom Access Token Hook issuing a server-controlled `app_metadata.rdp_user_id` claim after linking an Auth UUID to an active `rdp_users.id`), then validate owner-scoped CRUD policies against that claim and reconcile the existing live column types.
+- Windows physical-host tests were not run in this session; local validation remains pending. No secrets were read or written.
+- Branch guard: this checkpoint is recorded only on `feature/v2-bidirectional-automation`; `main` was not modified.
