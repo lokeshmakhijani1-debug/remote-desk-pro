@@ -20,3 +20,4 @@ CREATE INDEX IF NOT EXISTS idx_rdp_saved_workflows_owner_updated ON public.rdp_s
 -- No anon/authenticated policies are intentionally defined. RLS blocks Data API
 -- roles subject to RLS; the server-side postgres backend role bypasses RLS.
 ALTER TABLE public.rdp_saved_workflows ENABLE ROW LEVEL SECURITY;
+REVOKE TRUNCATE ON TABLE public.rdp_saved_workflows FROM anon, authenticated;
