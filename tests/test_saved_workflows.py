@@ -76,3 +76,12 @@ def test_saved_workflow_rejects_unsupported_actions(workflow_client):
     bad = workflow(); bad["steps"] = [{"action": "type_text", "text": "sensitive"}]
     assert client.post("/api/workflows", headers={"Authorization": "Bearer " + owner},
                        json={"workflow": bad}).status_code == 422
+
+
+def test_saved_workflow_rejects_printable_keyboard_actions(workflow_client):
+    client, owner, _, _, _ = workflow_client
+    bad = workflow()
+    bad["steps"] = [{"action": "key_down", "key": "a", "delay_ms": 0}]
+    response = client.post("/api/workflows", headers={"Authorization": "Bearer " + owner},
+                           json={"workflow": bad})
+    assert response.status_code == 422

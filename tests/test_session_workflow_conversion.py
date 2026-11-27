@@ -49,7 +49,7 @@ def test_recording_converter_repeat_replays_with_existing_engine(tmp_path, monke
 
     calls = {"click": 0, "key_down": 0, "key_up": 0, "hotkey": 0}
     fake = SimpleNamespace(FAILSAFE=True, KEYBOARD_KEYS={"ctrl", "enter", "tab"},
-                           size=lambda: SimpleNamespace(width=1000, height=800),
+                           size=lambda: (1000, 800),
                            click=lambda *a, **k: calls.__setitem__("click", calls["click"] + 1),
                            keyDown=lambda *a, **k: calls.__setitem__("key_down", calls["key_down"] + 1),
                            keyUp=lambda *a, **k: calls.__setitem__("key_up", calls["key_up"] + 1),
