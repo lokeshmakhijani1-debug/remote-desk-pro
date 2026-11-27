@@ -11,6 +11,8 @@ EXPECTED_HEADERS = {
     "cross-origin-embedder-policy": "credentialless",
     "cross-origin-opener-policy": "same-origin",
     "cross-origin-resource-policy": "same-origin",
+    "cache-control": "no-store, max-age=0",
+    "pragma": "no-cache",
 }
 
 
