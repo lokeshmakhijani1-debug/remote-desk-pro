@@ -94,7 +94,14 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:RDP_BASE_URL)) { throw "Provide target_url or configure the RDP_STAGING_URL repository variable." }
           New-Item -ItemType Directory -Force "tests/artifacts" | Out-Null
           & "tests/windows_staging_host_e2e.ps1" -BaseUrl $env:RDP_BASE_URL -ExePath "agent/dist/RemoteDeskPro-Agent.exe" -ReportPath "tests/artifacts/windows_staging_host_e2e.json"
-          if ($LASTEXITCODE -ne 0) { throw "Windows staging host E2E failed." }
+          $reportPath = "tests/artifacts/windows_staging_host_e2e.json"
+          if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw "Windows staging host E2E did not produce its certification report." }
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          $failedChecks = @($report.checks.PSObject.Properties | Where-Object { $_.Value -ne "PASS" })
+          if ($report.status -ne "PASS" -or $failedChecks.Count -gt 0) {
+            throw "Windows staging host E2E failed: status=$($report.status); failed_checks=$($failedChecks.Name -join ", "); errors=$($report.errors -join "; ")"
+          }
+          Write-Host "Windows staging host E2E report verified: all $($report.checks.PSObject.Properties.Count) checks PASS."
 
       - name: Write Windows certification summary
         if: always()
