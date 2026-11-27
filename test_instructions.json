@@ -44,6 +44,9 @@
     "python -m pytest -q tests/test_session_security.py tests/test_workflow_transport_security.py tests/test_load_and_fault_injection.py",
     "python -m pip install --upgrade semgrep bandit pip-audit && semgrep scan --config auto --json backend agent scripts audit_30.py .github/workflows && bandit -q -r backend agent -lll && pip-audit -r requirements.txt -r agent/requirements.txt",
     "docker build --pull -t remote-desk-pro:v2-security .",
+    "python -m json.tool test_instructions.json > /dev/null",
+    "npm --prefix frontend install --no-audit --no-fund && npm --prefix frontend run build",
+    "python -m json.tool vercel.json > /dev/null",
     "python -m json.tool test_instructions.json > /dev/null"
   ],
   "optional_platform_commands": {
@@ -69,6 +72,10 @@
       "Run Semgrep, Bandit and pip-audit; inspect every finding rather than treating scanner completion as a clean result.",
       "Build the Docker image and verify the runtime process UID is non-zero.",
       "Inspect the V2 staging HTTP CSP and COEP/COOP/CORP headers after an authorized staging deployment."
+    ],
+    "vercel": [
+      "In Vercel, keep the project Root Directory at the repository root and use the committed vercel.json; confirm the build command installs frontend dependencies, runs the Vite build and publishes frontend/dist.",
+      "Verify direct navigation to a nested SPA route serves the frontend entry point and static assets return their actual files."
     ]
   }
 }
