@@ -647,7 +647,7 @@ def websocket_origin_allowed(origin: str | None) -> bool:
             or parsed.username or parsed.password or parsed.path not in {"", "/"}
             or parsed.query or parsed.fragment):
         return False
-    return origin.rstrip("/") in {value.rstrip("/") for value in settings.cors_list}
+    return origin.rstrip("/") in {value.rstrip("/") for value in [settings.public_base_url, *settings.cors_list] if value}
 
 def validate_clipboard(event: dict) -> bool:
     value = event.get("text")
@@ -890,6 +890,8 @@ async def host_socket(ws: WebSocket, device_id: str):
         # Network resets (including Windows WinError 64 on the client) are normal
         # disconnects; the host agent reconnects with bounded backoff.
         pass
+    except (ValueError, TypeError):
+        await ws.close(code=4401, reason="Malformed host authentication frame")
     except RuntimeError as exc:
         if "disconnect message has been received" not in str(exc):
             raise
