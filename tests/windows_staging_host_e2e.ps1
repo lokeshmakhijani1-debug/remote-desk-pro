@@ -88,8 +88,16 @@ try {
     if (-not (Wait-DeviceState -DeviceId $paired.device_id -Headers $headers -ExpectedOnline $true -TimeoutSeconds 150)) { throw "Packaged Windows host agent did not reconnect after network restoration." }
     $results.checks["network_drop_recovery"] = "PASS"
 
-    if ($process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force; $process.WaitForExit(15000) }
-    if (-not (Wait-DeviceState -DeviceId $paired.device_id -Headers $headers -ExpectedOnline $false -TimeoutSeconds 75)) { throw "Staging did not report host offline after Windows agent exited within the 75-second heartbeat-expiry window." }
+    if ($process) {
+        # PyInstaller --onefile starts a child process; terminating only the bootstrap
+        # PID leaves the real agent alive and its server heartbeat continues.
+        & taskkill.exe /PID $process.Id /T /F 2>&1 | ForEach-Object { Write-Host $_ }
+        if ($LASTEXITCODE -notin @(0,128)) { throw "Unable to terminate the packaged agent process tree (taskkill exit $LASTEXITCODE)." }
+        try { Wait-Process -Id $process.Id -Timeout 15 -ErrorAction Stop } catch { }
+        if (Get-Process -Id $process.Id -ErrorAction SilentlyContinue) { throw "Packaged Windows agent bootstrap process is still running after taskkill." }
+        $results.checks["agent_process_tree_terminated"] = "PASS"
+    }
+    if (-not (Wait-DeviceState -DeviceId $paired.device_id -Headers $headers -ExpectedOnline $false -TimeoutSeconds 75)) { throw "Staging did not report host offline after the complete Windows agent process tree exited within the 75-second heartbeat-expiry window." }
     $results.checks["agent_exit_offline_transition"] = "PASS"
     $results.status = "PASS"
 }
@@ -99,7 +107,7 @@ catch {
 }
 finally {
     Get-NetFirewallRule -DisplayName $firewallRule -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
-    if ($process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+    if ($process) { & taskkill.exe /PID $process.Id /T /F 2>&1 | Out-Null }
     $env:APPDATA = $previousAppData
     $results.finished_at_utc = [DateTime]::UtcNow.ToString("o")
     $results | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $ReportPath -Encoding utf8
