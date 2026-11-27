@@ -1222,3 +1222,15 @@ python -m pytest -q tests/test_v2_30_suite.py::test_t25_privacy_overlay_register
 - Existing tools/actions reused: GitHub-hosted Ubuntu runner, Gitleaks Action, Semgrep, pip-audit, npm audit, Playwright Chromium, OWASP ZAP stable container, and upload-artifact. No application runtime dependency, listening port, Render service, deployment, database, or environment secret was added or changed. Optional target configuration uses only `QA_BASE_URL`.
 - Updated root `test_instructions.json` with SAST/dependency, JSON validation, YAML lint, and manual cloud-artifact review instructions.
 - Scope: this workflow and documentation were committed only to `feature/v2-bidirectional-automation`; `main` and production Render remain untouched. The first cloud workflow run and its scanner findings are pending Phase 4.
+
+
+## Universal Lighthouse and UI/UX audit extension — 2026-11-27
+
+- Extended `.github/workflows/universal-qa-audit.yml` with optional Lighthouse CLI collection for performance, accessibility, best-practices and SEO categories. JSON and HTML outputs are retained with the universal QA artifact.
+- Added rendered-page DOM/CSS inspection using the already-installed Playwright Chromium browser. It records page title, viewport metadata, heading and landmark counts, image alternative-text coverage, accessible names for buttons/links/form fields, sampled text contrast, horizontal overflow, stylesheet count, inline style count, font-family samples, and body font size.
+- Added a reproducible UI/UX heuristic score out of 100 with explicit metric penalties and a full-page screenshot. The score is a triage heuristic only; it is not a WCAG conformance result, accessibility certification, human usability study, or visual-design judgment.
+- The report includes three evidence-guided styling directions: Accessible clarity, Responsive minimalism, and Action-focused product UI. They are recommendations for review, not automatic CSS edits.
+- Additional evidence: `reports/universal-qa/lighthouse.report.json`, `lighthouse.report.html` (Lighthouse CLI output), `uiux-audit.json`, `uiux-audit.md`, and `uiux-homepage.png`, subject to target availability and successful execution.
+- No new application runtime dependency, server, listening port, environment secret, Render deployment, database change, or production request was introduced by the code change. The audit uses runner-installed Lighthouse and the existing optional `base_url`/`QA_BASE_URL` target.
+- Updated `test_instructions.json` with YAML/JSON validation and instructions to inspect the Lighthouse and UI/UX evidence artifact.
+- Scope remains the V2 feature branch only. No changes to `main` or production Render. Actual Lighthouse scores, DOM metrics, screenshot evidence, and scanner execution are pending the dedicated Phase 4 workflow run.
