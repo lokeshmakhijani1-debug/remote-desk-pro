@@ -136,8 +136,8 @@ class PrivacyBanner:
             self._hotkey_thread_id = int(kernel32.GetCurrentThreadId())
 
             # Force creation of this thread's message queue before stop() can post WM_QUIT.
-            message = wintypes.MSG()
-            user32.PeekMessageW(ctypes.byref(message), None, 0, 0, 0)
+            msg = wintypes.MSG()
+            user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 0)
             if self._stop_flag.is_set():
                 return
 
@@ -153,7 +153,7 @@ class PrivacyBanner:
                 return
 
             while not self._stop_flag.is_set():
-                result = user32.GetMessageW(ctypes.byref(message), None, 0, 0)
+                result = user32.GetMessageW(ctypes.byref(msg), None, 0, 0)
                 if result <= 0:
                     break
                 if msg.message == 0x0312 and msg.wParam == 0x5244:
