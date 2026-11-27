@@ -10,6 +10,7 @@ from ctypes import wintypes
 from typing import Callable, Optional
 
 WDA_EXCLUDEFROMCAPTURE = 0x00000011
+SS_BLACKRECT = 0x00000004  # Win32 STATIC-control opaque-black fill style.
 WM_HOTKEY = 0x0312
 WM_QUIT = 0x0012
 EMERGENCY_HOTKEY_ID = 0x5244
