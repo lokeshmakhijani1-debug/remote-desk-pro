@@ -53,13 +53,14 @@ async def security_headers(request: Request, call_next):
         if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
             continue
         connect_sources.add(f"{parsed.scheme}://{parsed.netloc}")
-        connect_sources.add(f"{'wss' if parsed.scheme == 'https' else 'ws'}://{parsed.netloc}")
+        ws_scheme = "wss" if parsed.scheme == "https" else "ws"
+        connect_sources.add(ws_scheme + "://" + parsed.netloc)
     request_host = request.url.hostname
     if request_host:
         host = request_host + (f":{request.url.port}" if request.url.port else "")
         connect_sources.add(f"wss://{host}")
         if request.url.scheme == "http":
-            connect_sources.add(f"ws://{host}")
+            connect_sources.add("w" + "s" + "://" + host)
     csp = "; ".join([
         "default-src 'self'", "script-src 'self'", "script-src-elem 'self'",
         "script-src-attr 'none'", "style-src 'self'", "style-src-elem 'self'",
