@@ -1,7 +1,7 @@
 # Remote Desk Pro â€” Project Manifest
 
 **Workspace:** E:\GitHub-Vault\remote-desk-pro  
-**GitHub:** https://github.com/lokeshmakhijani1-debug/remote-desk-pro (private)  
+**GitHub:** https://github.com/lokeshmakhijani1-debug/remote-desk-pro (public)  
 **Render blueprint:** exs-dc08of8n74is73a6eb0g  
 **Render service:** remote-desk-pro-pj29 (Free, Singapore)  
 **Current status:** Phase 6.1â€“6.4 live verification passed on 2026-11-21; PostgreSQL, relay E2E, Windows EXE, and cloud pairing verified.
@@ -1055,8 +1055,8 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 
 ## Feature branch delivery manifest — session recording workflow pipeline
 **Branch:** `feature/v2-bidirectional-automation`  
-**Current head:** `420b03224523de0df839888b3dca47808c8442df`  
-**Deployment:** feature-branch only; not merged to `main`, and the Supabase migration has not been applied to the live project.
+**Current head:** Follow the live GitHub branch reference; this manifest intentionally avoids a stale pinned SHA.  
+**Deployment:** feature-branch only; not merged to `main`, and the Supabase migration has not been applied to the live project.\n**Verification snapshot:** workflow pipeline, frontend build, WebSocket stress, fault-injection/load tests, Gitleaks, and Windows packaging passed in GitHub Actions. Full legacy suite still has three unrelated privacy-overlay failures.
 
 | File / endpoint | Responsibility | Verification | Release status |
 |---|---|---|---|
