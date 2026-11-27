@@ -11,6 +11,7 @@ class PrivacyBanner:
         self._active = False
         self._mode = 'black'
         self._root = None
+        self._hwnd = 0
         self._thread = None
         self._ready = threading.Event()
         self._lock = threading.Lock()
@@ -40,6 +41,7 @@ class PrivacyBanner:
             self._active = False
             r = self._root
             self._root = None
+            self._hwnd = 0
         if r is not None:
             try:
                 r.after(0, r.destroy)
@@ -62,6 +64,10 @@ class PrivacyBanner:
     @property
     def active(self) -> bool:
         return self._active
+
+    @property
+    def hwnd(self) -> int:
+        return self._hwnd
 
     def _trigger_unlock(self, _event=None):
         self.stop()
@@ -87,6 +93,7 @@ class PrivacyBanner:
             root.update_idletasks()
             try:
                 hwnd = user32.GetParent(root.winfo_id()) or root.winfo_id()
+                self._hwnd = int(hwnd)
                 user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
             except Exception:
                 pass

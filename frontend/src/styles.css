@@ -129,3 +129,6 @@ html,body,#root{width:100%;max-width:100%;overflow-x:hidden}
 
 .screen{position:relative;overflow:hidden}
 .screen canvas{width:100% !important;height:100% !important;max-width:none !important;max-height:none !important;object-fit:fill !important;display:block}
+
+.screen.privacy-enabled canvas{opacity:1 !important;filter:none !important;visibility:visible !important}
+.screen.privacy-enabled::after,.screen.privacy-enabled::before{display:none !important;content:none !important}
