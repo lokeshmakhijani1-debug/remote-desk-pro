@@ -33,6 +33,10 @@ except ModuleNotFoundError:
     from agent.workflow_engine import WorkflowRecorder, WorkflowReplayEngine
     from agent.telemetry import TelemetryTracker
 
+HOST_WS_PING_INTERVAL_SECONDS = 20
+HOST_WS_PING_TIMEOUT_SECONDS = 30
+HOST_HEARTBEAT_INTERVAL_SECONDS = 15
+
 APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "RemoteDeskPro")
 os.makedirs(APP_DIR, exist_ok=True)
 log = logging.getLogger("remote-desk-agent")
@@ -563,8 +567,10 @@ async def run_once(args, stop_event=None):
     endpoint = endpoint.replace("https://", "wss://").replace("http://", "ws://")
     tls_context = ssl.create_default_context(cafile=certifi.where()) if endpoint.startswith("wss://") else None
     async with websockets.connect(
-        endpoint, ssl=tls_context, max_size=8 * 1024 * 1024, ping_interval=5,
-        ping_timeout=5, close_timeout=10, open_timeout=25, max_queue=16,
+        endpoint, ssl=tls_context, max_size=8 * 1024 * 1024,
+        ping_interval=HOST_WS_PING_INTERVAL_SECONDS,
+        ping_timeout=HOST_WS_PING_TIMEOUT_SECONDS,
+        close_timeout=10, open_timeout=25, max_queue=16,
     ) as ws:
         await ws.send(json.dumps({"type":"auth","secret":args.secret}))
         response = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
@@ -597,7 +603,9 @@ async def run_once(args, stop_event=None):
         stop_task = None
         latency_task = None
         file_sender_task = None
+        heartbeat_elapsed = 0
         async def report_latency():
+            nonlocal heartbeat_elapsed
             while True:
                 await asyncio.sleep(5)
                 latency_seconds = getattr(ws, "latency", None)
@@ -609,6 +617,10 @@ async def run_once(args, stop_event=None):
                 if _TELEMETRY_CALLBACK:
                     _TELEMETRY_CALLBACK(metrics)
                 await ws.send(json.dumps({"type":"telemetry", **metrics}))
+                heartbeat_elapsed += 5
+                if heartbeat_elapsed >= HOST_HEARTBEAT_INTERVAL_SECONDS:
+                    await ws.send(json.dumps({"type":"host_heartbeat","sent_at":time.time()}))
+                    heartbeat_elapsed = 0
         latency_task = asyncio.create_task(report_latency())
         async def send_outgoing_chunk(transfer_id: str, offset: int):
             state = outgoing_transfers.get(transfer_id)
@@ -743,6 +755,8 @@ async def run_once(args, stop_event=None):
                 if isinstance(packet, bytes):
                     continue
                 message = json.loads(packet)
+                if message.get("type") == "host_heartbeat_ack":
+                    continue
                 if message.get("type") == "viewer_joined":
                     viewer_id = str(message.get("viewer_id") or "unknown")
                     set_status("Waiting for host approval...")

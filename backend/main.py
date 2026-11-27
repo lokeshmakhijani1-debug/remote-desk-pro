@@ -600,6 +600,13 @@ MAX_FILE_BYTES = 50 * 1024 * 1024
 MAX_FILE_CHUNK_BYTES = 192 * 1024
 MAX_WS_TEXT_BYTES = 64 * 1024
 MAX_WS_BINARY_BYTES = 8 * 1024 * 1024
+HOST_HEARTBEAT_TIMEOUT_SECONDS = 45
+
+async def acknowledge_host_heartbeat(ws: WebSocket) -> None:
+    await ws.send_json({
+        "type": "host_heartbeat_ack",
+        "at": datetime.now(timezone.utc).isoformat(),
+    })
 
 
 def websocket_payload_within_limit(payload: str | bytes) -> bool:
@@ -749,7 +756,9 @@ async def host_socket(ws: WebSocket, device_id: str):
             waiting_viewer_id = next(iter(owners.values()), "unknown")
             await ws.send_json({"type":"viewer_joined", "viewer_id": str(waiting_viewer_id)})
         while True:
-            packet = await ws.receive()
+            packet = await asyncio.wait_for(
+                ws.receive(), timeout=HOST_HEARTBEAT_TIMEOUT_SECONDS
+            )
             raw = packet.get("bytes") if packet.get("bytes") is not None else packet.get("text")
             if raw is None or not websocket_payload_within_limit(raw):
                 continue
@@ -763,6 +772,9 @@ async def host_socket(ws: WebSocket, device_id: str):
             if not isinstance(event, dict):
                 continue
             kind = event.get("type")
+            if kind == "host_heartbeat":
+                await acknowledge_host_heartbeat(ws)
+                continue
             if kind == "host_disconnected":
                 explicit_disconnect = True
                 await hub.relay(device_id, ws, json.dumps({"type":"host_disconnected"}))
