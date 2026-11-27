@@ -145,6 +145,8 @@ jobs:
         id: zap
         if: env.QA_BASE_URL != ''
         run: |
+          # ZAP runs as a non-root container user; grant write access only to its report directory.
+          chmod 0777 reports/universal-qa
           timeout 12m docker run --rm --network host -v "$PWD/reports/universal-qa:/zap/wrk/:rw" ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -m 5 -t "$QA_BASE_URL" -J zap-baseline.json -r zap-baseline.html
         continue-on-error: true
       - name: Lighthouse performance, accessibility and SEO audit
