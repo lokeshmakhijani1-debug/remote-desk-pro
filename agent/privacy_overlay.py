@@ -141,14 +141,7 @@ class PrivacyBanner:
             if self._stop_flag.is_set():
                 return
 
-            registered = bool(
-                user32.RegisterHotKey(
-                    None,
-                    0x5244,
-                    0x0002 | 0x0001 | 0x0004,
-                    ord("U"),
-                )
-            )
+            registered = bool(user32.RegisterHotKey(None, 0x5244, 0x0002 | 0x0001 | 0x0004, ord("U")))
             if not registered:
                 return
 
