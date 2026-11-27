@@ -47,7 +47,13 @@
     "python -m json.tool test_instructions.json > /dev/null",
     "npm --prefix frontend install --no-audit --no-fund && npm --prefix frontend run build",
     "python -m json.tool vercel.json > /dev/null",
-    "python -m json.tool test_instructions.json > /dev/null"
+    "python -m json.tool test_instructions.json > /dev/null",
+    "python -m pytest -q tests/test_v2_30_suite.py::test_t09_recording_library_commands_require_authenticated_approved_viewer_and_host",
+    "python -m pytest -q tests/test_security_headers.py tests/test_websocket_origin_security.py tests/test_websocket_security_bounds.py",
+    "python -m compileall -q agent backend tests",
+    "python -m json.tool vercel.json > /dev/null",
+    "npm --prefix frontend run build",
+    "semgrep scan --config auto --error --json --output reports/semgrep-phase4.json ."
   ],
   "optional_platform_commands": {
     "windows": [
@@ -76,6 +82,14 @@
     "vercel": [
       "In Vercel, keep the project Root Directory at the repository root and use the committed vercel.json; confirm the build command installs frontend dependencies, runs the Vite build and publishes frontend/dist.",
       "Verify direct navigation to a nested SPA route serves the frontend entry point and static assets return their actual files."
+    ],
+    "windows_staging_certification": [
+      "Run .github/workflows/windows-staging-host-e2e.yml on feature/v2-bidirectional-automation with target_url=https://remote-desk-pro-rtij.onrender.com and source_run_id set to a successful V2 Windows executable build run.",
+      "Require all checks in windows-staging-host-e2e.json to be PASS: staging health, real packaged host registration, 15-second heartbeat acknowledgements, controlled firewall offline transition, network restoration reconnect, and agent-exit offline transition."
+    ],
+    "phase4_certification": [
+      "Use the V2 Staging Universal QA Audit run on feature/v2-bidirectional-automation; confirm QA_BASE_URL is https://remote-desk-pro-rtij.onrender.com and inspect semgrep.json, zap-baseline.json/html, lighthouse JSON/HTML, playwright-smoke.json and uiux-audit.json/md.",
+      "Do not certify until Python regression, frontend build, workflow stress/fault-injection, Semgrep, pip-audit, ZAP and Lighthouse/UIUX evidence is complete."
     ]
   }
 }
