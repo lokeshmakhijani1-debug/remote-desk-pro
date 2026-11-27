@@ -32,12 +32,18 @@
     "python -m pip install --upgrade pip-audit bandit && pip-audit -r requirements.txt -r agent/requirements.txt && bandit -q -r backend agent -lll",
     "gitleaks detect --source . --redact --verbose --log-opts=--all",
     "python -m pytest -q tests/test_session_workflow_conversion.py tests/test_saved_workflows.py tests/test_workflow_transport_security.py tests/test_workflow_ui_contract.py",
-    "python -m pytest -q tests/test_session_workflow_conversion.py -k repeat"
+    "python -m pytest -q tests/test_session_workflow_conversion.py -k repeat",
+    "python -m pip install --upgrade pip-audit semgrep && pip-audit -r requirements.txt -r agent/requirements.txt && semgrep scan --config auto --error backend agent frontend",
+    "python -m json.tool test_instructions.json > /dev/null",
+    "python -m pip install --upgrade yamllint && yamllint -d relaxed .github/workflows/universal-qa-audit.yml"
   ],
   "optional_platform_commands": {
     "windows": [
       "python scripts/verify_windows_e2e.py --execute",
       "powershell -NoProfile -ExecutionPolicy Bypass -File tests/windows_staging_host_e2e.ps1 -BaseUrl $env:RDP_BASE_URL -ExePath agent/dist/RemoteDeskPro-Agent.exe -ReportPath tests/artifacts/windows_staging_host_e2e.json"
+    ],
+    "cloud_audit": [
+      "Dispatch .github/workflows/universal-qa-audit.yml with base_url set to the authorized QA target; download the universal-qa-audit-reports artifact and inspect audit-report.json and audit-report.md."
     ]
   }
 }
