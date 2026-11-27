@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import ctypes
-import sys
+import os
 import threading
 import tkinter as tk
 from ctypes import wintypes
@@ -33,11 +33,14 @@ class PrivacyBanner:
         self._thread = None
         self._ready = threading.Event()
         self._stop_flag = threading.Event()
+        self._stopped = self._stop_flag
         self._lock = threading.Lock()
         self._hotkey_thread = None
         self._hotkey_thread_id = None
 
     def start(self, mode: str = "black", **kwargs) -> bool:
+        if os.name != "nt":
+            return False
         with self._lock:
             self._mode = mode if mode in ("black", "banner") else "black"
             if self._active:
@@ -47,7 +50,7 @@ class PrivacyBanner:
             self._stop_flag.clear()
             self._thread = threading.Thread(target=self._run_tk, daemon=True)
             self._thread.start()
-            if sys.platform == "win32":
+            if os.name == "nt":
                 self._hotkey_thread = threading.Thread(
                     target=self._run_hotkey_listener,
                     name="privacy-emergency-hotkey",
@@ -65,7 +68,7 @@ class PrivacyBanner:
 
     def _signal_hotkey_stop(self) -> None:
         thread_id = self._hotkey_thread_id
-        if thread_id is None or sys.platform != "win32":
+        if thread_id is None or os.name != "nt":
             return
         try:
             ctypes.windll.user32.PostThreadMessageW(thread_id, WM_QUIT, 0, 0)
@@ -125,7 +128,7 @@ class PrivacyBanner:
 
     def _run_hotkey_listener(self) -> None:
         """Register and process the global shortcut on its own Win32 message thread."""
-        if sys.platform != "win32":
+        if os.name != "nt":
             return
 
         user32 = None
@@ -173,7 +176,7 @@ class PrivacyBanner:
             root.attributes("-topmost", True)
             root.configure(bg="#000000")
 
-            if sys.platform == "win32":
+            if os.name == "nt":
                 try:
                     user32 = ctypes.windll.user32
                     vx = user32.GetSystemMetrics(76)
@@ -185,6 +188,10 @@ class PrivacyBanner:
                     try:
                         hwnd = user32.GetParent(root.winfo_id()) or root.winfo_id()
                         self._hwnd = int(hwnd)
+                        try:
+                            user32.SetLayeredWindowAttributes(hwnd, 0, 255, 0x0002)
+                        except Exception:
+                            pass
                         user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
                     except Exception:
                         pass
@@ -197,9 +204,9 @@ class PrivacyBanner:
                     f"{root.winfo_screenwidth()}x{root.winfo_screenheight()}+0+0"
                 )
 
-            root.bind("<Control-Alt-Shift-U>", self._trigger_unlock)
-            root.bind("<Control-Alt-Shift-u>", self._trigger_unlock)
-            if sys.platform == "win32":
+            root.bind_all("<Control-Alt-Shift-U>", self._trigger_unlock)
+            root.bind_all("<Control-Alt-Shift-u>", self._trigger_unlock)
+            if os.name == "nt":
                 try:
                     root.focus_force()
                 except Exception:
