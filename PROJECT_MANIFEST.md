@@ -1252,3 +1252,17 @@ python -m pytest -q tests/test_v2_30_suite.py::test_t25_privacy_overlay_register
 - Corrected Lighthouse Chrome discovery to use the executable path exposed by the installed Playwright Chromium browser, rather than assuming a system-wide Chrome binary exists on the runner.
 - Bounded the ZAP spider to five minutes and the container invocation to twelve minutes so a target crawl cannot occupy the job indefinitely.
 - A new staging run is triggered by the workflow hardening commit; its result and report artifact remain pending.
+
+
+## 2026-11-28 — Phase 2 Security Remediation (V2 feature branch)
+
+- Hardened HTTP security headers with an explicit CSP: same-origin scripts, form-action and frame restrictions, explicit resource directives, deployment-aware API/WebSocket connect origins, and a separate inline-style-attribute policy for existing React styles.
+- Added Cross-Origin-Embedder-Policy, Cross-Origin-Opener-Policy and Cross-Origin-Resource-Policy response headers.
+- Added WebSocket Origin validation against configured CORS origins while allowing native clients that omit Origin; hardened host-secret handshake, viewer JWT subject/role validation, and bounded/type-checked JSON frame parsing.
+- Added regression coverage for HTTP security headers and WebSocket Origin policy.
+- Hardened Docker runtime with dedicated appuser ownership and non-root execution.
+- Pinned third-party GitHub Actions to immutable commit SHAs and removed direct GitHub-context interpolation from the live-cloud shell command.
+- Replaced insecure WebSocket URL literals with scheme-safe conversion; startup logs now record only whether credentials are configured, never credential values.
+- Added HTTP(S)-only URL validation before urllib requests in the desktop API and audit utility.
+- Scope: feature/v2-bidirectional-automation only. No main branch update or production Render deployment performed.
+- Follow-up verification: Python compilation, targeted security/WebSocket tests, Bandit, pip-audit, Semgrep, Docker build and universal staging audit.
