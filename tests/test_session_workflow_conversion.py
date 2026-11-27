@@ -72,6 +72,15 @@ def test_video_only_recording_is_not_falsely_converted(tmp_path):
         convert_session_recording_to_workflow(video.name, tmp_path, tmp_path / "workflows")
 
 
+def test_converter_rejects_clear_input_without_focus_target(tmp_path):
+    video = tmp_path / "session_no_pointer.mp4"
+    video.write_bytes(b"mp4")
+    video.with_suffix(".events.jsonl").write_text(
+        json.dumps({"event": "clear_input", "elapsed_ms": 100}) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="focus coordinates"):
+        convert_session_recording_to_workflow(video.name, tmp_path, tmp_path / "workflows")
+
+
 def test_converter_rejects_out_of_order_event_timeline(tmp_path):
     video = tmp_path / "session_bad_timeline.mp4"
     video.write_bytes(b"mp4")

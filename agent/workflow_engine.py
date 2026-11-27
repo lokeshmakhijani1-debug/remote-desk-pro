@@ -376,10 +376,15 @@ def convert_session_recording_to_workflow(filename: str, recordings_folder: Path
             step.update({"delta_x": max(-2400, min(2400, float(dx))),
                          "delta_y": max(-2400, min(2400, float(dy)))})
             if "x" in event and "y" in event:
-                step.update({"x": float(event["x"]), "y": float(event["y"])})
+                last_pointer = (float(event["x"]), float(event["y"]))
+                step.update({"x": last_pointer[0], "y": last_pointer[1]})
             elif last_pointer:
                 step.update({"x": last_pointer[0], "y": last_pointer[1]})
-        elif action == "clear_input" and last_pointer:
+        elif action == "clear_input":
+            if "x" in event and "y" in event:
+                last_pointer = (float(event["x"]), float(event["y"]))
+            if not last_pointer:
+                raise ValueError("clear_input event is missing focus coordinates")
             step.update({"x": last_pointer[0], "y": last_pointer[1], "coordinate_mode": "screen"})
         steps.append(step)
     if not steps:

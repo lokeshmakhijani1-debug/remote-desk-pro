@@ -231,6 +231,16 @@ class SessionRecorder:
             if key not in safe_keys:
                 if key == "a" and event == "key_down" and "ctrl" in self._event_pressed:
                     item["event"] = "clear_input"
+                    if self._event_last_pointer is None:
+                        try:
+                            import pyautogui
+                            px, py = pyautogui.position()
+                            sw, sh = pyautogui.size()
+                            if sw > 1 and sh > 1:
+                                self._event_last_pointer = (round(max(0, min(1, px / (sw - 1)), 6),
+                                                                   round(max(0, min(1, py / (sh - 1)), 6)))
+                        except Exception:
+                            pass
                     if self._event_last_pointer:
                         item.update({"x": self._event_last_pointer[0], "y": self._event_last_pointer[1]})
                 else:
