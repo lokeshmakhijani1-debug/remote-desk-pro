@@ -1128,3 +1128,37 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Verification is recorded separately after re-reading effective table privileges and RLS state. Windows physical-host tests remain pending; no local test pass is claimed.
 - This checkpoint supersedes any earlier manifest wording that said the RLS change or migration alignment was pending. The separate live-schema type mismatch remains unresolved and is not altered here.
 - Branch scope: feature branch only; `main` was not modified.
+
+
+## Global privacy emergency unlock hardening — 2026-11-27
+
+**Branch:** `feature/v2-bidirectional-automation`  
+**Implementation scope:** `agent/privacy_overlay.py`; no production API, network port, or Render service configuration changed.  
+**Global shortcut:** Windows `Ctrl+Alt+Shift+U` (`RegisterHotKey` ID `0x5244`, modifiers Control + Alt + Shift).  
+**Overlay behavior:** Existing visible tkinter overlay and local key bindings are retained. The global listener runs on a dedicated Win32 message thread so it works when the overlay does not own keyboard focus. A received `WM_HOTKEY` sets the stop event, invokes the normal unlock callback, and requests overlay teardown. Registered hotkeys are unregistered in the listener's `finally` cleanup path. Registration, message APIs, focus, display-affinity, and tkinter startup are exception-guarded; non-Windows platforms do not attempt Win32 registration.
+
+| File / suite / service | Change or responsibility | Verification / result | Status |
+|---|---|---|---|
+| `agent/privacy_overlay.py` | Adds `_stop_flag`, isolated Windows global-hotkey message thread, `RegisterHotKey`, `WM_HOTKEY` dispatch, stop signaling, and `UnregisterHotKey`; preserves tkinter overlay and `PrivacyOverlayManager` alias | Source contract reviewed against `test_t25_privacy_overlay_registers_emergency_unlock_hotkey`; automated execution delegated to GitHub Actions | Committed to feature branch |
+| `tests/test_v2_30_suite.py::test_t25_privacy_overlay_registers_emergency_unlock_hotkey` | Static contract for registration, message dispatch, stop event, and unregistration | Added to focused regression command; CI pending at manifest creation | CI pending |
+| `tests/test_input_dispatch.py` | Existing mouse, keyboard, clipboard paste, text input, and input-release regression suite | Inspected; included in focused regression command | CI pending |
+| `tests/test_session_workflow_conversion.py` | Session recording to workflow conversion and replay compatibility | Included in focused regression command | CI pending |
+| `tests/test_saved_workflows.py` | Saved-workflow persistence and owner-isolation tests | Included in focused regression command | CI pending |
+| `tests/test_v2_workflow_engine.py` | V2 workflow engine regression suite | Included in focused regression command | CI pending |
+| `tests/test_adaptive_replay_10_envs.py` | Adaptive replay environment regression suite | Included in focused regression command | CI pending |
+| `test_instructions.json` | Adds one non-interactive command covering T25 and the six requested suites | JSON parsed before update; command committed | Committed to feature branch |
+| `PROJECT_MANIFEST.md` | Records changed files, test scope, endpoint/service impact, and verification state | This section | Updated on feature branch |
+| Windows global hotkey / tkinter overlay | Local desktop OS message registration and visible overlay | No HTTP endpoint, listening port, or cloud service added/changed; physical Windows interaction not yet certified | CI / physical-host verification pending |
+
+### Focused regression command
+
+```bash
+python -m pytest -q tests/test_v2_30_suite.py::test_t25_privacy_overlay_registers_emergency_unlock_hotkey tests/test_input_dispatch.py tests/test_session_workflow_conversion.py tests/test_saved_workflows.py tests/test_v2_workflow_engine.py tests/test_adaptive_replay_10_envs.py
+```
+
+### Commit and CI checkpoint
+- Implementation commits: `6200274d8cf925f12218a03ec33707d1731c503a` and `d09f16806d5635efede7323b25d34183275f2238`.
+- Regression-instruction commit: `c4f8e56f47806ffc1ceff066cc64e06514f8dce5`.
+- GitHub Actions workflow `.github/workflows/test-and-build-v2.yml`, run `46035984350` (run #163), was observed pending at manifest creation. No local `.venv` or physical Windows desktop test was executed through GitHub's file API.
+- `main` remained at `826ac493df37314b1ee25a6c104e18b91c795e82` during these feature-branch commits.
+- No deployment, Supabase schema, production data, service configuration, or network endpoint was modified.
