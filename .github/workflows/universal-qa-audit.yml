@@ -136,6 +136,111 @@ jobs:
         run: |
           docker run --rm --network host -v "$PWD/reports/universal-qa:/zap/wrk/:rw" ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t "$QA_BASE_URL" -J zap-baseline.json -r zap-baseline.html
         continue-on-error: true
+      - name: Lighthouse performance, accessibility and SEO audit
+        id: lighthouse
+        if: env.QA_BASE_URL != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-audit --no-fund lighthouse
+          CHROME_BIN="$(command -v google-chrome || command -v chromium || true)"
+          if [[ -z "$CHROME_BIN" ]]; then
+            echo "No Chromium-compatible browser found on runner."
+            exit 1
+          fi
+          export CHROME_PATH="$CHROME_BIN"
+          npx --no-install lighthouse "$QA_BASE_URL" \
+            --output=json --output=html \
+            --output-path=reports/universal-qa/lighthouse \
+            --chrome-flags="--headless --no-sandbox --disable-dev-shm-usage"
+        continue-on-error: true
+
+      - name: Rendered DOM, CSS and UI/UX inspection
+        id: uiux
+        if: env.QA_BASE_URL != '' && steps.playwright_install.outcome == 'success'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import asyncio, json, os
+          from playwright.async_api import async_playwright
+
+          async def main():
+              async with async_playwright() as p:
+                  browser = await p.chromium.launch()
+                  page = await browser.new_page(viewport={"width": 1365, "height": 900})
+                  await page.goto(os.environ["QA_BASE_URL"], wait_until="networkidle", timeout=45000)
+                  dom = await page.evaluate("""() => {
+                    const visible = el => !!(el.getClientRects().length) && getComputedStyle(el).visibility !== 'hidden';
+                    const all = s => [...document.querySelectorAll(s)].filter(visible);
+                    const contrast = (fg,bg) => {
+                      const rgb = c => (c.match(/[\\d.]+/g)||[]).slice(0,3).map(Number);
+                      const lum = c => rgb(c).map(v => {v/=255; return v<=.04045?v/12.92:Math.pow((v+.055)/1.055,2.4)}).reduce((a,v,i)=>a+v*[.2126,.7152,.0722][i],0);
+                      const a=lum(fg), b=lum(bg); return (Math.max(a,b)+.05)/(Math.min(a,b)+.05);
+                    };
+                    const textNodes = all('body *').filter(e => e.children.length===0 && (e.innerText||'').trim());
+                    let lowContrast=0, sampled=0;
+                    for (const e of textNodes.slice(0,150)) {
+                      const cs=getComputedStyle(e), bg=cs.backgroundColor;
+                      if (cs.color.startsWith('rgb') && bg.startsWith('rgb') && !bg.includes('0, 0, 0, 0')) {
+                        sampled++; if (contrast(cs.color,bg)<4.5) lowContrast++;
+                      }
+                    }
+                    const imgs=all('img'), buttons=all('button,[role=button],input[type=submit]');
+                    const links=all('a[href]'), headings=all('h1,h2,h3,h4,h5,h6');
+                    const css=[...document.styleSheets].map(s=>({href:s.href||'inline',disabled:s.disabled}));
+                    const metrics={
+                      title:document.title, viewportMeta:!!document.querySelector('meta[name=viewport]'),
+                      h1Count:all('h1').length, headingCount:headings.length,
+                      landmarkCount:all('main,nav,header,footer,[role=main],[role=navigation]').length,
+                      images:imgs.length, imagesMissingAlt:imgs.filter(i=>!i.hasAttribute('alt')).length,
+                      buttons:buttons.length, buttonsUnlabelled:buttons.filter(b=>!(b.innerText||b.getAttribute('aria-label')||b.getAttribute('title')||b.value||'').trim()).length,
+                      links:links.length, linksWithoutName:links.filter(a=>!(a.innerText||a.getAttribute('aria-label')||'').trim()).length,
+                      forms:all('input,select,textarea').length,
+                      fieldsWithoutLabel:all('input:not([type=hidden]),select,textarea').filter(e=>!e.labels?.length && !e.getAttribute('aria-label') && !e.getAttribute('aria-labelledby')).length,
+                      lowContrastSamples:lowContrast, contrastSamples:sampled,
+                      horizontalOverflow:document.documentElement.scrollWidth>document.documentElement.clientWidth,
+                      documentWidth:document.documentElement.scrollWidth, viewportWidth:document.documentElement.clientWidth,
+                      cssStylesheets:css.length, inlineStyleElements:document.querySelectorAll('style').length,
+                      fontFamilies:[...new Set(textNodes.slice(0,100).map(e=>getComputedStyle(e).fontFamily))].slice(0,12),
+                      bodyFontSize:getComputedStyle(document.body).fontSize
+                    };
+                    return metrics;
+                  }""")
+                  await page.screenshot(path="reports/universal-qa/uiux-homepage.png", full_page=True)
+                  await browser.close()
+              # Transparent heuristic score; it is a triage signal, not a WCAG certification.
+              score=100
+              penalties={
+                "missing_viewport": 10 if not dom["viewportMeta"] else 0,
+                "missing_h1": 8 if dom["h1Count"]==0 else 0,
+                "missing_landmarks": 8 if dom["landmarkCount"]==0 else 0,
+                "unlabelled_images": min(12,dom["imagesMissingAlt"]*2),
+                "unlabelled_buttons": min(12,dom["buttonsUnlabelled"]*3),
+                "unlabelled_links": min(10,dom["linksWithoutName"]*2),
+                "unlabelled_fields": min(12,dom["fieldsWithoutLabel"]*3),
+                "contrast_samples": min(15,round(15*dom["lowContrastSamples"]/max(1,dom["contrastSamples"]))),
+                "horizontal_overflow": 8 if dom["horizontalOverflow"] else 0
+              }
+              score=max(0,score-sum(penalties.values()))
+              directions=[
+                {"name":"Accessible clarity","direction":"Strengthen semantic hierarchy, visible focus, form labels, contrast and readable type scale.","when":"Prioritize if accessibility and comprehension issues dominate the findings."},
+                {"name":"Responsive minimalism","direction":"Use a consistent spacing scale, restrained surfaces, fluid containers and clear mobile breakpoints.","when":"Prioritize if overflow, dense layouts or inconsistent spacing dominate."},
+                {"name":"Action-focused product UI","direction":"Make primary actions visually distinct, group related controls, clarify empty/loading/error states and reduce competing emphasis.","when":"Prioritize if navigation and action discoverability dominate."}
+              ]
+              result={"target":os.environ["QA_BASE_URL"],"heuristic_score":score,"score_label":"heuristic UI/UX triage score out of 100; not an accessibility certification","metrics":dom,"penalties":penalties,"styling_directions":directions}
+              with open("reports/universal-qa/uiux-audit.json","w") as f: json.dump(result,f,indent=2)
+              with open("reports/universal-qa/uiux-audit.md","w") as f:
+                  f.write("# DOM/CSS and UI/UX audit\\n\\n")
+                  f.write(f"**Heuristic score: {score}/100** — not a WCAG certification.\\n\\n")
+                  f.write("## Rendered metrics\\n\\n")
+                  f.write("| Metric | Observation |\\n|---|---:|\\n")
+                  for k,v in dom.items(): f.write(f"| {k} | {v} |\\n")
+                  f.write("\\n## Three styling directions\\n")
+                  for d in directions: f.write(f"\\n### {d['name']}\\n{d['direction']}\\n\\n{d['when']}\\n")
+          asyncio.run(main())
+          PY
+        continue-on-error: true
+
       - name: Consolidate JSON and Markdown reports
         if: always()
         env:
@@ -145,6 +250,8 @@ jobs:
           NPM_AUDIT: ${{ steps.npm_audit.outcome || 'skipped' }}
           PLAYWRIGHT: ${{ steps.playwright.outcome || 'skipped' }}
           ZAP: ${{ steps.zap.outcome || 'skipped' }}
+          LIGHTHOUSE: ${{ steps.lighthouse.outcome || 'skipped' }}
+          UIUX: ${{ steps.uiux.outcome || 'skipped' }}
           REPOSITORY: ${{ github.repository }}
           REF_NAME: ${{ github.ref }}
           COMMIT_SHA: ${{ github.sha }}
@@ -153,7 +260,7 @@ jobs:
           python - <<'PY'
           import json,os,pathlib
           p=pathlib.Path("reports/universal-qa")
-          keys=["GITLEAKS","SEMGREP","PIP_AUDIT","NPM_AUDIT","PLAYWRIGHT","ZAP"]
+          keys=["GITLEAKS","SEMGREP","PIP_AUDIT","NPM_AUDIT","PLAYWRIGHT","ZAP","LIGHTHOUSE","UIUX"]
           status={k:os.getenv(k,"skipped") for k in keys}
           stack=json.loads((p/"detected-stack.json").read_text()) if (p/"detected-stack.json").exists() else {}
           report={"schema_version":1,"repository":os.getenv("REPOSITORY"),"ref":os.getenv("REF_NAME"),
@@ -162,14 +269,14 @@ jobs:
             "scanner_step_outcomes":status,"evidence_files":sorted(x.name for x in p.iterdir()),
             "limitations":["Browser and ZAP checks require QA_BASE_URL or workflow_dispatch base_url.",
               "npm audit requires lockfiles; Python audit requires dependency manifests.",
-              "Baseline scans do not replace an authorized penetration test."]}
+              "Baseline scans do not replace an authorized penetration test.", "UI/UX score is a transparent heuristic, not a WCAG conformance claim."]}
           (p/"audit-report.json").write_text(json.dumps(report,indent=2))
           lines=["# Universal QA and Security Audit","","Repository: "+str(report["repository"]),
             "Ref: "+str(report["ref"]),"Commit: "+str(report["commit"]),
             "Target: "+str(report["target_url"] or "Not configured; live checks skipped"),
             "","## Scanner outcomes","","| Scanner | Result |","|---|---|"]
           lines += [f"| {k} | {v} |" for k,v in status.items()]
-          lines += ["","## Detected stack","","\x60\x60\x60json",json.dumps(stack,indent=2),"\x60\x60\x60",
+          lines += ["","## Lighthouse and UI/UX","", "Lighthouse JSON/HTML and DOM/CSS UI/UX reports are included when a target URL is configured.","","## Detected stack","","\x60\x60\x60json",json.dumps(stack,indent=2),"\x60\x60\x60",
             "","## Limitations"]+["- "+x for x in report["limitations"]]
           (p/"audit-report.md").write_text("\n".join(lines)+"\n")
           PY
@@ -187,6 +294,6 @@ jobs:
       - name: Optional strict scanner gate
         if: always() && inputs.fail_on_findings == true
         run: |
-          for result in "${{ steps.gitleaks.outcome }}" "${{ steps.semgrep.outcome }}" "${{ steps.pip_audit.outcome }}" "${{ steps.npm_audit.outcome }}" "${{ steps.playwright.outcome }}" "${{ steps.zap.outcome }}"; do
+          for result in "${{ steps.gitleaks.outcome }}" "${{ steps.semgrep.outcome }}" "${{ steps.pip_audit.outcome }}" "${{ steps.npm_audit.outcome }}" "${{ steps.playwright.outcome }}" "${{ steps.zap.outcome }}" "${{ steps.lighthouse.outcome }}" "${{ steps.uiux.outcome }}"; do
             [[ "$result" != "failure" ]] || { echo "A configured scanner failed"; exit 1; }
           done
