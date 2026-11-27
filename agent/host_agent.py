@@ -756,6 +756,7 @@ async def run_once(args, stop_event=None):
                     continue
                 message = json.loads(packet)
                 if message.get("type") == "host_heartbeat_ack":
+                    log.info("Server heartbeat acknowledged.")
                     continue
                 if message.get("type") == "viewer_joined":
                     viewer_id = str(message.get("viewer_id") or "unknown")
