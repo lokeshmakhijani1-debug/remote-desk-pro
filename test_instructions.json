@@ -60,7 +60,9 @@
     "python -m pytest -q tests/test_security_headers.py tests/test_accessibility_contract.py tests/test_mobile_control_ui_contract.py",
     "npm --prefix frontend ci --no-audit --no-fund && npm --prefix frontend run build",
     "semgrep scan --config auto --error --exclude-rule yaml.github-actions.security.curl-eval.curl-eval --exclude-rule yaml.github-actions.security.gha-curl-pipe-shell.gha-curl-pipe-shell --json --output reports/semgrep-phase4-final.json .",
-    "python -m pytest -q tests/test_windows_e2e_harness.py"
+    "python -m pytest -q tests/test_windows_e2e_harness.py",
+    "python -m pytest -q tests/test_windows_e2e_harness.py",
+    "Run .github/workflows/windows-staging-host-e2e.yml against the dedicated V2 staging URL; require workflow conclusion=success and all nine JSON checks=PASS."
   ],
   "optional_platform_commands": {
     "windows": [
