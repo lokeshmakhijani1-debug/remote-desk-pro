@@ -19,6 +19,7 @@
 | agent/host_agent.py | Interactive host consent, screen capture, JPEG relay and gated input | websockets, mss, Pillow, pyautogui | RDP_SERVER, RDP_DEVICE_ID, RDP_AGENT_SECRET | Packaged and live online smoke-tested |
 | Dockerfile | Multi-stage frontend build and Python runtime | Node 24, Python 3.12 | PORT=10000 | Source committed |
 | render.yaml | Free-tier Render service blueprint and health check | Render Docker runtime | APP_SECRET_KEY (generated), DATABASE_URL, STUN_URL, CORS_ORIGINS | Blueprint plan created; awaiting approval |
+| Render V2 staging (`srv-dc42jh49v7es73dmas70`) | Dedicated Docker web service, Free Singapore, tracks `feature/v2-bidirectional-automation`; public URL `https://remote-desk-pro-rtij.onrender.com`; deployed commit `a19a14e14b434a2b3fbaf739c5d172307d988fda`; `/api/health` and `/api/manifest` verified HTTP 200 | Docker, port 10000; PostgreSQL confirmed by live health response; secret values not copied into GitHub | Live; Render-side health-check path setting is currently blank and could not be changed through the available Render service controls |
 | requirements.txt | Backend runtime dependencies | FastAPI, Uvicorn, SQLAlchemy, PyJWT, Argon2, pydantic-settings, email-validator | â€” | Source committed |
 | requirements-dev.txt | Automated test dependencies | pytest, httpx, websockets | â€” | Live E2E harness added
 | tests/test_health.py and tests/e2e_live_relay.py | API tests and synthetic live WebSocket relay verification | pytest, httpx, websockets | â€” | Live E2E passed |
@@ -1173,3 +1174,16 @@ python -m pytest -q tests/test_v2_30_suite.py::test_t25_privacy_overlay_register
 - The six requested suites all exist on the branch and are listed together with T25 in root `test_instructions.json`. The workflow's all-tests command also includes them. No local `.venv` execution was possible or claimed; CI used GitHub-hosted Python 3.12.
 - Physical Windows shortcut behavior, focus-independent hotkey delivery, and teardown remain pending a Windows desktop test. Ubuntu CI verifies source contracts and non-Windows safety only.
 - Latest feature branch commit before this manifest update: `fc29e0f98e9ae7e700017f36338b6abd46599e0a`. `main` remained `826ac493df37314b1ee25a6c104e18b91c795e82`; no production service, endpoint, database, or deployment was changed.
+
+
+## V2 staging deployment verification — 2026-11-27
+- Workspace: `My Workspace` (`tea-dau2kcrncjis73agt6bg`).
+- Service: `remote-desk-pro` / `srv-dc42jh49v7es73dmas70`; plan **Free**, region **Singapore**, Docker runtime, repository `lokeshmakhijani1-debug/remote-desk-pro`, tracked branch `feature/v2-bidirectional-automation`.
+- Public V2 URL: https://remote-desk-pro-rtij.onrender.com
+- Latest verified deployment before this manifest-only update: `dep-dc4r8n29lscs73enou6g`, status **live**, commit `a19a14e14b434a2b3fbaf739c5d172307d988fda`.
+- Live HTTP checks: `GET /api/health` returned HTTP 200 with `status=ok` and `database=postgresql`; `GET /api/manifest` returned HTTP 200 and reported `git_sha=a19a14e14b434a2b3fbaf739c5d172307d988fda`, V2 feature flags including workflows, clipboard, file transfer, recording and privacy banner.
+- Root page loaded and rendered the Remote Desk Pro sign-in screen. No authenticated workflow CRUD, device pairing, host/viewer WebSocket session, or physical Windows agent session was exercised.
+- Dockerfile sets `PORT=10000`, exposes port `10000`, and starts Uvicorn on `0.0.0.0:10000`.
+- Render service metadata currently reports an empty Render-side `healthCheckPath`; the application endpoint itself is healthy, but the dashboard setting `/api/health` was not changed because the available Render service API does not expose that field and the browser-control service was unavailable. This is recorded as a configuration follow-up, not misreported as configured.
+- The staging service is already connected to PostgreSQL (verified by its live health payload). Render's available service detail response does not expose environment-variable values or a safe variable-copy operation, so secret-bearing variables were not read, printed, or copied. Production env settings were not touched.
+- Production isolation verified from Render workspace inventory: `srv-dc0917utlv9c739h7o30` still tracks `main`; its URL is `https://remote-desk-pro-pj29.onrender.com`. No action was taken on that service. GitHub `main` remains outside this deployment workflow.
