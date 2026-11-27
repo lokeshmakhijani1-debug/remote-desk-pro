@@ -1056,7 +1056,8 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 ## Feature branch delivery manifest — session recording workflow pipeline
 **Branch:** `feature/v2-bidirectional-automation`  
 **Current head:** Follow the live GitHub branch reference; this manifest intentionally avoids a stale pinned SHA.  
-**Deployment:** feature-branch only; not merged to `main`, and the Supabase migration has not been applied to the live project.\n**Verification snapshot:** workflow pipeline, frontend build, WebSocket stress, fault-injection/load tests, Gitleaks, and Windows packaging passed in GitHub Actions. Full legacy suite still has three unrelated privacy-overlay failures.
+**Deployment:** feature-branch only; not merged to `main`, and the Supabase migration has not been applied to the live project.
+**Verification snapshot:** workflow pipeline, frontend build, WebSocket stress, fault-injection/load tests, Gitleaks, and Windows packaging passed in GitHub Actions. Full legacy suite still has three unrelated privacy-overlay failures.
 
 | File / endpoint | Responsibility | Verification | Release status |
 |---|---|---|---|
