@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://remote-desk-pro-rtij.onrender.com/sitemap.xml
