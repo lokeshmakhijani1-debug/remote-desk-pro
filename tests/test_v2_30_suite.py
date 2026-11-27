@@ -52,7 +52,8 @@ def test_t09_recording_library_commands_require_authenticated_approved_viewer_an
     host_source = inspect.getsource(backend_main.host_socket)
     for kind in ("recording_list", "recording_delete", "recording_download_chunk"):
         assert kind in viewer_source
-    assert 'read_token(str(auth.get("session_token", "")))' in viewer_source
+    assert 'read_token(auth["session_token"]) if isinstance(auth.get("session_token"), str) else {}' in viewer_source
+    assert 'if not isinstance(auth, dict) or auth.get("type") != "auth":' in viewer_source
     assert "kind in (\"recording_list\", \"recording_delete\", \"recording_download_chunk\") and user_role != \"read_only\"" in viewer_source
     assert "elif kind == \"recording_control\" and hub.is_approved(device_id)" in host_source
     assert "kind in (\"clipboard_ack\", \"privacy_screen_ack\", \"recording_status\", \"recording_list_result\", \"recording_deleted\", \"recording_chunk_result\", \"recording_error\") and hub.is_approved(device_id)" in host_source
