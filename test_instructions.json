@@ -59,7 +59,8 @@
     "python -m pytest -q tests/test_*.py",
     "python -m pytest -q tests/test_security_headers.py tests/test_accessibility_contract.py tests/test_mobile_control_ui_contract.py",
     "npm --prefix frontend ci --no-audit --no-fund && npm --prefix frontend run build",
-    "semgrep scan --config auto --error --exclude-rule yaml.github-actions.security.curl-eval.curl-eval --exclude-rule yaml.github-actions.security.gha-curl-pipe-shell.gha-curl-pipe-shell --json --output reports/semgrep-phase4-final.json ."
+    "semgrep scan --config auto --error --exclude-rule yaml.github-actions.security.curl-eval.curl-eval --exclude-rule yaml.github-actions.security.gha-curl-pipe-shell.gha-curl-pipe-shell --json --output reports/semgrep-phase4-final.json .",
+    "python -m pytest -q tests/test_windows_e2e_harness.py"
   ],
   "optional_platform_commands": {
     "windows": [
@@ -91,8 +92,8 @@
     ],
     "windows_staging_certification": [
       "Run .github/workflows/windows-staging-host-e2e.yml on feature/v2-bidirectional-automation against https://remote-desk-pro-rtij.onrender.com.",
-      "Require the packaged host to pass staging registration, two heartbeat acknowledgements, controlled network-drop offline transition, reconnect after firewall restoration, process-tree termination, and server-reported offline state after agent exit.",
-      "Verify the test harness terminates the complete PyInstaller --onefile process tree (taskkill /T /F), not only the bootstrap process."
+      "Require tests/artifacts/windows_staging_host_e2e.json status=PASS and every checks value=PASS. The workflow must validate the JSON report, not the stale PowerShell $LASTEXITCODE after cleanup taskkill.",
+      "Require staging registration, two heartbeat acknowledgements, controlled network-drop offline transition, reconnect after firewall restoration, complete PyInstaller process-tree termination, and server-reported offline state after agent exit."
     ],
     "phase4_certification": [
       "Use the V2 Staging Universal QA Audit run on feature/v2-bidirectional-automation; confirm QA_BASE_URL is https://remote-desk-pro-rtij.onrender.com and inspect semgrep.json, zap-baseline.json/html, lighthouse JSON/HTML, playwright-smoke.json and uiux-audit.json/md.",
@@ -104,11 +105,11 @@
       "Require Lighthouse accessibility >=95 and UI/UX heuristic >=92; review actual audit details rather than treating heuristic score as WCAG certification."
     ],
     "phase4_closing": [
-      "Verify the staging Render service srv-dc42jh49v7es73dmas70 is on feature/v2-bidirectional-automation and has deployed the latest branch commit; do not trigger or modify production service srv-dc0917utlv9c739h7o30.",
-      "Inspect fresh Lighthouse report: accessibility >=95, no color-contrast failures, no favicon 404 or browser console errors.",
-      "Inspect fresh ZAP report: zero FAIL and no WARN-level cache-control or cacheable-content findings; the modern SPA fingerprint is classified INFO in zap-baseline.conf.",
-      "Inspect Semgrep JSON: zero findings and no internal matching/partial parsing errors; only the two unsupported Bash-metavariable rules are excluded.",
-      "Run complete Python tests, frontend build, dependency audits and Windows packaged-host E2E; update certification status based only on successful run evidence."
+      "Fresh audit run 46056359948 completed all scanner steps successfully against https://remote-desk-pro-rtij.onrender.com. Lighthouse scores: performance 100, accessibility 100, best practices 100, SEO 100. UI/UX heuristic 100/100.",
+      "ZAP baseline: zero FAIL and zero WARN. Only informational alerts 10049 (Non-Storable Content) and 10109 (Modern Web Application) remain.",
+      "Semgrep JSON: zero findings and zero internal errors. Gitleaks, pip-audit, npm audit, Playwright, ZAP and Lighthouse completed successfully.",
+      "Windows staging JSON report from run 46056297680 shows all 9 checks PASS. Re-run the workflow after the wrapper's stale LASTEXITCODE gate was corrected, and require the workflow job itself to conclude success.",
+      "Run full Python regression (190 passed, 2 skipped), frontend production build, recording workflow stress/fault injection, and Windows executable packaging. Keep main and production Render untouched."
     ]
   }
 }
