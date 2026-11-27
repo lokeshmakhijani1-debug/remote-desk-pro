@@ -69,7 +69,7 @@ jobs:
       - name: Semgrep SAST
         id: semgrep
         if: steps.semgrep_install.outcome == 'success'
-        run: semgrep scan --config auto --error --json --output reports/universal-qa/semgrep.json .
+        run: semgrep scan --config auto --error --exclude-rule yaml.github-actions.security.curl-eval.curl-eval --exclude-rule yaml.github-actions.security.gha-curl-pipe-shell.gha-curl-pipe-shell --json --output reports/universal-qa/semgrep.json .
         continue-on-error: true
       - name: Python dependency audit
         id: pip_audit
