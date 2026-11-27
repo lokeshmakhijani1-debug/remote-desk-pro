@@ -643,6 +643,30 @@ def validate_recording_library_control(event: dict) -> bool:
     return False
 
 
+def validate_workflow_export(event: dict) -> bool:
+    """Bound authenticated host-to-viewer workflow export frames."""
+    import re
+    kind = event.get("type")
+    if kind == "workflow_convert_error":
+        detail = event.get("detail")
+        return set(event) == {"type", "detail"} and isinstance(detail, str) and len(detail) <= 200
+    export_id = event.get("export_id")
+    if not isinstance(export_id, str) or not re.fullmatch(r"[0-9a-f]{24}", export_id):
+        return False
+    if kind == "workflow_export_start":
+        filename, total = event.get("filename"), event.get("total_bytes")
+        return (set(event) == {"type", "export_id", "filename", "total_bytes"}
+                and isinstance(filename, str) and bool(re.fullmatch(r"workflow_[0-9TZ]+\.json", filename))
+                and type(total) is int and 1 <= total <= 2_000_000)
+    if kind == "workflow_export_chunk":
+        data = event.get("data")
+        return (set(event) == {"type", "export_id", "data"}
+                and isinstance(data, str) and len(data.encode("utf-8")) <= 40_000)
+    if kind == "workflow_export_end":
+        return set(event) == {"type", "export_id"}
+    return False
+
+
 def validate_recording_control(event: dict) -> bool:
     """Accept only explicit local recording actions with bounded resource settings."""
     action = event.get("action")
@@ -722,8 +746,11 @@ async def host_socket(ws: WebSocket, device_id: str):
             elif kind == "host_denied":
                 hub.approved.discard(device_id)
                 await hub.relay(device_id, ws, raw)
-            elif kind in ("clipboard_ack", "privacy_screen_ack", "recording_status", "recording_list_result", "recording_deleted", "recording_chunk_result", "recording_error", "workflow_export_start", "workflow_export_chunk", "workflow_export_end", "workflow_convert_error") and hub.is_approved(device_id):
+            elif kind in ("clipboard_ack", "privacy_screen_ack", "recording_status", "recording_list_result", "recording_deleted", "recording_chunk_result", "recording_error") and hub.is_approved(device_id):
                 await hub.relay(device_id, ws, raw)
+            elif kind in ("workflow_export_start", "workflow_export_chunk", "workflow_export_end", "workflow_convert_error") and hub.is_approved(device_id):
+                if validate_workflow_export(event):
+                    await hub.relay(device_id, ws, raw)
             elif kind == "recording_control" and hub.is_approved(device_id):
                 if validate_recording_control(event):
                     audit(db, "recording." + str(event.get("action")) + "_requested", device.owner_id, device_id)

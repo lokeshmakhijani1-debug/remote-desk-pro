@@ -1040,3 +1040,14 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Follow-up hardening: HSTS is enabled only when the ASGI scheme is HTTPS; arbitrary client-supplied forwarding headers cannot enable it. Gitleaks CI uses `GITLEAKS_LOG_OPTS=--all` to scan all available Git refs/history.
 
 - Gitleaks CI: Gitleaks Action scans the pushed commit and a separate pinned Gitleaks 8.24.3 CLI step scans all refs/history with `--log-opts=--all`. The Windows GUI launch is an opt-in platform-specific command and is not run by the generic non-interactive test command list.
+
+
+## Session recording → workflow pipeline — 2026-11-27
+- Host MP4 recordings capture a companion `.events.jsonl` sidecar containing replay-safe mouse-down, scroll, modifier/navigation key, and Ctrl+A clear-input events with elapsed-time offsets. Printable keystrokes, typed text, clipboard content, passwords, and arbitrary WebSocket messages are excluded.
+- `agent/workflow_engine.py` converts a completed MP4 plus its matching event sidecar into the existing schema-v1 normalized JSON workflow format. MP4-only historical recordings are explicitly rejected because video pixels do not establish reliable input semantics.
+- The host agent exposes an approved-session conversion request and streams the generated JSON to the viewer in bounded WebSocket chunks. Backend relay allowlists and validates conversion requests, export IDs, filenames, payload sizes, and chunk sizes before forwarding.
+- Added owner-scoped `rdp_saved_workflows` persistence, authenticated create/list/delete endpoints, explicit publish/unpublish endpoints, source-recording metadata, and a Supabase migration with owner-scoped RLS policies and a 2 MB payload constraint. Public copies continue to use the existing community workflow table and import flow.
+- Workflow History UI saves local JSON privately, lists saved workflows, and supports explicit publish, unpublish, and delete. Host Recordings exposes conversion only when an event sidecar exists.
+- Replay remains on the existing host-side `WorkflowReplayEngine`; converted files use its schema and support a simulated repeat-execution test. Conversion and publishing never execute a workflow automatically.
+- Added tests for sidecar privacy, MP4/event conversion, video-only rejection, replay-engine repeat execution, owner isolation, publish/unpublish/delete, sensitive-field rejection, and relay frame validation.
+- CI commands are listed in root `test_instructions.json`. Simulated cloud replay tests do not represent physical Windows input execution certification.

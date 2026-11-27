@@ -28,7 +28,9 @@
     "python -m pytest -q tests/test_security_headers.py tests/test_windows_e2e_harness.py",
     "python scripts/verify_windows_e2e.py",
     "python -m pip install --upgrade pip-audit bandit && pip-audit -r requirements.txt -r agent/requirements.txt && bandit -q -r backend agent -lll",
-    "gitleaks detect --source . --redact --verbose --log-opts=--all"
+    "gitleaks detect --source . --redact --verbose --log-opts=--all",
+    "python -m pytest -q tests/test_session_workflow_conversion.py tests/test_saved_workflows.py tests/test_workflow_transport_security.py tests/test_workflow_ui_contract.py",
+    "python -m pytest -q tests/test_session_workflow_conversion.py -k repeat"
   ],
   "optional_platform_commands": {
     "windows": [
