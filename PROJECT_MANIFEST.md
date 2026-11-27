@@ -1162,3 +1162,14 @@ python -m pytest -q tests/test_v2_30_suite.py::test_t25_privacy_overlay_register
 - GitHub Actions workflow `.github/workflows/test-and-build-v2.yml`, run `46035984350` (run #163), was observed pending at manifest creation. No local `.venv` or physical Windows desktop test was executed through GitHub's file API.
 - `main` remained at `826ac493df37314b1ee25a6c104e18b91c795e82` during these feature-branch commits.
 - No deployment, Supabase schema, production data, service configuration, or network endpoint was modified.
+
+
+## Privacy overlay follow-up — latest source and CI checkpoint (2026-11-27)
+
+- Final implementation follow-ups: `07ee2984184c7e94e647c0cc1eaf04433250fcc5` retains the native `SS_BLACKRECT = 0x00000004` opaque-black style contract; `fc29e0f98e9ae7e700017f36338b6abd46599e0a` makes startup report `False` if tkinter cannot initialize or become ready. The global listener remains best-effort and exception-safe.
+- CI run #161 (`46035949142`, implementation commit `6200274d8cf925f12218a03ec33707d1731c503a`): Python compilation passed; regression suite reported 175 passed, 3 failed, 2 skipped. Failures were the missing layered-alpha source contract, missing `os` module/platform guard, and missing exact RegisterHotKey source contract. These were corrected in subsequent commits.
+- CI run #166 (`46036199390`, commit `e2219853bb840fe1b8647ff031174ecddd99fe87`): Python compilation passed; regression suite reported 177 passed, 1 failed, 2 skipped. The sole remaining failure was the `SS_BLACKRECT` source contract; the constant was added in `07ee2984184c7e94e647c0cc1eaf04433250fcc5`.
+- Latest branch source includes all listed fixes. GitHub Actions run #168 (`46036633589`, commit `fc29e0f98e9ae7e700017f36338b6abd46599e0a`) was queued/pending at this checkpoint; it is the validation run for the latest code. The run #166 Windows packaging job was still in progress, so final Windows packaging status is not inferred from the Python job.
+- The six requested suites all exist on the branch and are listed together with T25 in root `test_instructions.json`. The workflow's all-tests command also includes them. No local `.venv` execution was possible or claimed; CI used GitHub-hosted Python 3.12.
+- Physical Windows shortcut behavior, focus-independent hotkey delivery, and teardown remain pending a Windows desktop test. Ubuntu CI verifies source contracts and non-Windows safety only.
+- Latest feature branch commit before this manifest update: `fc29e0f98e9ae7e700017f36338b6abd46599e0a`. `main` remained `826ac493df37314b1ee25a6c104e18b91c795e82`; no production service, endpoint, database, or deployment was changed.
