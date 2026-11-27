@@ -1051,3 +1051,42 @@ git diff --quiet && git diff --cached --quiet && git fetch origin && git reset -
 - Replay remains on the existing host-side `WorkflowReplayEngine`; converted files use its schema and support a simulated repeat-execution test. Conversion and publishing never execute a workflow automatically.
 - Added tests for sidecar privacy, MP4/event conversion, video-only rejection, replay-engine repeat execution, owner isolation, publish/unpublish/delete, sensitive-field rejection, and relay frame validation.
 - CI commands are listed in root `test_instructions.json`. Simulated cloud replay tests do not represent physical Windows input execution certification.
+
+
+## Feature branch delivery manifest — session recording workflow pipeline
+**Branch:** `feature/v2-bidirectional-automation`  
+**Current head:** `420b03224523de0df839888b3dca47808c8442df`  
+**Deployment:** feature-branch only; not merged to `main`, and the Supabase migration has not been applied to the live project.
+
+| File / endpoint | Responsibility | Verification | Release status |
+|---|---|---|---|
+| `agent/session_recorder.py` | Writes MP4 companion `.events.jsonl` with elapsed-time offsets and replay-safe mouse/scroll/navigation/modifier events; excludes printable text and clipboard | Sidecar privacy tests; retention/delete lifecycle | Committed to feature branch |
+| `agent/workflow_engine.py` | Converts completed MP4 + matching event sidecar to schema-v1 workflow JSON; requires safe focus coordinates; output is accepted by existing replay engine | Converter validation and repeated simulated replay test | Committed to feature branch |
+| `agent/host_agent.py` | Captures approved control events during recording; handles recording-conversion requests; exports JSON in bounded chunks | Python compile + host workflow tests + relay transport tests | Committed to feature branch |
+| `backend/main.py` | Authenticated workflow save/list/delete/publish/unpublish APIs; private/public payload validation; strict WebSocket conversion/export allowlists | Owner-isolation/API lifecycle and relay frame tests | Committed to feature branch |
+| `backend/database.py` | Adds owner-scoped `SavedWorkflow` model | SQLite metadata/API integration tests | Committed to feature branch |
+| `supabase/migrations/20261127120000_saved_workflows.sql` | Creates `rdp_saved_workflows`, owner RLS policies, metadata indexes and 2 MB payload bound | Migration source reviewed; apply to target Supabase project still pending | Committed; not applied to production |
+| `frontend/src/App.tsx` | Recording conversion action; private workflow library; explicit publish/unpublish/delete; replay-latest-on-host action | Workflow UI contract tests + Vite build | Committed to feature branch |
+| `frontend/src/api.ts` | Adds method-aware authenticated API helper for DELETE and POST operations | Frontend build | Committed to feature branch |
+| `tests/test_session_workflow_conversion.py` | Sidecar sanitization, conversion, video-only rejection, invalid timeline/focus rejection, repeat replay simulation | Dedicated pipeline CI job | Committed to feature branch |
+| `tests/test_saved_workflows.py` | Owner isolation, save/list/delete, publish/unpublish, sensitive-field and printable-key rejection | Dedicated pipeline CI job | Committed to feature branch |
+| `tests/test_workflow_transport_security.py` | Validates conversion request and bounded/correlated export frames | Dedicated pipeline CI job | Committed to feature branch |
+| `tests/test_workflow_ui_contract.py` | Confirms management, conversion, export and replay controls exist | Dedicated pipeline CI job | Committed to feature branch |
+| `.github/workflows/test-and-build-v2.yml` | Adds an independent pipeline job for workflow tests, frontend build, WebSocket stress and fault injection | GitHub Actions | Committed to feature branch |
+
+### Workflow API contract
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| POST | `/api/workflows` | Authenticated owner | Save a validated workflow privately with metadata |
+| GET | `/api/workflows` | Authenticated owner | List the caller's workflows |
+| DELETE | `/api/workflows/{workflow_id}` | Owner only | Delete private workflow and its linked public copy |
+| POST | `/api/workflows/{workflow_id}/publish` | Owner only + explicit action | Publish a validated copy to Community Library |
+| POST | `/api/workflows/{workflow_id}/unpublish` | Owner only | Remove public copy and return to private state |
+
+### Recording conversion contract
+- Viewer sends `recording_convert_workflow` only over an approved live session.
+- Host accepts only a basename matching the recording filename pattern and requires a finalized MP4 with a non-symlink event sidecar.
+- Host emits `workflow_export_start`, ordered `workflow_export_chunk` frames, and `workflow_export_end`; backend validates frame IDs, filenames, lengths and payload bounds.
+- Viewer verifies the reassembled UTF-8 byte count before saving the JSON to the authenticated private library.
+- Conversion does not run the workflow. The operator must explicitly click **Replay Latest on Host**; replay executes on the approved host using `WorkflowReplayEngine`.
+- Video-only historical recordings cannot be converted reliably. No MP4 or event-sidecar assets were found in the repository tree; recordings stored under the host's local AppData folder are not accessible through GitHub repository operations.
