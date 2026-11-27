@@ -47,6 +47,7 @@ _FILE_CONSENT_CALLBACK = None
 _DIAGNOSTICS_CALLBACK = None
 _TELEMETRY_CALLBACK = None
 _WORKFLOW_RECORDER = None
+_ACTIVE_SESSION_RECORDER = None
 _WORKFLOW_RECORD_REQUESTED = False
 _PRIVACY_SCREEN_ACTIVE = False
 _LAST_ERROR = "None"
@@ -517,6 +518,11 @@ def _apply_control_unlocked(message: dict):
             )
     else:
         return False
+    if _ACTIVE_SESSION_RECORDER is not None:
+        try:
+            _ACTIVE_SESSION_RECORDER.record_control_event(message)
+        except Exception:
+            log.exception("Session workflow event recording failed")
     if _WORKFLOW_RECORDER is not None:
         try:
             _WORKFLOW_RECORDER.record_control(message)
@@ -549,6 +555,7 @@ def release_all_inputs():
             _PRESSED_MOUSE_BUTTONS.discard(button)
 
 async def run_once(args, stop_event=None):
+    global _ACTIVE_SESSION_RECORDER
     import ssl
     import certifi
     import websockets
@@ -656,6 +663,7 @@ async def run_once(args, stop_event=None):
 
         async def apply_recording_action(action: str, settings: dict | None = None):
             nonlocal recorder, recording_timer_task, recording_reason
+            global _ACTIVE_SESSION_RECORDER
             if action in ("stop", "privacy_stop"):
                 if recorder is not None and recording_reason == "privacy" and action == "stop" and _PRIVACY_SCREEN_ACTIVE:
                     await ws.send(json.dumps({"type": "recording_status", "active": True, "reason": "privacy", "detail": "Privacy-triggered recording cannot be stopped while the host screen remains blanked."}))
@@ -667,6 +675,8 @@ async def run_once(args, stop_event=None):
                     if recording_timer_task and recording_timer_task is not asyncio.current_task():
                         recording_timer_task.cancel()
                     await asyncio.to_thread(current.stop)
+                    if _ACTIVE_SESSION_RECORDER is current:
+                        _ACTIVE_SESSION_RECORDER = None
                     await ws.send(json.dumps({"type": "recording_status", "active": False, "reason": None,
                                               "detail": "Privacy security recording finalized locally." if previous_reason == "privacy" else "Recording saved locally."}))
                 elif recorder is not None and recorder.is_alive:
@@ -696,6 +706,7 @@ async def run_once(args, stop_event=None):
                                           "detail": "Existing recording continues; duplicate start ignored."}))
                 return
             recorder = candidate
+            _ACTIVE_SESSION_RECORDER = candidate
             recording_reason = "privacy" if action == "privacy_start" else "manual"
             await ws.send(json.dumps({"type": "recording_status", "active": True, "reason": recording_reason,
                                       "detail": "Auto-recording active while screen is blanked" if recording_reason == "privacy" else "Local recording started."}))
@@ -778,6 +789,24 @@ async def run_once(args, stop_event=None):
                     except Exception:
                         log.exception("Recording chunk request failed")
                         await ws.send(json.dumps({"type": "recording_error", "detail": "Recording download failed"}))
+                elif message.get("type") == "recording_convert_workflow" and streaming.is_set():
+                    try:
+                        try:
+                            from workflow_engine import convert_session_recording_to_workflow
+                        except ModuleNotFoundError:
+                            from agent.workflow_engine import convert_session_recording_to_workflow
+                        filename = str(message.get("filename", ""))
+                        path = await asyncio.to_thread(convert_session_recording_to_workflow, filename)
+                        raw = await asyncio.to_thread(path.read_text, encoding="utf-8")
+                        export_id = uuid.uuid4().hex[:24]
+                        await ws.send(json.dumps({"type": "workflow_export_start", "export_id": export_id,
+                                                  "filename": path.name, "total_bytes": len(raw.encode("utf-8"))}))
+                        for offset in range(0, len(raw), 10000):
+                            await ws.send(json.dumps({"type": "workflow_export_chunk", "export_id": export_id,
+                                                      "data": raw[offset:offset + 10000]}))
+                        await ws.send(json.dumps({"type": "workflow_export_end", "export_id": export_id}))
+                    except Exception as exc:
+                        await ws.send(json.dumps({"type": "workflow_convert_error", "detail": str(exc)[:200]}))
                 elif message.get("type") == "recording_control" and streaming.is_set():
                     try:
                         await apply_recording_action(str(message.get("action", "stop")), message.get("settings"))
@@ -797,6 +826,8 @@ async def run_once(args, stop_event=None):
                             recorder.stop()
                         except Exception:
                             log.exception("Session recording finalization failed")
+                        if _ACTIVE_SESSION_RECORDER is recorder:
+                            _ACTIVE_SESSION_RECORDER = None
                         recorder = None
                     if stream_task:
                         stream_task.cancel()
@@ -1009,6 +1040,8 @@ async def run_once(args, stop_event=None):
                     recorder.stop()
                 except Exception:
                     log.exception("Session recording finalization failed during disconnect")
+                if _ACTIVE_SESSION_RECORDER is recorder:
+                    _ACTIVE_SESSION_RECORDER = None
             if stream_task:
                 stream_task.cancel()
             if clipboard_task:

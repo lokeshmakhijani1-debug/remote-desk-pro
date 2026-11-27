@@ -12,7 +12,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 from .config import settings
-from .database import SessionLocal, init_db, User, Device, AuditEvent, CommunityWorkflow, verify_database_connection, DATABASE_KIND
+from .database import SessionLocal, init_db, User, Device, AuditEvent, CommunityWorkflow, SavedWorkflow, verify_database_connection, DATABASE_KIND
 from .security import hash_secret, verify_secret, issue_token, read_token, new_device_id, new_dynamic_password
 
 logger = logging.getLogger("uvicorn.error")
@@ -93,6 +93,11 @@ class ConnectIn(BaseModel):
 
 class WorkflowPublishIn(BaseModel):
     workflow: dict[str, Any]
+
+class WorkflowSaveIn(BaseModel):
+    workflow: dict[str, Any]
+    description: str = Field(default="", max_length=1000)
+    source_recording: str | None = Field(default=None, max_length=255)
 
 
 _attempts: dict[str, list[float]] = defaultdict(list)
@@ -270,6 +275,130 @@ def audit_logs(authorization: str | None = Header(default=None), db: Session = D
         raise HTTPException(403, "Admin role required")
     rows = db.scalars(select(AuditEvent).order_by(AuditEvent.created_at.desc()).limit(200)).all()
     return [{"action":r.action,"user_id":r.user_id,"device_id":r.device_id,"detail":r.detail,"at":r.created_at.isoformat()} for r in rows]
+
+
+def _private_workflow_payload(source: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(source, dict) or source.get("schema_version") != 1:
+        raise HTTPException(422, "Unsupported workflow schema")
+    steps = source.get("steps")
+    if not isinstance(steps, list) or not steps or len(steps) > 10000:
+        raise HTTPException(422, "Workflow must contain between 1 and 10000 steps")
+    try:
+        encoded = json.dumps(source, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        raise HTTPException(422, "Workflow must be valid JSON")
+    if len(encoded.encode("utf-8")) > 2_000_000:
+        raise HTTPException(413, "Workflow exceeds the 2 MB limit")
+    forbidden = {"typed_text", "clipboard", "password", "secret", "input_value"}
+    allowed_actions = {"mouse_down", "key_down", "key_up", "mouse_scroll", "clear_input", "checkpoint"}
+    def inspect(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if str(key).casefold() in forbidden:
+                    raise HTTPException(422, "Workflow contains a prohibited sensitive field")
+                inspect(item)
+        elif isinstance(value, list):
+            for item in value: inspect(item)
+    inspect(source)
+    for step in steps:
+        if not isinstance(step, dict) or step.get("action") not in allowed_actions:
+            raise HTTPException(422, "Workflow contains an unsupported action")
+        if step.get("action") == "mouse_down":
+            x, y = step.get("x"), step.get("y")
+            if not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or not (0 <= x <= 1 and 0 <= y <= 1):
+                raise HTTPException(422, "Workflow pointer coordinates must be normalized")
+    clean = json.loads(encoded)
+    clean["name"] = " ".join(str(clean.get("name") or "Untitled workflow").split())[:120] or "Untitled workflow"
+    clean["tags"] = [str(tag).strip()[:32] for tag in clean.get("tags", [])[:12] if str(tag).strip()] if isinstance(clean.get("tags"), list) else []
+    clean["notes"] = str(clean.get("notes") or "").strip()[:1000]
+    clean["is_public"] = False
+    clean["privacy"] = {"typed_text_recorded": False, "clipboard_recorded": False, "local_only": True}
+    return clean
+
+
+@app.post("/api/workflows")
+def save_workflow(data: WorkflowSaveIn, authorization: str | None = Header(default=None), db: Session = Depends(db_session)):
+    user = current_user(authorization, db)
+    workflow = _private_workflow_payload(data.workflow)
+    row = SavedWorkflow(owner_id=user.id, name=workflow["name"], description=data.description or workflow["notes"],
+                        tags=workflow["tags"], workflow=workflow, source_recording=data.source_recording)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    audit(db, "workflow.saved", user.id, detail=f"workflow_id={row.id}")
+    return {"id": row.id, "name": row.name, "description": row.description, "tags": row.tags,
+            "source_recording": row.source_recording, "is_public": False, "created_at": row.created_at.isoformat()}
+
+
+@app.get("/api/workflows")
+def list_saved_workflows(authorization: str | None = Header(default=None), db: Session = Depends(db_session)):
+    user = current_user(authorization, db)
+    rows = db.scalars(select(SavedWorkflow).where(SavedWorkflow.owner_id == user.id)
+                      .order_by(SavedWorkflow.updated_at.desc()).limit(100)).all()
+    return [{"id": row.id, "name": row.name, "description": row.description, "tags": row.tags,
+             "source_recording": row.source_recording, "is_public": row.is_public,
+             "created_at": row.created_at.isoformat(), "step_count": len((row.workflow or {}).get("steps", []))}
+            for row in rows]
+
+
+@app.delete("/api/workflows/{workflow_id}")
+def delete_saved_workflow(workflow_id: int, authorization: str | None = Header(default=None), db: Session = Depends(db_session)):
+    user = current_user(authorization, db)
+    row = db.scalar(select(SavedWorkflow).where(SavedWorkflow.id == workflow_id, SavedWorkflow.owner_id == user.id))
+    if not row:
+        raise HTTPException(404, "Workflow not found")
+    if row.community_workflow_id:
+        community = db.scalar(select(CommunityWorkflow).where(CommunityWorkflow.id == row.community_workflow_id,
+                                                               CommunityWorkflow.owner_id == user.id))
+        if community:
+            db.delete(community)
+    db.delete(row)
+    db.commit()
+    audit(db, "workflow.deleted", user.id, detail=f"workflow_id={workflow_id}")
+    return {"deleted": True, "id": workflow_id}
+
+
+@app.post("/api/workflows/{workflow_id}/publish")
+def publish_saved_workflow(workflow_id: int, authorization: str | None = Header(default=None), db: Session = Depends(db_session)):
+    user = current_user(authorization, db)
+    row = db.scalar(select(SavedWorkflow).where(SavedWorkflow.id == workflow_id, SavedWorkflow.owner_id == user.id))
+    if not row:
+        raise HTTPException(404, "Workflow not found")
+    if row.is_public and row.community_workflow_id:
+        return {"id": row.id, "is_public": True, "community_id": row.community_workflow_id}
+    source = json.loads(json.dumps(row.workflow))
+    source["is_public"] = True
+    source["privacy"] = {"typed_text_recorded": False, "clipboard_recorded": False, "local_only": False}
+    workflow = _public_workflow_payload(source)
+    community = CommunityWorkflow(owner_id=user.id, name=workflow["name"], description=row.description,
+                                  tags=workflow["tags"], workflow=workflow, is_public=True)
+    db.add(community)
+    db.flush()
+    row.community_workflow_id = community.id
+    row.is_public = True
+    row.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    audit(db, "workflow.published", user.id, detail=f"workflow_id={row.id}")
+    return {"id": row.id, "is_public": True, "community_id": community.id}
+
+
+@app.post("/api/workflows/{workflow_id}/unpublish")
+def unpublish_saved_workflow(workflow_id: int, authorization: str | None = Header(default=None), db: Session = Depends(db_session)):
+    user = current_user(authorization, db)
+    row = db.scalar(select(SavedWorkflow).where(SavedWorkflow.id == workflow_id, SavedWorkflow.owner_id == user.id))
+    if not row:
+        raise HTTPException(404, "Workflow not found")
+    if row.community_workflow_id:
+        community = db.scalar(select(CommunityWorkflow).where(CommunityWorkflow.id == row.community_workflow_id,
+                                                               CommunityWorkflow.owner_id == user.id))
+        if community:
+            db.delete(community)
+    row.community_workflow_id = None
+    row.is_public = False
+    row.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    audit(db, "workflow.unpublished", user.id, detail=f"workflow_id={row.id}")
+    return {"id": row.id, "is_public": False}
 
 
 def _public_workflow_payload(source: dict[str, Any]) -> dict[str, Any]:
@@ -509,6 +638,8 @@ def validate_recording_library_control(event: dict) -> bool:
         return (type(offset) is int and offset >= 0 and type(length) is int
                 and 1 <= length <= 262144
                 and set(event).issubset({"type", "filename", "offset", "length"}))
+    if kind == "recording_convert_workflow":
+        return set(event) == {"type", "filename"}
     return False
 
 
@@ -591,7 +722,7 @@ async def host_socket(ws: WebSocket, device_id: str):
             elif kind == "host_denied":
                 hub.approved.discard(device_id)
                 await hub.relay(device_id, ws, raw)
-            elif kind in ("clipboard_ack", "privacy_screen_ack", "recording_status", "recording_list_result", "recording_deleted", "recording_chunk_result", "recording_error") and hub.is_approved(device_id):
+            elif kind in ("clipboard_ack", "privacy_screen_ack", "recording_status", "recording_list_result", "recording_deleted", "recording_chunk_result", "recording_error", "workflow_export_start", "workflow_export_chunk", "workflow_export_end", "workflow_convert_error") and hub.is_approved(device_id):
                 await hub.relay(device_id, ws, raw)
             elif kind == "recording_control" and hub.is_approved(device_id):
                 if validate_recording_control(event):
@@ -754,7 +885,7 @@ async def viewer_socket(ws: WebSocket, device_id: str):
                 elif validate_recording_control(event):
                     audit(db, "recording." + str(event.get("action")) + "_requested", user_id, device_id)
                     await hub.relay(device_id, ws, raw)
-            elif kind in ("recording_list", "recording_delete", "recording_download_chunk") and user_role != "read_only":
+            elif kind in ("recording_list", "recording_delete", "recording_download_chunk", "recording_convert_workflow") and user_role != "read_only":
                 if not hub.is_approved(device_id):
                     await ws.send_json({"type":"input_pending","operation":"recording","detail":"Waiting for host approval"})
                 elif validate_recording_library_control(event):

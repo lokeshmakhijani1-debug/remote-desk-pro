@@ -34,6 +34,7 @@ def cleanup_recordings(folder: Path = RECORDING_DIR, keep_last: int = 5, max_sto
         path = files.pop()
         size = path.stat().st_size
         path.unlink()
+        path.with_suffix(".events.jsonl").unlink(missing_ok=True)
         total -= size
         removed.append(path)
     return removed
@@ -104,7 +105,8 @@ def list_recordings(folder: Path = RECORDING_DIR) -> list[dict]:
                 continue
             stat = resolved.stat()
             results.append({"filename": resolved.name, "size_bytes": stat.st_size,
-                            "modified_at": int(stat.st_mtime), "sha256": _sha256_path(resolved)})
+                            "modified_at": int(stat.st_mtime), "sha256": _sha256_path(resolved),
+                            "has_workflow_events": resolved.with_suffix(".events.jsonl").is_file() and not resolved.with_suffix(".events.jsonl").is_symlink()})
         except (OSError, ValueError):
             continue
     return sorted(results, key=lambda item: item["modified_at"], reverse=True)
@@ -120,6 +122,7 @@ def delete_recording(filename: str, folder: Path = RECORDING_DIR) -> bool:
     digest = _sha256_path(target)
     size = target.stat().st_size
     target.unlink()
+    target.with_suffix(".events.jsonl").unlink(missing_ok=True)
     _audit_recording_event(root, "recording_deleted", filename, sha256=digest, size_bytes=size)
     return True
 
@@ -167,6 +170,10 @@ class SessionRecorder:
         self._error: BaseException | None = None
         self.sha256: str | None = None
         self.started_monotonic: float | None = None
+        self.events_path = self.path.with_suffix(".events.jsonl")
+        self._event_lock = threading.Lock()
+        self._event_count = 0
+        self._event_pressed: set[str] = set()
 
     @property
     def is_alive(self) -> bool:
@@ -192,6 +199,61 @@ class SessionRecorder:
             stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
             stream.flush()
             os.fsync(stream.fileno())
+
+    def record_control_event(self, message: dict) -> bool:
+        """Persist replay-safe controls beside the MP4; never store typed text or clipboard."""
+        if not isinstance(message, dict) or not self.is_alive or self.started_monotonic is None:
+            return False
+        event = message.get("event")
+        elapsed = max(0, round((time.monotonic() - self.started_monotonic) * 1000))
+        item = {"elapsed_ms": elapsed}
+        if event == "mouse_down":
+            x, y = message.get("x"), message.get("y")
+            if not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or not (0 <= x <= 1 and 0 <= y <= 1):
+                return False
+            item.update({"event": "mouse_down", "x": round(float(x), 6), "y": round(float(y), 6),
+                         "button": {0: "left", 1: "middle", 2: "right"}.get(message.get("button"), "left")})
+        elif event in {"key_down", "key_up"}:
+            key = str(message.get("key", "")).strip().lower()[:24]
+            aliases = {"control": "ctrl", "escape": "esc", "arrowup": "up",
+                       "arrowdown": "down", "arrowleft": "left", "arrowright": "right"}
+            key = aliases.get(key, key)
+            safe_keys = {"ctrl", "alt", "shift", "win", "enter", "tab", "esc", "backspace",
+                         "delete", "up", "down", "left", "right", "home", "end",
+                         "pageup", "pagedown", "space"}
+            if key not in safe_keys:
+                if key == "a" and event == "key_down" and "ctrl" in self._event_pressed:
+                    item["event"] = "clear_input"
+                else:
+                    return False
+            else:
+                item.update({"event": event, "key": key})
+                if event == "key_down":
+                    self._event_pressed.add(key)
+                else:
+                    self._event_pressed.discard(key)
+        elif event == "mouse_scroll":
+            dx, dy = message.get("deltaX", 0), message.get("deltaY", 0)
+            if not isinstance(dx, (int, float)) or not isinstance(dy, (int, float)) or abs(dx) > 2400 or abs(dy) > 2400:
+                return False
+            item.update({"event": "mouse_scroll", "delta_x": float(dx), "delta_y": float(dy)})
+            x, y = message.get("x"), message.get("y")
+            if isinstance(x, (int, float)) and isinstance(y, (int, float)) and 0 <= x <= 1 and 0 <= y <= 1:
+                item.update({"x": round(float(x), 6), "y": round(float(y), 6)})
+        else:
+            return False
+        with self._event_lock:
+            if self._event_count >= 10000:
+                return False
+            self.events_path.parent.mkdir(parents=True, exist_ok=True)
+            if self.events_path.is_symlink():
+                return False
+            with self.events_path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            self._event_count += 1
+        return True
 
     def _record(self) -> None:
         writer = None

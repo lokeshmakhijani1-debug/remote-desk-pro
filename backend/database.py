@@ -87,3 +87,19 @@ class CommunityWorkflow(Base):
     workflow: Mapped[dict] = mapped_column(JSON)
     is_public: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class SavedWorkflow(Base):
+    """Owner-scoped workflow library; public copies are mirrored to CommunityWorkflow."""
+    __tablename__ = "rdp_saved_workflows"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("rdp_users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(1000), default="")
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    workflow: Mapped[dict] = mapped_column(JSON)
+    source_recording: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    community_workflow_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_public: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))

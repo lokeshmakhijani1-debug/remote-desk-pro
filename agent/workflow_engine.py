@@ -309,3 +309,91 @@ def list_workflows(root: Path | None = None) -> list[Path]:
         return []
     return sorted((p for p in directory.glob("*.json") if p.is_file()),
                   key=lambda p: p.stat().st_mtime, reverse=True)
+
+
+def convert_session_recording_to_workflow(filename: str, recordings_folder: Path | None = None,
+                                          workflow_root: Path | None = None,
+                                          name: str | None = None) -> Path:
+    """Convert an MP4 plus its consented replay-safe control-event sidecar into workflow JSON.
+
+    MP4 pixels alone cannot establish reliable mouse/keyboard semantics; a matching sidecar is required.
+    """
+    import hashlib
+    import re
+    try:
+        from session_recorder import RECORDING_DIR, _recording_target
+    except ModuleNotFoundError:
+        from agent.session_recorder import RECORDING_DIR, _recording_target
+    root = Path(recordings_folder or RECORDING_DIR).expanduser().resolve()
+    if not re.fullmatch(r"session_[A-Za-z0-9_.-]+\.mp4", str(filename or "")):
+        raise ValueError("Invalid recording filename")
+    _, video = _recording_target(filename, root)
+    if not video.is_file() or video.is_symlink():
+        raise FileNotFoundError("Completed MP4 recording was not found")
+    sidecar = video.with_suffix(".events.jsonl")
+    if sidecar.is_symlink() or not sidecar.is_file():
+        raise ValueError("Video-only recording has no control-event sidecar and cannot be converted reliably")
+    if sidecar.stat().st_size > 8 * 1024 * 1024:
+        raise ValueError("Recording event sidecar exceeds the conversion limit")
+    steps = []
+    previous_ms = 0
+    allowed = {"mouse_down", "key_down", "key_up", "mouse_scroll", "clear_input"}
+    for line in sidecar.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        if len(steps) >= MAX_STEPS:
+            raise ValueError("Recording contains too many workflow events")
+        event = json.loads(line)
+        if not isinstance(event, dict) or event.get("event") not in allowed:
+            continue
+        elapsed = event.get("elapsed_ms")
+        if type(elapsed) is not int or elapsed < previous_ms:
+            raise ValueError("Recording event timeline is invalid")
+        action = event["event"]
+        step = {"action": action, "delay_ms": min(30000, elapsed - previous_ms)}
+        previous_ms = elapsed
+        if action == "mouse_down":
+            x, y = event.get("x"), event.get("y")
+            if not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or not (0 <= x <= 1 and 0 <= y <= 1):
+                raise ValueError("Recording contains invalid pointer coordinates")
+            step.update({"x": round(float(x), 6), "y": round(float(y), 6),
+                         "coordinate_mode": "screen", "button": event.get("button", "left")})
+        elif action in {"key_down", "key_up"}:
+            key = event.get("key")
+            if key not in {"ctrl", "alt", "shift", "win", "enter", "tab", "esc", "backspace",
+                           "delete", "up", "down", "left", "right", "home", "end",
+                           "pageup", "pagedown", "space"}:
+                raise ValueError("Recording contains a non-replayable key")
+            step["key"] = key
+        elif action == "mouse_scroll":
+            dx, dy = event.get("delta_x", 0), event.get("delta_y", 0)
+            if not isinstance(dx, (int, float)) or not isinstance(dy, (int, float)):
+                raise ValueError("Recording contains invalid scroll values")
+            step.update({"delta_x": max(-2400, min(2400, float(dx))),
+                         "delta_y": max(-2400, min(2400, float(dy)))})
+            if "x" in event and "y" in event:
+                step.update({"x": float(event["x"]), "y": float(event["y"])})
+        steps.append(step)
+    if not steps:
+        raise ValueError("No replayable control events were captured for this recording")
+    digest = hashlib.sha256()
+    with video.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    root_out = Path(workflow_root) if workflow_root else workflow_directory()
+    root_out.mkdir(parents=True, exist_ok=True)
+    safe_name = " ".join(str(name or f"Recording {video.stem}").split())[:80] or "Recorded workflow"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    target = root_out / f"workflow_{stamp}.json"
+    payload = {
+        "schema_version": 1, "created_at": datetime.now(timezone.utc).isoformat(),
+        "name": safe_name, "tags": ["recording-conversion"], "notes": "",
+        "coordinate_space": "normalized_0_to_1", "recorded_screen": {"width": 0, "height": 0},
+        "step_count": len(steps), "steps": steps, "is_public": False,
+        "privacy": {"typed_text_recorded": False, "clipboard_recorded": False, "local_only": True},
+        "source_recording": {"filename": filename, "sha256": digest.hexdigest()}
+    }
+    temporary = target.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(temporary, target)
+    return target
