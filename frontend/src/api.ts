@@ -24,13 +24,16 @@ function formatApiError(detail: unknown): string {
  return "Request failed. Please check your details and try again.";
 }
 
-export async function request<T>(path:string,token?:string,body?:unknown):Promise<T>{
- const response=await fetch(path,{method:body? "POST":"GET",headers:{"Content-Type":"application/json",...(token?{Authorization:`Bearer ${token}`}:{})},...(body?{body:JSON.stringify(body)}:{})});
+export async function requestWithMethod<T>(path:string,token:string|undefined,method:string,body?:unknown):Promise<T>{
+ const response=await fetch(path,{method,headers:{"Content-Type":"application/json",...(token?{Authorization:`Bearer ${token}`}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});
  let data: {detail?: unknown} & Record<string, unknown>;
  try { data = await response.json(); }
  catch { throw new Error(response.ok ? "The server returned an unreadable response." : `Request failed (HTTP ${response.status}).`); }
  if(!response.ok) throw new Error(formatApiError(data.detail) || `Request failed (HTTP ${response.status}).`);
  return data as T;
+}
+export async function request<T>(path:string,token?:string,body?:unknown):Promise<T>{
+ return requestWithMethod<T>(path,token,body!==undefined?"POST":"GET",body);
 }
 
 export const wsUrl=(path:string):string=>{
