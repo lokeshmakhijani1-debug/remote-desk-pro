@@ -52,6 +52,11 @@
       "Dispatch .github/workflows/universal-qa-audit.yml with base_url set to an authorized non-production HTTP(S) target.",
       "Download universal-qa-audit-reports and inspect lighthouse.report.json, lighthouse.report.html, uiux-audit.json, uiux-audit.md, and uiux-homepage.png.",
       "Review the heuristic score penalties and the three styling directions against the screenshot and rendered metrics; do not interpret the score as WCAG certification."
+    ],
+    "v2_staging_universal_audit": [
+      "Push a relevant change to feature/v2-bidirectional-automation to trigger .github/workflows/v2-staging-universal-qa.yml.",
+      "Verify the caller invokes .github/workflows/universal-qa-audit.yml with base_url=https://remote-desk-pro-rtij.onrender.com.",
+      "Wait for all scanner steps to finish, then inspect universal-qa-audit-reports for audit-report.json, audit-report.md, Playwright, ZAP, Lighthouse and UI/UX evidence."
     ]
   }
 }
