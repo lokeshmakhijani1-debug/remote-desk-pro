@@ -1243,3 +1243,12 @@ python -m pytest -q tests/test_v2_30_suite.py::test_t25_privacy_overlay_register
 - Triggered by a feature-branch push. Staging execution run: `46049417804` (GitHub Actions). It runs Gitleaks, Semgrep, Python/Node dependency checks, Playwright, OWASP ZAP, Lighthouse, DOM/CSS inspection, and artifact/report publication.
 - Run observation at documentation update: Gitleaks, Semgrep, Python dependency audit, Node dependency audit, and Playwright smoke/crawl completed successfully; ZAP baseline was still running. Lighthouse, DOM/CSS UI/UX inspection, consolidated artifact publication, and final run conclusion were not yet available. Do not treat Phase 4 as complete until run `46049417804` finishes and its evidence artifact is inspected.
 - No application code, database, Render service configuration, secrets, or production deployment was changed. The staging URL is supplied by the V2-specific caller; the universal audit remains reusable and configurable.
+
+
+### Phase 4 runner hardening
+
+- Fixed audit concurrency isolation to include the workflow name and branch. This prevents the universal push workflow and the V2 staging caller from cancelling each other when they run concurrently.
+- The first staging run (`46049417804`) was cancelled during ZAP after concurrent feature-branch documentation pushes triggered the generic push workflow; it did not produce Lighthouse or DOM/CSS results. The Gitleaks, Semgrep, Python dependency, Node dependency and Playwright steps had passed before cancellation.
+- Corrected Lighthouse Chrome discovery to use the executable path exposed by the installed Playwright Chromium browser, rather than assuming a system-wide Chrome binary exists on the runner.
+- Bounded the ZAP spider to five minutes and the container invocation to twelve minutes so a target crawl cannot occupy the job indefinitely.
+- A new staging run is triggered by the workflow hardening commit; its result and report artifact remain pending.
