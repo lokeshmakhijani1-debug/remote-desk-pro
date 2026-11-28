@@ -1,4 +1,5 @@
 """Consent-gated semantic workflows. Typed text and clipboard contents are never stored."""
+import math
 from __future__ import annotations
 import json, os, re, sys, threading, time
 from datetime import datetime, timezone
