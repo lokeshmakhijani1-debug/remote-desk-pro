@@ -58,6 +58,7 @@ try {
     if (!result.dockVisible || result.visibleDockButtons !== labels.length) throw new Error(viewport.name + ": dock clipped " + JSON.stringify(result));
     if (!result.modalVisible) throw new Error(viewport.name + ": recording modal clipped " + JSON.stringify(result));
     if (!result.canvasContained || Math.abs(result.canvasRatio - 16 / 9) > 0.02) throw new Error(viewport.name + ": remote canvas aspect ratio changed or was cropped " + JSON.stringify(result));
+    await page.locator(".recordings-manager").evaluate((element) => element.closest(".recording-modal-backdrop").remove());
     await page.locator(".telemetry-toggle").click();
     if (await page.locator(".telemetry-hud").isVisible()) throw new Error(viewport.name + ": telemetry HUD did not hide");
     await page.locator(".telemetry-toggle").click();
