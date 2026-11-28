@@ -1359,3 +1359,12 @@ python -m pytest -q tests/test_v2_30_suite.py::test_t25_privacy_overlay_register
 
 
 - Safety follow-up: replaced the legacy live-health test target in root `test_instructions.json` with the authorized V2 staging URL. The branch's non-interactive test instructions no longer direct a live test at production.
+
+
+## 2026-11-28 — Mobile viewer, recording download and host replay remediation
+- Corrected the final canvas CSS override that stretched the host frame: the viewer canvas now retains its intrinsic host-frame aspect ratio and is constrained within the available screen area in portrait and landscape.
+- Added an accessible, user-toggleable telemetry HUD control.
+- Changed MP4 download completion to verify SHA-256 and byte length first, then expose a visible Save MP4 action. The final anchor click occurs from the user's explicit tap, avoiding mobile Chrome's restrictions on delayed programmatic downloads.
+- Reworked host workflow replay dispatch to run as a tracked background task rather than blocking the host WebSocket receive loop. Duplicate replay requests are rejected, viewer disconnect signals cooperative cancellation, and held keyboard modifiers are released on completion/cancellation. Unsupported events now produce warnings instead of being counted as executed.
+- Added contract and replay-dispatch/cancellation tests and extended the responsive Playwright fixture for portrait/landscape aspect-ratio and HUD-toggle checks.
+- Scope remains feature/v2-bidirectional-automation only; main and production Render are not targets of this change. Staging deployment and CI results are pending.

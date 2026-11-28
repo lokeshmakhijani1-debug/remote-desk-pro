@@ -83,3 +83,59 @@ def test_recorder_redacts_printable_keys_but_records_ctrl_a_clear_action(tmp_pat
     steps = json.loads(path.read_text(encoding="utf-8"))["steps"]
     assert any(step["action"] == "clear_input" for step in steps)
     assert all(step.get("key") != "a" for step in steps)
+
+
+def test_replay_dispatches_recorded_mouse_keyboard_and_scroll_events(tmp_path, monkeypatch):
+    import json
+    import sys
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    path = tmp_path / "workflow_dispatch.json"
+    path.write_text(json.dumps({
+        "schema_version": 1,
+        "coordinate_space": "normalized_0_to_1",
+        "steps": [
+            {"action": "mouse_down", "x": 0.25, "y": 0.75, "button": "right", "delay_ms": 0},
+            {"action": "key_down", "key": "ctrl", "delay_ms": 0},
+            {"action": "key_up", "key": "ctrl", "delay_ms": 0},
+            {"action": "mouse_scroll", "delta_x": 0, "delta_y": 240, "delay_ms": 0},
+        ],
+    }), encoding="utf-8")
+    fake = SimpleNamespace(FAILSAFE=True, KEYBOARD_KEYS={"ctrl", "enter"}, size=lambda: (100, 100),
+                           click=Mock(), keyDown=Mock(), keyUp=Mock(), scroll=Mock(), moveTo=Mock(), hotkey=Mock())
+    monkeypatch.setitem(sys.modules, "pyautogui", fake)
+    monkeypatch.setattr(workflow_engine, "resolve_target", lambda *a, **k: {"x": 25, "y": 75, "strategy": "coordinates", "attempts": 1})
+    monkeypatch.setattr(workflow_engine, "dismiss_known_popups", lambda *a, **k: False)
+    monkeypatch.setattr(workflow_engine.time, "sleep", lambda *_: None)
+    result = WorkflowReplayEngine(tmp_path).replay(path)
+    assert result["executed"] == 4
+    fake.click.assert_called_once_with(25, 75, button="right")
+    fake.keyDown.assert_called_once_with("ctrl")
+    fake.keyUp.assert_called_once_with("ctrl")
+    fake.scroll.assert_called_once_with(2)
+
+
+def test_replay_releases_held_keys_when_cancelled(tmp_path, monkeypatch):
+    import json
+    import sys
+    import threading
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    path = tmp_path / "workflow_cancel.json"
+    path.write_text(json.dumps({
+        "schema_version": 1, "coordinate_space": "normalized_0_to_1",
+        "steps": [{"action": "key_down", "key": "ctrl", "delay_ms": 0},
+                  {"action": "key_down", "key": "shift", "delay_ms": 10}],
+    }), encoding="utf-8")
+    cancel = threading.Event()
+    key_down = Mock(side_effect=lambda _key: cancel.set())
+    fake = SimpleNamespace(FAILSAFE=True, KEYBOARD_KEYS={"ctrl", "shift"}, size=lambda: (100, 100),
+                           keyDown=key_down, keyUp=Mock())
+    monkeypatch.setitem(sys.modules, "pyautogui", fake)
+    monkeypatch.setattr(workflow_engine, "dismiss_known_popups", lambda *a, **k: False)
+    result = WorkflowReplayEngine(tmp_path).replay(path, cancel_event=cancel)
+    assert result["cancelled"] is True
+    key_down.assert_called_once_with("ctrl")
+    fake.keyUp.assert_called_once_with("ctrl")
