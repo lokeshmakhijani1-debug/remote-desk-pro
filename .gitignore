@@ -40,3 +40,18 @@ __pycache__/
 .pytest_cache/
 frontend/node_modules/
 frontend/dist/
+build/
+dist/
+New Remote Desk Pro/
+agent/build/
+agent/dist/
+*.bak
+*.old
+*.orig
+*.log
+__pycache__/
+.venv/
+.venv-e2e/
+.pytest_cache/
+frontend/node_modules/
+frontend/dist/
