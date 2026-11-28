@@ -50,6 +50,8 @@ try {
         dockButtonCount: dockButtons.length,
         modalVisible: visible(modal),
         canvasRatio: canvas.getBoundingClientRect().width / canvas.getBoundingClientRect().height,
+        screenRect: (() => { const r=screen.getBoundingClientRect(); return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height}; })(),
+        canvasRect: (() => { const r=canvas.getBoundingClientRect(); return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height}; })(),
         canvasContained: canvas.getBoundingClientRect().left >= screen.getBoundingClientRect().left - 1 && canvas.getBoundingClientRect().top >= screen.getBoundingClientRect().top - 1 && canvas.getBoundingClientRect().right <= screen.getBoundingClientRect().right + 1 && canvas.getBoundingClientRect().bottom <= screen.getBoundingClientRect().bottom + 1,
         sidebarCollapsed: document.querySelector(".layout").classList.contains("sidebar-collapsed"),
       };
