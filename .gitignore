@@ -25,3 +25,18 @@ tests/pair_smoke_launch.local.py
 
 # User-generated workflows may include private window context
 project_memory/workflows/*.json
+build/
+dist/
+New Remote Desk Pro/
+agent/build/
+agent/dist/
+*.bak
+*.old
+*.orig
+*.log
+__pycache__/
+.venv/
+.venv-e2e/
+.pytest_cache/
+frontend/node_modules/
+frontend/dist/
