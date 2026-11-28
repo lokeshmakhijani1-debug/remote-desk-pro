@@ -1322,3 +1322,37 @@ python -m pytest -q tests/test_v2_30_suite.py::test_t25_privacy_overlay_register
 - Fix commits: `3b91f42`, `5589a19`, `8f3788e` (all on `feature/v2-bidirectional-automation`). A fresh Windows workflow run is required to verify the job itself concludes successfully.
 - Latest staging universal audit run `46056923103` completed successfully: Gitleaks, Semgrep, Python/Node dependency audits, Playwright, ZAP, Lighthouse and UI/UX steps all succeeded. Inspect uploaded reports before asserting individual metrics.
 - Production `main` and Render service `srv-dc0917utlv9c739h7o30` remain untouched; no cutover.
+
+
+## 2026-11-28 — V2 interactive feature surface audit and mobile toolbar remediation
+
+### Branch and deployment scope
+- Audited all four repository branches: `main`, `feature/v2-bidirectional-automation`, `fix/stabilize-core-features`, and `feature/maintenance-curtain`. V2 branch HEAD before this audit was `2e94cb23d14552f86290cd2f43ac1eea791d84dd`; it is 116 commits ahead of the protected `main` SHA `826ac493df37314b1ee25a6c104e18b91c795e82`. No branch pointer on `main` was changed.
+- V2 staging service `srv-dc42jh49v7es73dmas70` tracks the V2 branch and has commit-triggered auto-deploy enabled. Production service `srv-dc0917utlv9c739h7o30` was not accessed for changes.
+- Commits `a19a14e14b434a2b3fbaf739c5d172307d988fda`, `102d142d1c5eff4e8174b7f3438ba55f3e968fe0`, and `2e94cb23d14552f86290cd2f43ac1eea791d84dd` were inspected; each is a manifest-only documentation update. The current V2 source is not missing those commits' implementation changes.
+
+### Implemented and wired capabilities found in the V2 source
+- Remote desktop screen relay over WebSocket/JPEG; mouse, keyboard, text input, scroll and touch gesture dispatch.
+- Windows privacy overlay/black screen with local emergency unlock shortcut `Ctrl+Alt+Shift+U`; viewer-side privacy command and host acknowledgement.
+- Bidirectional file transfer with resumable offsets, chunk acknowledgements, checksum verification, bounded transfer size and host-to-viewer transfer support.
+- Bidirectional clipboard updates/paste with loop suppression and size validation.
+- Consent-gated MP4 session recording, recording list/delete/download, retention limits and recording settings.
+- Semantic workflow recording, safe event sidecars, recording-to-workflow conversion, owner-scoped workflow library, explicit publish/unpublish, adaptive replay and explicit replay action.
+- Unattended Trusted PIN configuration in the Windows desktop agent, protected local configuration and backend PIN hash synchronization/validation.
+- Live FPS/latency/bandwidth telemetry, viewer zoom/pan/fullscreen, reconnect/heartbeat handling and diagnostics.
+- Mobile floating action dock exposing mouse, right-click, scroll, keyboard, privacy, clipboard, file transfer, fullscreen, recording, workflow, zoom and disconnect actions.
+
+### Confirmed missing or incomplete capabilities (not represented as implemented)
+- Multi-monitor selection: host screen capture currently targets the primary monitor; no end-to-end display picker/selection protocol exists.
+- Audio streaming: no capture/transport/playback pipeline exists.
+- Live chat: viewer opens a placeholder; no backend/host chat protocol exists.
+- Screen annotation/laser pointer: no end-to-end protocol or rendering tools exist.
+- Remote lock/power controls: no complete consented host command path exists.
+- Adjustable stream quality/FPS/WebRTC transport controls: telemetry is present, but the current viewer stream uses WebSocket/JPEG and has no quality/FPS control surface. ICE configuration metadata alone is not a WebRTC media implementation.
+- Browser-side MP4 playback: host recording download is implemented; an in-viewer playback player is not.
+
+### Root cause and remediation
+- Sidebar entries for Remote Management, Meetings/Screen Share, Chat and File Transfer fall through to a generic reserved-module panel rather than a working feature page. Session Chat is explicitly a placeholder.
+- On viewports at or below 900px, `frontend/src/styles.css` hid the entire desktop session toolbar with `.viewer-head>div:last-child{display:none}`. The mobile dock was the only toolbar surface, while clipboard and transfer panels remained below the screen in the session panel.
+- This audit changes the mobile session toolbar to remain visible as a horizontally scrollable action row while retaining the floating dock. A focused regression test was added and `test_instructions.json` now includes its standalone command.
+- This is a UI exposure remediation for existing capabilities, not a claim that the missing capabilities listed above have been implemented. End-to-end implementation and certification of those missing capabilities remain outstanding.

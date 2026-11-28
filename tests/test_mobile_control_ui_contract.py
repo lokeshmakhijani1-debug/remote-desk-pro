@@ -37,3 +37,10 @@ def test_privacy_preview_and_native_overlay_are_pure_black():
     assert "background:#000" in css
     assert "SetLayeredWindowAttributes(hwnd, 0, 255" in overlay
     assert "0x00000004" in overlay  # SS_BLACKRECT
+
+
+def test_mobile_viewer_toolbar_remains_visible_and_scrollable():
+    css = (ROOT / "frontend" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert ".viewer-head>div:last-child{display:none}" not in css
+    assert ".viewer-head>div:last-child{display:flex;max-width:100%;overflow-x:auto;flex-wrap:nowrap" in css
+    assert ".viewer-head>div:last-child>.tool{flex:0 0 auto;white-space:nowrap}" in css
