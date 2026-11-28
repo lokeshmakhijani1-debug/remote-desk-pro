@@ -81,7 +81,7 @@ jobs:
       - name: Build frontend
         run: npm --prefix frontend run build
       - name: Install Chromium for responsive layout E2E
-        run: npm --prefix frontend exec playwright install --with-deps chromium
+        run: npm --prefix frontend exec -- playwright install --with-deps chromium
       - name: Verify portrait, landscape and desktop responsive viewer layout
         run: npm --prefix frontend run test:layout
       - name: Run live cloud E2E when a target is configured
