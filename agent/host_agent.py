@@ -606,6 +606,8 @@ async def run_once(args, stop_event=None):
         stop_task = None
         latency_task = None
         file_sender_task = None
+        workflow_replay_task = None
+        workflow_replay_cancel = threading.Event()
         heartbeat_elapsed = 0
         async def report_latency():
             nonlocal heartbeat_elapsed
@@ -836,6 +838,7 @@ async def run_once(args, stop_event=None):
                     _set_privacy_screen_active(False)
                     release_all_inputs()
                     streaming.clear()
+                    workflow_replay_cancel.set()
                     if privacy_banner:
                         privacy_banner.stop()
                         privacy_banner = None
@@ -992,16 +995,30 @@ async def run_once(args, stop_event=None):
                 elif message.get("type") == "control" and streaming.is_set():
                     try:
                         if message.get("event") == "workflow_replay":
-                            try:
+                            if workflow_replay_task is not None and not workflow_replay_task.done():
+                                await ws.send(json.dumps({"type":"workflow_replay_status","detail":"A host workflow replay is already running."}))
+                            else:
                                 replay_engine = WorkflowReplayEngine()
                                 target = replay_engine.latest()
                                 if target is None:
-                                    raise FileNotFoundError("No saved host-local workflow is available.")
-                                result = await asyncio.to_thread(replay_engine.replay, target)
-                                detail = f"Workflow replayed: {int(result.get('executed', 0))} steps."
-                            except Exception as exc:
-                                detail = "Workflow replay failed: " + str(exc)[:180]
-                            await ws.send(json.dumps({"type":"workflow_replay_status","detail":detail}))
+                                    await ws.send(json.dumps({"type":"workflow_replay_status","detail":"Workflow replay failed: No saved host-local workflow is available."}))
+                                else:
+                                    workflow_replay_cancel.clear()
+                                    async def execute_workflow_replay(engine, workflow_path):
+                                        try:
+                                            result = await asyncio.to_thread(engine.replay, workflow_path, cancel_event=workflow_replay_cancel)
+                                            if result.get("cancelled"):
+                                                detail = f"Workflow replay stopped after {int(result.get('executed', 0))} steps."
+                                            else:
+                                                detail = f"Workflow replayed: {int(result.get('executed', 0))}/{int(result.get('steps', 0))} steps."
+                                            if result.get("warnings"):
+                                                detail += f" ({len(result['warnings'])} warnings)"
+                                        except Exception as exc:
+                                            detail = "Workflow replay failed: " + str(exc)[:180]
+                                        if streaming.is_set():
+                                            await ws.send(json.dumps({"type":"workflow_replay_status","detail":detail}))
+                                    workflow_replay_task = asyncio.create_task(execute_workflow_replay(replay_engine, target))
+                                    await ws.send(json.dumps({"type":"workflow_replay_status","detail":"Workflow replay started on the host."}))
                         elif message.get("event") == "privacy_screen":
                             mode = message.get("mode") if message.get("mode") in ("black", "banner") else "black"
                             if message.get("enabled") is True:
@@ -1049,6 +1066,7 @@ async def run_once(args, stop_event=None):
                 recording_timer_task.cancel()
             if file_sender_task:
                 file_sender_task.cancel()
+            workflow_replay_cancel.set()
             streaming.clear()
             _set_privacy_screen_active(False)
             if privacy_banner:

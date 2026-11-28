@@ -44,3 +44,28 @@ def test_mobile_viewer_toolbar_remains_visible_and_scrollable():
     assert ".viewer-head>div:last-child{display:none}" not in css
     assert ".viewer-head>div:last-child{display:flex;max-width:100%;overflow-x:auto;flex-wrap:nowrap" in css
     assert ".viewer-head>div:last-child>.tool{flex:0 0 auto;white-space:nowrap}" in css
+
+ 
+
+def test_viewer_canvas_keeps_host_frame_aspect_ratio_without_fill_override():
+    css = (ROOT / "frontend" / "src" / "styles.css").read_text(encoding="utf-8")
+    app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "object-fit:fill !important" not in css
+    assert "max-width:100%!important;max-height:100%!important;object-fit:contain!important" in css
+    assert "c.width=img.width;c.height=img.height" in app
+
+
+def test_telemetry_hud_has_an_accessible_viewer_toggle():
+    app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "telemetryHudVisible" in app
+    assert 'aria-label="Toggle telemetry HUD"' in app
+    assert "aria-pressed={telemetryHudVisible}" in app
+    assert '{telemetryHudVisible&&<div className="telemetry-hud"' in app
+
+
+def test_mobile_recording_download_waits_for_a_user_gesture_after_verification():
+    app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert 'setRecordingReady({filename:pending.filename,blob:new Blob([bytes],{type:"video/mp4"})})' in app
+    assert "Save MP4 to this device" in app
+    assert "function saveReadyRecording()" in app
+    assert "anchor.click()" in app

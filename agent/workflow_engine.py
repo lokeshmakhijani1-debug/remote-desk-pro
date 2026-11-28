@@ -195,18 +195,19 @@ class WorkflowReplayEngine:
         except Exception:pass
         return None
     def replay(self,path:Path|None=None,*,dry_run:bool=False,
-               popup_handler=None,readiness_waiter=None,uia_resolver=None,ocr_resolver=None)->dict[str,Any]:
+               popup_handler=None,readiness_waiter=None,uia_resolver=None,ocr_resolver=None,
+               cancel_event=None)->dict[str,Any]:
         target=Path(path) if path else self.latest()
         if target is None or not target.is_file():
             raise FileNotFoundError("No saved workflow was found.")
         data=json.loads(target.read_text(encoding="utf-8"))
-        if data.get("schema_version")!=1 or data.get("coordinate_space")!="normalized_0_to_1":
+        if not isinstance(data,dict) or data.get("schema_version")!=1 or data.get("coordinate_space")!="normalized_0_to_1":
             raise ValueError("Unsupported workflow schema.")
         steps=data.get("steps")
         if not isinstance(steps,list) or len(steps)>MAX_STEPS:
             raise ValueError("Workflow step count is invalid.")
         if dry_run:
-            return {"steps":len(steps),"executed":0,"dry_run":True,"warnings":[],"adaptations":[]}
+            return {"steps":len(steps),"executed":0,"dry_run":True,"warnings":[],"adaptations":[],"cancelled":False}
         import pyautogui
         pyautogui.FAILSAFE=True
         width,height=pyautogui.size()
@@ -214,60 +215,103 @@ class WorkflowReplayEngine:
         warnings=[]
         adaptations=[]
         popup_events=0
-        for index,step in enumerate(steps):
-            if not isinstance(step,dict):
-                continue
-            if step.get("wait_for"):
-                waiter=readiness_waiter or wait_for_anchor
-                if not waiter(step["wait_for"],float(step.get("wait_timeout_seconds",15))):
-                    warnings.append(f"Readiness condition timed out at step {index+1}")
+        pressed_keys=set()
+        cancelled=False
+        key_aliases={"control":"ctrl","escape":"esc","return":"enter","spacebar":"space","page_up":"pageup","page_down":"pagedown","windows":"win"}
+        try:
+            for index,step in enumerate(steps):
+                if cancel_event is not None and cancel_event.is_set():
+                    cancelled=True
+                    break
+                if not isinstance(step,dict):
+                    warnings.append(f"Invalid workflow step at index {index+1}")
                     continue
-            else:
-                time.sleep(max(0,min(30000,int(step.get("delay_ms",0))))/1000)
-            if dismiss_known_popups(popup_handler):
-                popup_events+=1
-            context=step.get("context") if isinstance(step.get("context"),dict) else {}
-            process=str(context.get("process_name",""))[:100]
-            bounds=self._focus_process(process) if process else None
-            if process and bounds is None:
-                warning=f"Target application not found: {process}"
-                if warning not in warnings:
-                    warnings.append(warning)
-            action=step.get("action")
-            if action=="checkpoint":
-                executed+=1
-                continue
-            if action=="mouse_down":
-                resolved=resolve_target(step,(width,height),bounds,uia_resolver=uia_resolver,ocr_resolver=ocr_resolver)
-                pyautogui.click(resolved["x"],resolved["y"],button=step.get("button","left"))
-                adaptations.append({"step":index+1,"strategy":resolved["strategy"],"attempts":resolved["attempts"]})
-            elif action=="clear_input":
-                resolved=resolve_target(step,(width,height),bounds,uia_resolver=uia_resolver,ocr_resolver=ocr_resolver)
-                pyautogui.click(resolved["x"],resolved["y"])
-                focused=clear_input_and_verify(None,lambda: pyautogui.hotkey("ctrl","a"))
-                if not focused:
-                    warnings.append(f"Input focus could not be verified at step {index+1}")
-                adaptations.append({"step":index+1,"strategy":resolved["strategy"],"input_focus_verified":focused})
-            elif action in {"key_down","key_up"}:
-                key=str(step.get("key",""))[:32]
-                allowed=set(getattr(pyautogui,"KEYBOARD_KEYS",()))
-                if key and (len(key)==1 or key in allowed):
-                    (pyautogui.keyDown if action=="key_down" else pyautogui.keyUp)(key)
-            elif action=="mouse_scroll":
-                if "x" in step and "y" in step:
+                if step.get("wait_for"):
+                    waiter=readiness_waiter or wait_for_anchor
+                    if not waiter(step["wait_for"],float(step.get("wait_timeout_seconds",15))):
+                        warnings.append(f"Readiness condition timed out at step {index+1}")
+                        continue
+                else:
+                    delay=max(0,min(30000,int(step.get("delay_ms",0))))/1000
+                    if cancel_event is not None:
+                        if cancel_event.wait(delay):
+                            cancelled=True
+                            break
+                    elif delay:
+                        time.sleep(delay)
+                if cancel_event is not None and cancel_event.is_set():
+                    cancelled=True
+                    break
+                if dismiss_known_popups(popup_handler):
+                    popup_events+=1
+                context=step.get("context") if isinstance(step.get("context"),dict) else {}
+                process=str(context.get("process_name",""))[:100]
+                bounds=self._focus_process(process) if process else None
+                if process and bounds is None:
+                    warning=f"Target application not found: {process}"
+                    if warning not in warnings:
+                        warnings.append(warning)
+                action=step.get("action")
+                if action=="checkpoint":
+                    executed+=1
+                    continue
+                if action=="mouse_down":
                     resolved=resolve_target(step,(width,height),bounds,uia_resolver=uia_resolver,ocr_resolver=ocr_resolver)
-                    pyautogui.moveTo(resolved["x"],resolved["y"])
+                    button=step.get("button","left")
+                    if button not in {"left","middle","right"}:
+                        warnings.append(f"Unsupported mouse button at step {index+1}")
+                        continue
+                    pyautogui.click(resolved["x"],resolved["y"],button=button)
                     adaptations.append({"step":index+1,"strategy":resolved["strategy"],"attempts":resolved["attempts"]})
-                dx=float(step.get("delta_x",0))
-                dy=float(step.get("delta_y",0))
-                if dy:
-                    pyautogui.scroll(int(dy/120))
-                if dx and os.name=="nt":
-                    import ctypes
-                    ctypes.windll.user32.mouse_event(0x01000,0,0,ctypes.c_ulong(int(dx)).value,0)
-            executed+=1
+                elif action=="clear_input":
+                    resolved=resolve_target(step,(width,height),bounds,uia_resolver=uia_resolver,ocr_resolver=ocr_resolver)
+                    pyautogui.click(resolved["x"],resolved["y"])
+                    focused=clear_input_and_verify(None,lambda: pyautogui.hotkey("ctrl","a"))
+                    if not focused:
+                        warnings.append(f"Input focus could not be verified at step {index+1}")
+                    adaptations.append({"step":index+1,"strategy":resolved["strategy"],"input_focus_verified":focused})
+                elif action in {"key_down","key_up"}:
+                    raw_key=str(step.get("key",""))[:32].casefold()
+                    key=key_aliases.get(raw_key,raw_key)
+                    allowed=set(getattr(pyautogui,"KEYBOARD_KEYS",()))
+                    if not key or (len(key)!=1 and key not in allowed):
+                        warnings.append(f"Unsupported keyboard event at step {index+1}")
+                        continue
+                    if action=="key_down":
+                        if key not in pressed_keys:
+                            pyautogui.keyDown(key)
+                            pressed_keys.add(key)
+                    elif key in pressed_keys:
+                        pyautogui.keyUp(key)
+                        pressed_keys.discard(key)
+                elif action=="mouse_scroll":
+                    if "x" in step and "y" in step:
+                        resolved=resolve_target(step,(width,height),bounds,uia_resolver=uia_resolver,ocr_resolver=ocr_resolver)
+                        pyautogui.moveTo(resolved["x"],resolved["y"])
+                        adaptations.append({"step":index+1,"strategy":resolved["strategy"],"attempts":resolved["attempts"]})
+                    dx=float(step.get("delta_x",0))
+                    dy=float(step.get("delta_y",0))
+                    if not math.isfinite(dx) or not math.isfinite(dy) or abs(dx)>2400 or abs(dy)>2400:
+                        warnings.append(f"Invalid scroll delta at step {index+1}")
+                        continue
+                    if dy:
+                        pyautogui.scroll(int(dy/120))
+                    if dx and os.name=="nt":
+                        import ctypes
+                        ctypes.windll.user32.mouse_event(0x01000,0,0,ctypes.c_ulong(int(dx)).value,0)
+                else:
+                    warnings.append(f"Unsupported workflow action at step {index+1}: {str(action)[:40]}")
+                    continue
+                executed+=1
+        finally:
+            for key in tuple(pressed_keys):
+                try:
+                    pyautogui.keyUp(key)
+                except Exception:
+                    warnings.append(f"Unable to release replay key: {key}")
+                pressed_keys.discard(key)
         return {"steps":len(steps),"executed":executed,"dry_run":False,"warnings":warnings,
-                "adaptations":adaptations,"popup_events_handled":popup_events}
+                "adaptations":adaptations,"popup_events_handled":popup_events,"cancelled":cancelled}
 
 
 def annotate_workflow(path: Path, name: str, tags: list[str] | None = None, notes: str = "") -> Path:

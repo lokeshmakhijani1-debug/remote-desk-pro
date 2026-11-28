@@ -128,7 +128,7 @@ html,body,#root{width:100%;max-width:100%;overflow-x:hidden}
 .virtual-cursor{position:absolute;z-index:8;pointer-events:none;transform:translate(-3px,-3px);color:#fff;filter:drop-shadow(0 0 2px #000) drop-shadow(0 2px 6px #000c);transition:left .03s linear,top .03s linear}
 
 .screen{position:relative;overflow:hidden}
-.screen canvas{width:100% !important;height:100% !important;max-width:none !important;max-height:none !important;object-fit:fill !important;display:block}
+.screen canvas{display:block;width:auto!important;height:auto!important;max-width:100%!important;max-height:100%!important;object-fit:contain!important}
 
 .screen.privacy-enabled canvas{opacity:1 !important;filter:none !important;visibility:visible !important}
 .screen.privacy-enabled::after,.screen.privacy-enabled::before{display:none !important;content:none !important}
@@ -165,3 +165,10 @@ button:disabled { opacity: .62; }
 .eyebrow { color: #53657a; }
 .auth-card p { color: #586a80; }
 .hint { color: #5f7086; }
+
+
+/* Preserve the host frame's intrinsic aspect ratio at every viewport size. */
+.screen{display:grid;place-items:center;isolation:isolate}
+.screen canvas{width:auto!important;height:auto!important;max-width:100%!important;max-height:100%!important;object-fit:contain!important;flex:none}
+.telemetry-hud{pointer-events:none;max-width:calc(100% - 20px);overflow-wrap:anywhere}
+@media(max-width:900px){.screen{min-height:160px}.screen canvas{max-width:100%!important;max-height:100%!important}}
