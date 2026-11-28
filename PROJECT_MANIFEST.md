@@ -1356,3 +1356,6 @@ python -m pytest -q tests/test_v2_30_suite.py::test_t25_privacy_overlay_register
 - On viewports at or below 900px, `frontend/src/styles.css` hid the entire desktop session toolbar with `.viewer-head>div:last-child{display:none}`. The mobile dock was the only toolbar surface, while clipboard and transfer panels remained below the screen in the session panel.
 - This audit changes the mobile session toolbar to remain visible as a horizontally scrollable action row while retaining the floating dock. A focused regression test was added and `test_instructions.json` now includes its standalone command.
 - This is a UI exposure remediation for existing capabilities, not a claim that the missing capabilities listed above have been implemented. End-to-end implementation and certification of those missing capabilities remain outstanding.
+
+
+- Safety follow-up: replaced the legacy live-health test target in root `test_instructions.json` with the authorized V2 staging URL. The branch's non-interactive test instructions no longer direct a live test at production.
