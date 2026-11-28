@@ -1368,3 +1368,12 @@ python -m pytest -q tests/test_v2_30_suite.py::test_t25_privacy_overlay_register
 - Reworked host workflow replay dispatch to run as a tracked background task rather than blocking the host WebSocket receive loop. Duplicate replay requests are rejected, viewer disconnect signals cooperative cancellation, and held keyboard modifiers are released on completion/cancellation. Unsupported events now produce warnings instead of being counted as executed.
 - Added contract and replay-dispatch/cancellation tests and extended the responsive Playwright fixture for portrait/landscape aspect-ratio and HUD-toggle checks.
 - Scope remains feature/v2-bidirectional-automation only; main and production Render are not targets of this change. Staging deployment and CI results are pending.
+
+
+## 2026-11-28 — V2 mobile viewer and replay verification follow-up
+- Restored the complete session-viewer JSX after a subsequent branch merge had dropped the canvas, toolbar and HUD from `frontend/src/App.tsx`; retained the mobile Chrome verified-download flow and accessible telemetry HUD toggle.
+- Confirmed the host-frame canvas is rendered with intrinsic dimensions and CSS `contain`, bounded to the screen viewport across orientation changes.
+- Corrected the workflow replay engine's `__future__` import ordering; `math` is now imported after the future import.
+- Added responsive Playwright E2E execution to the V2 branch workflow itself (Chromium install + `npm run test:layout`), not only to the local/cloud test instruction list.
+- Latest completed checks on commit `857e17d36934e3946c61260bfe28f4222494d32b`: 198 Python tests passed, 2 skipped; frontend build passed; workflow conversion/replay E2E passed; WebSocket stress passed; fault-injection/load regression passed; Gitleaks full-history scan passed. Windows executable and staging QA were still running at the time of this note.
+- All changes remain isolated to `feature/v2-bidirectional-automation`; protected `main` remains unchanged.
